@@ -147,3 +147,45 @@ export const PRECOMPUTED_OFFSETS = new Map<ModuleShape, Point[][]>();
 (Object.keys(SHAPE_DEFINITIONS) as ModuleShape[]).forEach(shape => {
     PRECOMPUTED_OFFSETS.set(shape, generateAllOffsets(SHAPE_DEFINITIONS[shape]));
 });
+
+// Solver-facing view of the same geometry:
+// flat coordinate arrays plus the bounding box of each orientation, so the placement loop can skip out-of-bounds anchors up front instead of re-checking extents for every candidate cell
+export interface Orientation {
+    offsets: Point[];
+    xs: Int8Array;
+    ys: Int8Array;
+    count: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+}
+
+export const PRECOMPUTED_ORIENTATIONS = new Map<ModuleShape, Orientation[]>();
+PRECOMPUTED_OFFSETS.forEach((orientations, shape) => {
+    PRECOMPUTED_ORIENTATIONS.set(shape, orientations.map(offsets => {
+        const count = offsets.length;
+        const xs = new Int8Array(count);
+        const ys = new Int8Array(count);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < count; i++) {
+            const { x, y } = offsets[i];
+            xs[i] = x; ys[i] = y;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+        return { offsets, xs, ys, count, minX, maxX, minY, maxY };
+    }));
+});
+
+// matrixToOffsets normalises so the first cell is always the anchor (0,0)
+// The solver relies on that to enumerate candidate anchors from empty cells only
+PRECOMPUTED_ORIENTATIONS.forEach((orientations, shape) => {
+    for (const o of orientations) {
+        if (o.xs[0] !== 0 || o.ys[0] !== 0) {
+            throw new Error(`Orientation for ${shape} is not anchor-normalised`);
+        }
+    }
+});
