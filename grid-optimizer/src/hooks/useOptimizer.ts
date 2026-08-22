@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import type {GridTier, InventoryItem, Stats, TargetStats, Point, ModuleShape, ModuleColor, ItemEffect} from '../types';
 import type { Orientation } from '../utils';
-import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS } from '../utils';
+import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS, roundStat } from '../utils';
 import { MODULE_TEMPLATES } from '../constants';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://yhiojdutwgfxrgakbrjs.supabase.co';
@@ -95,8 +95,6 @@ class BitReader {
         return value;
     }
 }
-
-const roundStat = (val: number) => val < 0 ? Math.ceil(val) : Math.floor(val);
 
 // effects is a fixed 2-slot tuple
 // counting it directly avoids the closure + intermediate array that Array.prototype.filter allocates on every call.
@@ -328,6 +326,7 @@ export const calculateBoardStats = (
     }
 
     const internalStats = new Map<string, Stats>();
+    const absorptionStats = new Map<string, Stats>();
     for (const { item, cells } of placedPieces.values()) {
         if (item.displayName.includes('Alarm Module')) placedAlarmsCount++;
         if (item.displayName.includes('Junk Processing')) placedJunkCount++;
@@ -337,6 +336,7 @@ export const calculateBoardStats = (
 
         const base = internalOf(item);
         let p = base.Performance, q = base.Quality, e = base.Efficiency;
+        let absorbP = 0, absorbQ = 0, absorbE = 0;
 
         const nfCount = countEffect(item, 'Negative Feedback');
         if (nfCount > 0) {
@@ -363,15 +363,21 @@ export const calculateBoardStats = (
                 }
             }
 
-            p += nfCount * 0.25 * nfPerf;
-            q += nfCount * 0.25 * nfQual;
-            e += nfCount * 0.25 * nfEff;
+            absorbP = nfCount * 0.25 * nfPerf;
+            absorbQ = nfCount * 0.25 * nfQual;
+            absorbE = nfCount * 0.25 * nfEff;
         }
 
         internalStats.set(item.id, {
-            Performance: roundStat(p),
-            Quality: roundStat(q),
-            Efficiency: roundStat(e)
+            Performance: p,
+            Quality: q,
+            Efficiency: e
+        });
+        
+        absorptionStats.set(item.id, {
+            Performance: absorbP,
+            Quality: absorbQ,
+            Efficiency: absorbE
         });
     }
 
@@ -391,12 +397,17 @@ export const calculateBoardStats = (
             e = roundStat(e * (1 + multiplier));
         }
 
-        const finalStats = { Performance: p, Quality: q, Efficiency: e };
+        const absorb = absorptionStats.get(item.id)!;
+        p += absorb.Performance;
+        q += absorb.Quality;
+        e += absorb.Efficiency;
+
+        const finalStats = { Performance: roundStat(p), Quality: roundStat(q), Efficiency: roundStat(e) };
 
         pieceStats.set(item.id, finalStats);
-        totals.Performance += p;
-        totals.Quality += q;
-        totals.Efficiency += e;
+        totals.Performance += finalStats.Performance;
+        totals.Quality += finalStats.Quality;
+        totals.Efficiency += finalStats.Efficiency;
     }
 
     nodeAdjacencies.forEach((adjIds, nodeId) => {
@@ -560,16 +571,6 @@ export const evaluatePlacementDelta = (
     let q = internal.Quality;
     let e = internal.Efficiency;
 
-    if (nfCount > 0) {
-        p += nfCount * 0.25 * nfPerf;
-        q += nfCount * 0.25 * nfQual;
-        e += nfCount * 0.25 * nfEff;
-    }
-
-    p = roundStat(p);
-    q = roundStat(q);
-    e = roundStat(e);
-
     let multiplier = 0;
     if (ctx.hasSideMount && x + orientation.minX === 0) multiplier += 0.20;
     if (ctx.hasTopMount && y + orientation.minY === 0) multiplier += 0.20;
@@ -580,6 +581,16 @@ export const evaluatePlacementDelta = (
         q = roundStat(q * (1 + multiplier));
         e = roundStat(e * (1 + multiplier));
     }
+
+    if (nfCount > 0) {
+        p += nfCount * 0.25 * nfPerf;
+        q += nfCount * 0.25 * nfQual;
+        e += nfCount * 0.25 * nfEff;
+    }
+
+    p = roundStat(p);
+    q = roundStat(q);
+    e = roundStat(e);
 
     const statScore = (p * weightP) + (q * weightQ) + (e * weightE) + nodeBonusScore;
     return statScore + (adjNodes * 0.05) - (negativeContactCount * 1000);
