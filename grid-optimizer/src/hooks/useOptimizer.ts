@@ -373,7 +373,7 @@ export const calculateBoardStats = (
             Quality: q,
             Efficiency: e
         });
-        
+
         absorptionStats.set(item.id, {
             Performance: absorbP,
             Quality: absorbQ,
