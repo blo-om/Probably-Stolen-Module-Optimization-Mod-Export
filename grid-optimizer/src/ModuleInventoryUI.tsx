@@ -117,6 +117,9 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
     );
 });
 
+type StatFlags = { Performance: boolean, Quality: boolean, Efficiency: boolean };
+type StatRanks = { Performance: number, Quality: number, Efficiency: number };
+
 const MachineInstance = React.memo(forwardRef(({
                                                    machineId,
                                                    inventory,
@@ -125,6 +128,8 @@ const MachineInstance = React.memo(forwardRef(({
                                                    initialTier,
                                                    initialMax,
                                                    initialTarget,
+                                                   initialIgnore,
+                                                   initialPriority,
                                                    dragState,
                                                    setHoverInfo,
                                                    onDuplicate,
@@ -135,7 +140,7 @@ const MachineInstance = React.memo(forwardRef(({
                                                    isAnySolving,
                                                    canDelete
                                                }: any, ref) => {
-    const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, initialTier, initialMax, initialTarget || { Performance: null, Quality: null, Efficiency: null });
+    const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, initialTier, initialMax, initialTarget || { Performance: null, Quality: null, Efficiency: null }, initialIgnore || { Performance: false, Quality: false, Efficiency: false }, initialPriority || { Performance: 1, Quality: 1, Efficiency: 1 });
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [machineType, setMachineType] = useState('Select Machine...');
 
@@ -148,7 +153,9 @@ const MachineInstance = React.memo(forwardRef(({
         getState: () => ({
             tier: optimizer.tier,
             maximizeStats: optimizer.maximizeStats,
-            targetStats: optimizer.targetStats
+            targetStats: optimizer.targetStats,
+            ignoreStats: optimizer.ignoreStats,
+            statPriority: optimizer.statPriority
         }),
         isValidPlacement: optimizer.isValidPlacement,
         getBoard: () => optimizer.boardRef.current,
@@ -466,25 +473,61 @@ const MachineInstance = React.memo(forwardRef(({
                     {(['Performance', 'Quality', 'Efficiency'] as const).map((stat, idx) => (
                         <div key={stat} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1, borderRight: idx < 2 ? '1px solid #444' : 'none' }}>
                             <span style={{ fontSize: '0.6em', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
-                            <label style={{ fontSize: '0.7em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={optimizer.maximizeStats[stat]}
-                                    onChange={() => optimizer.setMaximizeStats((prev: any) => ({ ...prev, [stat]: !prev[stat] }))}
-                                    disabled={optimizer.isSolving || isAnySolving}
-                                    style={{ margin: 0, cursor: (optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'pointer' }}
-                                /> Max
-                            </label>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <label style={{ fontSize: '0.7em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={optimizer.maximizeStats[stat]}
+                                        onChange={() => optimizer.setMaximizeStats((prev: any) => ({ ...prev, [stat]: !prev[stat] }))}
+                                        disabled={optimizer.isSolving || isAnySolving || optimizer.ignoreStats[stat]}
+                                        style={{ margin: 0, cursor: (optimizer.isSolving || isAnySolving || optimizer.ignoreStats[stat]) ? 'not-allowed' : 'pointer' }}
+                                    /> Max
+                                </label>
+                                <label
+                                    title={`Ignore ${stat} entirely — it stops counting toward the score in either direction, so the optimizer is free to let it go as negative as it likes.`}
+                                    style={{ fontSize: '0.7em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer' }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={optimizer.ignoreStats[stat]}
+                                        onChange={() => optimizer.setIgnoreStats((prev: any) => {
+                                            const next = { ...prev, [stat]: !prev[stat] };
+                                            if (next[stat]) {
+                                                // Ignoring a stat overrides caring about it.
+                                                optimizer.setMaximizeStats((m: any) => ({ ...m, [stat]: false }));
+                                                optimizer.setTargetStats((t: any) => ({ ...t, [stat]: null }));
+                                            }
+                                            return next;
+                                        })}
+                                        disabled={optimizer.isSolving || isAnySolving}
+                                        style={{ margin: 0, cursor: (optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'pointer' }}
+                                    /> Ign
+                                </label>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
                                 <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
                                 <input
                                     type="number"
                                     value={optimizer.targetStats[stat] ?? ''}
                                     onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
-                                    disabled={optimizer.isSolving || isAnySolving}
+                                    disabled={optimizer.isSolving || isAnySolving || optimizer.ignoreStats[stat]}
                                     style={{ width: '35px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
                                 />
                                 <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
+                                <span style={{ fontSize: '0.65em', color: '#888' }}>Pri:</span>
+                                <select
+                                    title={`Priority for ${stat} — 1 matters most. Stats sharing a priority are traded off against each other exactly as before. A lower priority is only looked at once every higher one is as good as it can get, so a satisfied target is never sold off to chase a less important one.`}
+                                    value={optimizer.statPriority[stat]}
+                                    onChange={(e) => optimizer.setStatPriority((prev: StatRanks) => ({ ...prev, [stat]: Number(e.target.value) }))}
+                                    disabled={optimizer.isSolving || isAnySolving || optimizer.ignoreStats[stat]}
+                                    style={{ padding: '1px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', cursor: (optimizer.isSolving || isAnySolving || optimizer.ignoreStats[stat]) ? 'not-allowed' : 'pointer' }}
+                                >
+                                    <option value={1}>1</option>
+                                    <option value={2}>2</option>
+                                    <option value={3}>3</option>
+                                </select>
                             </div>
                         </div>
                     ))}
@@ -560,6 +603,28 @@ const MachineInstance = React.memo(forwardRef(({
     );
 }))
 
+// Rendering every row of a very large inventory costs a lot
+const MAX_VISIBLE_INVENTORY_ROWS = 255;
+
+const createInventoryItem = (template: ModuleTemplate): InventoryItem => {
+    const base = getBaseStats(template);
+    const maxPositiveBase = Math.max(
+        base.Performance > 0 ? base.Performance : 0,
+        base.Quality > 0 ? base.Quality : 0,
+        base.Efficiency > 0 ? base.Efficiency : 0
+    );
+    const defaultDoubleBase = maxPositiveBase * 2;
+
+    return {
+        id: `${template.shape}_${template.color}_${Math.random().toString(36).substring(2, 8)}`,
+        shape: template.shape,
+        color: template.color,
+        displayName: template.displayName,
+        effects: ['None', 'None'],
+        effectValues: [defaultDoubleBase, defaultDoubleBase]
+    };
+};
+
 export default function ModuleInventoryUI() {
     const [inventory, setInventory] = useState<InventoryItem[]>(() => {
         const savedInventory = localStorage.getItem('optimizer_inventory');
@@ -573,7 +638,7 @@ export default function ModuleInventoryUI() {
         localStorage.setItem('optimizer_inventory', JSON.stringify(inventory));
     }, [inventory]);
 
-    const [machines, setMachines] = useState<{ id: string, initialTier: GridTier, initialMax: any, initialTarget?: any }[]>([
+    const [machines, setMachines] = useState<{ id: string, initialTier: GridTier, initialMax: any, initialTarget?: any, initialIgnore?: StatFlags, initialPriority?: StatRanks }[]>([
         { id: `m_${Math.random().toString(36).substring(2,8)}`, initialTier: 3, initialMax: { Performance: false, Quality: false, Efficiency: false } }
     ]);
     const machinesRef = useRef<Record<string, any>>({});
@@ -762,22 +827,7 @@ export default function ModuleInventoryUI() {
     }, [!!dragState]);
 
     const addPieceToInventory = (template: ModuleTemplate) => {
-        const base = getBaseStats(template);
-        const maxPositiveBase = Math.max(
-            base.Performance > 0 ? base.Performance : 0,
-            base.Quality > 0 ? base.Quality : 0,
-            base.Efficiency > 0 ? base.Efficiency : 0
-        );
-        const defaultDoubleBase = maxPositiveBase * 2;
-
-        setInventory((prev) => [...prev, {
-            id: `${template.shape}_${template.color}_${Math.random().toString(36).substring(2, 8)}`,
-            shape: template.shape,
-            color: template.color,
-            displayName: template.displayName,
-            effects: ['None', 'None'],
-            effectValues: [defaultDoubleBase, defaultDoubleBase]
-        }]);
+        setInventory((prev) => [...prev, createInventoryItem(template)]);
     };
 
     const handleUpdateItemEffect = useCallback((item: InventoryItem, effectIndex: 0 | 1, newEffect: ItemEffect) => {
@@ -887,6 +937,12 @@ export default function ModuleInventoryUI() {
         return !(filterSize !== 'All' && m.size !== filterSize);
     });
 
+    // Each row carries two dropdowns, so rendering a very large inventory is very expensive
+    const visibleInventory = inventory.length > MAX_VISIBLE_INVENTORY_ROWS
+        ? inventory.slice(0, MAX_VISIBLE_INVENTORY_ROWS)
+        : inventory;
+    const hiddenInventoryCount = inventory.length - visibleInventory.length;
+
     const shouldPushNodeToEnd = filterGroup !== 'All';
 
     const catalogDisplayList = shouldPushNodeToEnd
@@ -905,7 +961,7 @@ export default function ModuleInventoryUI() {
 
             const machinesConfig = activeMachines.map(([id, m]: any) => {
                 const state = m.getState();
-                return { id, tier: state.tier, targetStats: state.targetStats, maximizeStats: state.maximizeStats };
+                return { id, tier: state.tier, targetStats: state.targetStats, maximizeStats: state.maximizeStats, ignoreStats: state.ignoreStats, statPriority: state.statPriority };
             });
 
             const initialBoards = activeMachines.map(([, m]: any) => m.getBoard());
@@ -943,7 +999,9 @@ export default function ModuleInventoryUI() {
                 id: `m_${Math.random().toString(36).substring(2,8)}`,
                 initialTier: state.tier,
                 initialMax: state.maximizeStats,
-                initialTarget: state.targetStats
+                initialTarget: state.targetStats,
+                initialIgnore: state.ignoreStats,
+                initialPriority: state.statPriority
             }]);
         }
     }, []);
@@ -1171,6 +1229,8 @@ export default function ModuleInventoryUI() {
                         initialTier={m.initialTier}
                         initialMax={m.initialMax}
                         initialTarget={m.initialTarget}
+                        initialIgnore={m.initialIgnore}
+                        initialPriority={m.initialPriority}
                         dragState={dragState}
                         setHoverInfo={setHoverInfo}
                         onDuplicate={handleDuplicateMachine}
@@ -1288,7 +1348,10 @@ export default function ModuleInventoryUI() {
                     }}
                 >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
-                        <span style={{ color: '#888', fontSize: '0.9em' }}>{inventory.length} Selected</span>
+                        <span style={{ color: '#888', fontSize: '0.9em' }}>
+                            {inventory.length.toLocaleString()} Selected
+                            {hiddenInventoryCount > 0 && <span style={{ color: '#666' }}> (showing {MAX_VISIBLE_INVENTORY_ROWS})</span>}
+                        </span>
                         <button
                             onClick={() => {
                                 setInventory([]);
@@ -1309,7 +1372,7 @@ export default function ModuleInventoryUI() {
                     </div>
 
                     <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '5px' }}>
-                        {inventory.map((item) => (
+                        {visibleInventory.map((item) => (
                             <InventoryItemRow
                                 key={item.id}
                                 item={item}
@@ -1321,6 +1384,14 @@ export default function ModuleInventoryUI() {
                                 onDragStart={handleInventoryDragStart}
                             />
                         ))}
+
+                        {hiddenInventoryCount > 0 && (
+                            <div style={{ padding: '10px 12px', backgroundColor: '#252526', borderRadius: '4px', color: '#888', fontSize: '0.8em', textAlign: 'center' }}>
+                                + {hiddenInventoryCount.toLocaleString()} more not shown.
+                                <br />
+                                The optimizer still uses every module — only this list is capped.
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
