@@ -14,6 +14,7 @@ export interface InventoryItem {
     displayName: string;
     effects: [ItemEffect, ItemEffect];
     effectValues: [number, number];
+    isInfinite?: boolean;
 }
 
 export interface ModuleTemplate {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES, NODE_TEMPLATE } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
@@ -49,7 +49,7 @@ const DragGhost = ({ dragState, cellSize }: { dragState: any, cellSize: number }
     );
 };
 
-const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, updateItemEffectValue, handleBlurEffectValue, onRemove, onDragStart }: any) => {
+const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, updateItemEffectValue, handleBlurEffectValue, onRemove, onDragStart, onToggleInfinite }: any) => {
     return (
         <div
             onMouseDown={(e) => onDragStart(e, item)}
@@ -61,7 +61,7 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '4px', pointerEvents: 'none' }}>
                     <span style={{ fontSize: '0.9em', fontWeight: 'bold', color: '#eee' }}>{item.displayName}</span>
 
-                    {item.shape !== 'Node1x2' && (
+                    {item.shape !== 'Node1x2' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', pointerEvents: 'auto' }}>
                             {[0, 1].map((effectIdx) => {
                                 const currentEffect = item.effects[effectIdx];
@@ -94,6 +94,19 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
                                     </div>
                                 );
                             })}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', pointerEvents: 'auto' }} onMouseDown={(e) => e.stopPropagation()}>
+                            <label style={{ fontSize: '0.75em', color: '#ccc', display: 'flex', alignItems: 'center', gap: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={!!item.isInfinite}
+                                    onChange={(e) => onToggleInfinite && onToggleInfinite(e.target.checked)}
+                                    disabled={isAnySolving}
+                                    style={{ margin: 0, cursor: isAnySolving ? 'not-allowed' : 'pointer' }}
+                                />
+                                Infinite Nodes
+                            </label>
                         </div>
                     )}
                 </div>
@@ -432,7 +445,6 @@ const MachineInstance = React.memo(forwardRef(({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-
                 <select
                     value={machineType}
                     onChange={(e) => setMachineType(e.target.value)}
@@ -683,8 +695,21 @@ export default function ModuleInventoryUI() {
         dragHoverTargetRef.current = target;
     }, []);
 
-    const hoveredItem = hoverInfo ? (inventory.find(i => i.id === hoverInfo.cell.id) || hoverInfo.cell) : null;
+    const expandedInventory = useMemo(() => {
+        const expanded: InventoryItem[] = [];
+        for (const item of inventory) {
+            expanded.push(item);
+            if (item.shape === 'Node1x2' && item.isInfinite) {
+                const cloneCount = 17 * Math.max(1, machines.length);
+                for (let i = 0; i < cloneCount; i++) {
+                    expanded.push({ ...item, id: `${item.id}_clone_${i}` });
+                }
+            }
+        }
+        return expanded;
+    }, [inventory, machines.length]);
 
+    const hoveredItem = hoverInfo ? (expandedInventory.find(i => i.id === hoverInfo.cell.id) || hoverInfo.cell) : null;
     const dragRef = useRef(dragState);
 
     const isAnySolving = Object.values(solvingStates).some(s => s);
@@ -756,7 +781,7 @@ export default function ModuleInventoryUI() {
                 isFlipping = true;
             }
 
-            const rawNewOffsets = currentDrag.offsets.map(transform);
+            let rawNewOffsets = currentDrag.offsets.map(transform);
             let minX = Math.min(...rawNewOffsets.map(p => p.x));
             let minY = Math.min(...rawNewOffsets.map(p => p.y));
             let newOffsets = rawNewOffsets.map(p => ({ x: p.x - minX, y: p.y - minY }));
@@ -829,6 +854,12 @@ export default function ModuleInventoryUI() {
     const addPieceToInventory = (template: ModuleTemplate) => {
         setInventory((prev) => [...prev, createInventoryItem(template)]);
     };
+
+    const handleToggleInfiniteNodes = useCallback((isInfinite: boolean) => {
+        setInventory(prev => prev.map(invItem =>
+            invItem.shape === 'Node1x2' ? { ...invItem, isInfinite } : invItem
+        ));
+    }, []);
 
     const handleUpdateItemEffect = useCallback((item: InventoryItem, effectIndex: 0 | 1, newEffect: ItemEffect) => {
         const base = getBaseStats(item);
@@ -967,7 +998,7 @@ export default function ModuleInventoryUI() {
             runOptimizationEngine(
                 machinesConfig,
                 initialBoards,
-                inventory,
+                expandedInventory,
                 globalIsSolvingRef,
                 (updates) => {
                     updates.forEach((update, mId) => {
@@ -1221,7 +1252,7 @@ export default function ModuleInventoryUI() {
                         key={m.id}
                         machineId={m.id}
                         ref={(el: any) => { if (el) machinesRef.current[m.id] = el; }}
-                        inventory={inventory}
+                        inventory={expandedInventory}
                         setInventory={setInventory}
                         getUsedItems={getUsedItems}
                         initialTier={m.initialTier}
@@ -1380,6 +1411,7 @@ export default function ModuleInventoryUI() {
                                 handleBlurEffectValue={handleBlurEffectValue}
                                 onRemove={handleRemoveItem}
                                 onDragStart={handleInventoryDragStart}
+                                onToggleInfinite={handleToggleInfiniteNodes}
                             />
                         ))}
 

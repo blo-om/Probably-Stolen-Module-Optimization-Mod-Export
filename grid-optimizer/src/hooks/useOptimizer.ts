@@ -694,7 +694,7 @@ const dominates = (a: number[], b: number[]) => {
  * Swapping a dominated module for the one that dominates it occupies the same cells and scores at least as well,
  * so any layout using the dominated one is matched by a layout without it, and trying it only costs time
  *
- * Three things keep this from throwing away real options: modules are only compared within the same shape and the same placement-dependent effects, 
+ * Three things keep this from throwing away real options: modules are only compared within the same shape and the same placement-dependent effects,
  * stats no machine scores on are left out of the comparison entirely, and enough candidates are kept per group to fill every board,
  * so pruning can never make a layout unreachable for lack of copies
  * Nodes and the special modules are never dropped. They are placed for reasons the stat comparison does not capture
@@ -1015,12 +1015,22 @@ export const runOptimizationEngine = async (
             const m = machines[mIdx];
             if (codeIsStale[mIdx]) {
                 const owners = ownerOf;
-                const inventoryForCode = owners === null
+                let inventoryForCode = owners === null
                     ? inventory
                     : inventory.filter(item => {
                         const owner = owners.get(item.id);
                         return owner === undefined || owner === mIdx;
                     });
+
+                // Remove unused infinite clones to avoid super long save code
+                const usedCloneIds = new Set<string>();
+                bestBoards[mIdx].forEach(row => row.forEach(cell => {
+                    if (cell && cell !== 'Locked' && cell.id.includes('_clone_')) {
+                        usedCloneIds.add(cell.id);
+                    }
+                }));
+                inventoryForCode = inventoryForCode.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
+
                 currentCodes[mIdx] = generateCodeFromState(m.tier, m.maximizeStats, m.targetStats, inventoryForCode, bestBoards[mIdx]);
                 codeIsStale[mIdx] = false;
             }
@@ -1606,7 +1616,14 @@ export function useOptimizer(
             if (boardChanged) setBoardSync(newBoard);
 
             if (inventory.length > 0) {
-                const availableForCode = availableInventory;
+                const usedCloneIds = new Set<string>();
+                boardToCalculate.forEach(row => row.forEach(cell => {
+                    if (cell && cell !== 'Locked' && cell.id.includes('_clone_')) {
+                        usedCloneIds.add(cell.id);
+                    }
+                }));
+
+                const availableForCode = availableInventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
                 const newCode = generateCodeFromState(tier, maximizeStats, targetStats, availableForCode, boardToCalculate);
                 setSolutionCode(newCode);
 
