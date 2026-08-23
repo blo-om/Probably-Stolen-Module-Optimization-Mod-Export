@@ -845,10 +845,8 @@ export default function ModuleInventoryUI() {
                 updatedEffects[effectIndex] = newEffect;
 
                 const updatedValues: [number, number] = [...invItem.effectValues] as [number, number];
-                if (newEffect === 'Learning Algorithm') {
+                if (newEffect === 'Learning Algorithm' || newEffect === 'Degrading') {
                     updatedValues[effectIndex] = defaultDoubleBase;
-                } else if (newEffect === 'Degrading') {
-                    updatedValues[effectIndex] = maxPositiveBase;
                 }
 
                 return { ...invItem, effects: updatedEffects, effectValues: updatedValues };

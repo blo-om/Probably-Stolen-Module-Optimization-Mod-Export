@@ -60,8 +60,11 @@ const computeItemStats = (item: InventoryItem): { effectiveBase: Stats, internal
             if (customVal !== undefined && !isNaN(customVal)) {
                 const truncVal = Math.trunc(customVal);
                 if (p > 0) p = truncVal;
+                else p *= 2;
                 if (q > 0) q = truncVal;
+                else q *= 2;
                 if (e > 0) e = truncVal;
+                else e *= 2;
             }
             effectiveBase = { Performance: p, Quality: q, Efficiency: e };
         }
