@@ -861,23 +861,59 @@ export default function ModuleInventoryUI() {
         ));
     }, []);
 
-    const handleUpdateItemEffect = useCallback((item: InventoryItem, effectIndex: 0 | 1, newEffect: ItemEffect) => {
+    // Custom value input upper limit based on effects on module
+    const getMaxCustomValue = (item: InventoryItem, effectIndex: number, newEffect?: ItemEffect) => {
         const base = getBaseStats(item);
-        const maxPositiveBase = Math.max(
+        let maxPositiveBase = Math.max(
             base.Performance > 0 ? base.Performance : 0,
             base.Quality > 0 ? base.Quality : 0,
             base.Efficiency > 0 ? base.Efficiency : 0
         );
-        const defaultDoubleBase = maxPositiveBase * 2;
 
+        const effectToEval = newEffect || item.effects[effectIndex];
+
+        if (effectToEval === 'Learning Algorithm') {
+            if (effectIndex === 1) {
+                const first = item.effects[0];
+                if (first === 'Premium') maxPositiveBase *= 1.2;
+                else if (first === 'Inferior') maxPositiveBase *= 0.8;
+                else if (first === 'Overcharged') maxPositiveBase *= 2.0;
+                else if (first === 'Negative Feedback') maxPositiveBase *= 1.25;
+            }
+            return Math.floor(maxPositiveBase * 2);
+        } else if (effectToEval === 'Degrading') {
+            const otherEffect = effectIndex === 0 ? item.effects[1] : item.effects[0];
+            if (otherEffect === 'Premium') maxPositiveBase *= 1.2;
+            else if (otherEffect === 'Inferior') maxPositiveBase *= 0.8;
+            else if (otherEffect === 'Overcharged') maxPositiveBase *= 2.0;
+            else if (otherEffect === 'Negative Feedback') maxPositiveBase *= 1.25;
+
+            return Math.floor(maxPositiveBase * 2);
+        }
+        return Math.floor(maxPositiveBase * 2);
+    };
+
+    const handleUpdateItemEffect = useCallback((item: InventoryItem, effectIndex: 0 | 1, newEffect: ItemEffect) => {
         setInventory(prev => prev.map(invItem => {
             if (invItem.id === item.id) {
                 const updatedEffects: [ItemEffect, ItemEffect] = [...invItem.effects] as [ItemEffect, ItemEffect];
                 updatedEffects[effectIndex] = newEffect;
 
                 const updatedValues: [number, number] = [...invItem.effectValues] as [number, number];
+
                 if (newEffect === 'Learning Algorithm' || newEffect === 'Degrading') {
-                    updatedValues[effectIndex] = defaultDoubleBase;
+                    const tempItem = { ...invItem, effects: updatedEffects };
+                    updatedValues[effectIndex] = getMaxCustomValue(tempItem, effectIndex);
+                }
+
+                const otherIndex = effectIndex === 0 ? 1 : 0;
+                const otherEffect = updatedEffects[otherIndex];
+                if (otherEffect === 'Learning Algorithm' || otherEffect === 'Degrading') {
+                    const tempItem = { ...invItem, effects: updatedEffects };
+                    const maxOther = getMaxCustomValue(tempItem, otherIndex);
+                    if (updatedValues[otherIndex] > maxOther) {
+                        updatedValues[otherIndex] = maxOther;
+                    }
                 }
 
                 return { ...invItem, effects: updatedEffects, effectValues: updatedValues };
@@ -890,7 +926,7 @@ export default function ModuleInventoryUI() {
         setInventory(prev => prev.map(item => {
             if (item.id === itemId) {
                 const updatedValues: [number, number] = [...item.effectValues] as [number, number];
-                updatedValues[effectIndex] = newValue;
+                updatedValues[effectIndex] = Math.floor(newValue);
                 return { ...item, effectValues: updatedValues };
             }
             return item;
@@ -898,16 +934,10 @@ export default function ModuleInventoryUI() {
     }, []);
 
     const handleBlurEffectValue = useCallback((item: InventoryItem, effectIndex: 0 | 1, rawValue: number) => {
-        const base = getBaseStats(item);
-        const maxPositiveBase = Math.max(
-            base.Performance > 0 ? base.Performance : 0,
-            base.Quality > 0 ? base.Quality : 0,
-            base.Efficiency > 0 ? base.Efficiency : 0
-        );
-        const maxLimit = maxPositiveBase * 2;
+        const maxLimit = getMaxCustomValue(item, effectIndex);
         const minLimit = 0;
 
-        const val = isNaN(rawValue) ? minLimit : rawValue;
+        const val = isNaN(rawValue) ? minLimit : Math.floor(rawValue);
         const clampedValue = Math.max(minLimit, Math.min(maxLimit, val));
 
         setInventory(prev => prev.map(invItem => {
