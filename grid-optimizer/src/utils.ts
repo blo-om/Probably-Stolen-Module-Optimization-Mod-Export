@@ -46,12 +46,8 @@ const computeItemStats = (item: InventoryItem): { effectiveBase: Stats, internal
     let { Performance: p, Quality: q, Efficiency: e } = getBaseStats(item);
     let effectiveBase: Stats = { Performance: p, Quality: q, Efficiency: e };
 
-    // Learning Algorithm takes over any non-zero stat it touches (positive or negative) and
-    // tracks its own progress (customVal) from there - positive stats wipe to 0% and grow back
-    // up to 200% of their pre-LA value, negative stats grow toward 0%. Either way, the stat is
-    // now fully LA-controlled: any later %-based effect (Premium/Inferior/Overcharged/Negative
-    // Feedback self-boost) has nothing of the original base left to scale and must not touch it.
-    const laClaimed = { Performance: false, Quality: false, Efficiency: false };
+    // Flag locks the stat so subsequent % multipliers don't apply twice
+    const claimed = { Performance: false, Quality: false, Efficiency: false };
 
     item.effects.forEach((effect, idx) => {
         const customVal = item.effectValues[idx];
@@ -59,48 +55,50 @@ const computeItemStats = (item: InventoryItem): { effectiveBase: Stats, internal
         if (effect === 'Degrading') {
             if (customVal !== undefined && !isNaN(customVal)) {
                 const truncVal = Math.trunc(customVal);
-                if (p > 0) p = truncVal;
-                else p *= 2;
-                if (q > 0) q = truncVal;
-                else q *= 2;
-                if (e > 0) e = truncVal;
-                else e *= 2;
+                if (p > 0) { p = truncVal; claimed.Performance = true; }
+                else if (p < 0) { p *= 2; }
+
+                if (q > 0) { q = truncVal; claimed.Quality = true; }
+                else if (q < 0) { q *= 2; }
+
+                if (e > 0) { e = truncVal; claimed.Efficiency = true; }
+                else if (e < 0) { e *= 2; }
             }
             effectiveBase = { Performance: p, Quality: q, Efficiency: e };
         }
         else if (effect === 'Learning Algorithm') {
             if (customVal !== undefined && !isNaN(customVal)) {
                 const truncVal = Math.trunc(customVal);
-                if (p > 0) { p = truncVal; laClaimed.Performance = true; }
-                else if (p < 0) { p = Math.min(0, p + truncVal); laClaimed.Performance = true; }
+                if (p > 0) { p = truncVal; claimed.Performance = true; }
+                else if (p < 0) { p = Math.min(0, p + truncVal); claimed.Performance = true; }
 
-                if (q > 0) { q = truncVal; laClaimed.Quality = true; }
-                else if (q < 0) { q = Math.min(0, q + truncVal); laClaimed.Quality = true; }
+                if (q > 0) { q = truncVal; claimed.Quality = true; }
+                else if (q < 0) { q = Math.min(0, q + truncVal); claimed.Quality = true; }
 
-                if (e > 0) { e = truncVal; laClaimed.Efficiency = true; }
-                else if (e < 0) { e = Math.min(0, e + truncVal); laClaimed.Efficiency = true; }
+                if (e > 0) { e = truncVal; claimed.Efficiency = true; }
+                else if (e < 0) { e = Math.min(0, e + truncVal); claimed.Efficiency = true; }
             }
             effectiveBase = { Performance: p, Quality: q, Efficiency: e };
         }
         else if (effect === 'Premium') {
-            if (!laClaimed.Performance) p *= 1.2;
-            if (!laClaimed.Quality) q *= 1.2;
-            if (!laClaimed.Efficiency) e *= 1.2;
+            if (!claimed.Performance) p *= 1.2;
+            if (!claimed.Quality) q *= 1.2;
+            if (!claimed.Efficiency) e *= 1.2;
         }
         else if (effect === 'Inferior') {
-            if (!laClaimed.Performance) p *= 0.8;
-            if (!laClaimed.Quality) q *= 0.8;
-            if (!laClaimed.Efficiency) e *= 0.8;
+            if (!claimed.Performance) p *= 0.8;
+            if (!claimed.Quality) q *= 0.8;
+            if (!claimed.Efficiency) e *= 0.8;
         }
         else if (effect === 'Overcharged') {
-            if (!laClaimed.Performance) p *= 2.0;
-            if (!laClaimed.Quality) q *= 2.0;
-            if (!laClaimed.Efficiency) e *= 2.0;
+            if (!claimed.Performance) p *= 2.0;
+            if (!claimed.Quality) q *= 2.0;
+            if (!claimed.Efficiency) e *= 2.0;
         }
         else if (effect === 'Negative Feedback') {
-            if (!laClaimed.Performance) p *= 1.25;
-            if (!laClaimed.Quality) q *= 1.25;
-            if (!laClaimed.Efficiency) e *= 1.25;
+            if (!claimed.Performance) p *= 1.25;
+            if (!claimed.Quality) q *= 1.25;
+            if (!claimed.Efficiency) e *= 1.25;
         }
     });
 
