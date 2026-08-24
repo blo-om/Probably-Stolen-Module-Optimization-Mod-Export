@@ -852,7 +852,7 @@ export default function ModuleInventoryUI() {
     }, [!!dragState]);
 
     const addPieceToInventory = (template: ModuleTemplate) => {
-        setInventory((prev) => [...prev, createInventoryItem(template)]);
+        setInventory((prev) => [createInventoryItem(template), ...prev]);
     };
 
     const handleToggleInfiniteNodes = useCallback((isInfinite: boolean) => {
