@@ -1448,10 +1448,11 @@ export function useOptimizer(
         setBestTotals({ Performance: 0, Quality: 0, Efficiency: 0 });
         setBestPieceStats(new Map());
         setWarningMsg(null);
-        setTargetStats({ Performance: null, Quality: null, Efficiency: null });
-        setMaximizeStats({ Performance: false, Quality: false, Efficiency: false });
-        setIgnoreStats({ Performance: false, Quality: false, Efficiency: false });
-        setStatPriority({ Performance: 1, Quality: 1, Efficiency: 1 });
+        // Clear maximize settings
+        //setTargetStats({ Performance: null, Quality: null, Efficiency: null });
+        //setMaximizeStats({ Performance: false, Quality: false, Efficiency: false });
+        //setIgnoreStats({ Performance: false, Quality: false, Efficiency: false });
+        //setStatPriority({ Performance: 1, Quality: 1, Efficiency: 1 });
         setSolutionCode('');
     };
 
