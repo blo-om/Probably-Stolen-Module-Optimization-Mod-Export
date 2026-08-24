@@ -901,7 +901,7 @@ export const runOptimizationEngine = async (
         if (m.targetStats.Efficiency !== null) we += 15;
 
         const boost = (key: keyof Stats) =>
-            Math.pow(PRIORITY_WEIGHT_STEP, tierCount - 1 - tierOf(m, key));
+            statIsIgnored(m, key) ? 1 : Math.pow(PRIORITY_WEIGHT_STEP, tierCount - 1 - tierOf(m, key));
         wp *= boost('Performance');
         wq *= boost('Quality');
         we *= boost('Efficiency');
@@ -1631,8 +1631,10 @@ export function useOptimizer(
                 // Never publish a run that has no representable code
                 // It is an inventory past the 8-bit module count the format allows
                 if (newCode) {
-                    const timer = setTimeout(() => saveToDatabase(tier, totals, newCode, availableForCode), 60000);
-                    return () => clearTimeout(timer);
+                    if (totals.Performance !== 0 || totals.Quality !== 0 || totals.Efficiency !== 0) {
+                        const timer = setTimeout(() => saveToDatabase(tier, totals, newCode, availableForCode), 60000);
+                        return () => clearTimeout(timer);
+                    }
                 }
             } else {
                 setSolutionCode('');
