@@ -27,16 +27,22 @@ const DragGhost = ({ dragState, cellSize }: { dragState: any, cellSize: number }
 
     return (
         <div ref={ghostRef} style={{
-            position: 'fixed', pointerEvents: 'none', zIndex: 9999,
+            position: 'fixed',
+            pointerEvents: 'none',
+            zIndex: 9999,
             left: `${mousePos.current.x - (dragState.dragOffsetX * cellSize) - (cellSize / 2)}px`,
             top: `${mousePos.current.y - (dragState.dragOffsetY * cellSize) - (cellSize / 2)}px`
         }}>
             {dragState.offsets.map((pt: Point, idx: number) => (
                 <div key={idx} style={{
-                    position: 'absolute', top: pt.y * cellSize, left: pt.x * cellSize,
-                    width: `${cellSize}px`, height: `${cellSize}px`,
+                    position: 'absolute',
+                    top: pt.y * cellSize,
+                    left: pt.x * cellSize,
+                    width: `${cellSize}px`,
+                    height: `${cellSize}px`,
                     backgroundColor: COLOR_MAP[dragState.item.color as ModuleColor],
-                    border: '2px solid rgba(0,0,0,0.5)', boxSizing: 'border-box'
+                    border: '2px solid rgba(0,0,0,0.5)',
+                    boxSizing: 'border-box'
                 }} />
             ))}
         </div>
@@ -106,7 +112,7 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
                 </div>
             </div>
 
-            <div style={{ display: 'flex', marginLeft: '8px', alignItems: 'center', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <button
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={() => onToggleLock(item.id, !item.isLocked)}
@@ -134,8 +140,8 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
                         border: 'none',
                         color: isAnySolving ? '#444' : '#666',
                         cursor: isAnySolving ? 'not-allowed' : 'pointer',
-                        fontSize: '1.4em',
-                        padding: '8px',
+                        fontSize: '1.6em',
+                        padding: '10px',
                         marginRight: '-5px',
                         display: 'flex',
                         alignItems: 'center',
@@ -363,7 +369,7 @@ const MachineInstance = React.memo(forwardRef(({
                                 }}
                                 onMouseLeave={() => setHoverInfo(null)}
                                 onMouseDown={(e) => {
-                                    if (optimizer.isSolving || isAnySolving || !cell || cell === 'Locked') return;
+                                    if (optimizer.isSolving || isAnySolving || !cell || cell === 'Locked' || cell.isLocked) return;
                                     e.preventDefault();
                                     const footprint = getBoardFootprint(cell.id);
                                     if (!footprint) return;
@@ -418,7 +424,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     height: `${cellSize}px`,
                                     ...getCellStyles(x, y, cell),
                                     opacity: isBeingDragged ? 0.3 : 1,
-                                    cursor: cell && cell !== 'Locked' ? ((optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'grab') : 'default',
+                                    cursor: cell && cell !== 'Locked' ? ((optimizer.isSolving || isAnySolving || cell.isLocked) ? 'not-allowed' : 'grab') : 'default',
                                     boxSizing: 'border-box',
                                     position: 'relative'
                                 }}
@@ -654,10 +660,11 @@ export default function ModuleInventoryUI() {
     const machinesRef = useRef<Record<string, any>>({});
     const [solvingStates, setSolvingStates] = useState<Record<string, boolean>>({});
 
-    const getUsedItems = useCallback((excludeId: string) => {
+    const getUsedItems = useCallback((excludeId?: string | null) => {
         const used = new Set<string>();
         Object.entries(machinesRef.current).forEach(([id, m]: [string, any]) => {
-            if (id !== excludeId && m) {
+            if (excludeId && id === excludeId) return;
+            if (m) {
                 const board = m.getBoard();
                 if (board) {
                     for (let y = 0; y < 5; y++) {
@@ -675,8 +682,7 @@ export default function ModuleInventoryUI() {
     const [filterGroup, setFilterGroup] = useState<FilterGroup>('All');
     const [filterSize, setFilterSize] = useState<'All' | 3 | 4 | 5>('All');
 
-    // Inventory Display Filters
-    const [invFilterGroup, setInvFilterGroup] = useState<FilterGroup>('All');
+    const [invFilterGroup, setInvFilterGroup] = useState<FilterGroup | 'Placed'>('All');
     const [invFilterSize, setInvFilterSize] = useState<'All' | 3 | 4 | 5>('All');
     const [invFilterEffect, setInvFilterEffect] = useState<ItemEffect | 'All'>('All');
 
@@ -866,9 +872,6 @@ export default function ModuleInventoryUI() {
 
     const handleToggleLock = useCallback((itemId: string, isLocked: boolean) => {
         setInventory(prev => prev.map(i => i.id === itemId ? { ...i, isLocked } : i));
-        if (isLocked) {
-            Object.values(machinesRef.current).forEach((m: any) => m?.remove(itemId));
-        }
     }, []);
 
     const getMaxCustomValue = (item: InventoryItem, effectIndex: number, newEffect?: ItemEffect) => {
@@ -1005,8 +1008,12 @@ export default function ModuleInventoryUI() {
         return !(filterSize !== 'All' && m.size !== filterSize);
     });
 
+    const allUsedItems = getUsedItems(null);
     const filteredInventory = inventory.filter(item => {
-        if (invFilterGroup !== 'All') {
+        if (invFilterGroup === 'Placed') {
+            const isPlaced = allUsedItems.has(item.id) || (item.isInfinite && Array.from(allUsedItems).some(usedId => usedId.startsWith(item.id + '_clone_')));
+            if (!isPlaced) return false;
+        } else if (invFilterGroup !== 'All') {
             const template = MODULE_TEMPLATES.find(m => m.shape === item.shape && m.color === item.color);
             const group = template ? template.group : 'All';
             if (group !== invFilterGroup) return false;
@@ -1034,18 +1041,12 @@ export default function ModuleInventoryUI() {
     const allDisplayedLocked = filteredInventory.length > 0 && filteredInventory.every(item => item.isLocked);
 
     const handleToggleDisplayLock = () => {
-        const targetState = !allDisplayedLocked; // Unlocks if all are locked, otherwise locks everything displayed.
+        const targetState = !allDisplayedLocked;
         const filteredIds = new Set(filteredInventory.map(i => i.id));
 
         setInventory(prev => prev.map(item =>
             filteredIds.has(item.id) ? { ...item, isLocked: targetState } : item
         ));
-
-        if (targetState === true) {
-            filteredIds.forEach(id => {
-                Object.values(machinesRef.current).forEach((m: any) => m?.remove(id));
-            });
-        }
     };
 
     const shouldPushNodeToEnd = filterGroup !== 'All';
@@ -1070,12 +1071,10 @@ export default function ModuleInventoryUI() {
 
             const initialBoards = activeMachines.map(([, m]: any) => m.getBoard());
 
-            const availableGlobalPool = expandedInventory.filter(item => !item.isLocked);
-
             runOptimizationEngine(
                 machinesConfig,
                 initialBoards,
-                availableGlobalPool,
+                expandedInventory,
                 expandedInventory,
                 globalIsSolvingRef,
                 (updates) => {
@@ -1454,8 +1453,9 @@ export default function ModuleInventoryUI() {
 
                     {/* Inventory Filters */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
-                        <select value={invFilterGroup} onChange={(e) => setInvFilterGroup(e.target.value as FilterGroup)} style={{ flex: 1, minWidth: '110px', padding: '6px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none', fontSize: '0.8em' }}>
+                        <select value={invFilterGroup} onChange={(e) => setInvFilterGroup(e.target.value as FilterGroup | 'Placed')} style={{ flex: 1, minWidth: '110px', padding: '6px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none', fontSize: '0.8em' }}>
                             <option value="All">All Groups</option>
+                            <option value="Placed">Placed in Machine</option>
                             <option value="Performance">Performance</option>
                             <option value="Quality">Quality</option>
                             <option value="Efficiency">Efficiency</option>
