@@ -833,19 +833,20 @@ const TIMER_YIELD_INTERVAL_MS = 32;
 export const runOptimizationEngine = async (
     machines: MachineConfig[],
     initialBoards: any[][][],
-    inventory: InventoryItem[],
+    searchPoolInventory: InventoryItem[],
+    fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
     onUpdate: (updates: Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>) => void
 ) => {
     const machineCount = machines.length;
     const precomputedInternal = new Map<string, Stats>();
-    inventory.forEach(item => precomputedInternal.set(item.id, applyInternalEffects(item)));
+    fullInventory.forEach(item => precomputedInternal.set(item.id, applyInternalEffects(item)));
 
     const placementContexts = new Map<string, PlacementContext>();
-    inventory.forEach(item => placementContexts.set(item.id, buildPlacementContext(item, precomputedInternal)));
+    fullInventory.forEach(item => placementContexts.set(item.id, buildPlacementContext(item, precomputedInternal)));
 
     // Boards may already hold modules the search itself would not pick up, so the pruned pool is only used for choosing what to place
-    const searchPool = buildSearchPool(inventory, precomputedInternal, machines);
+    const searchPool = buildSearchPool(searchPoolInventory, precomputedInternal, machines);
 
     // The inner loops used to key everything off item.id, which meant hashing a string for every pool entry on every iteration
     // At a 883-piece pool and three machines that is thousands of string hashes per iteration and it dominated the search
@@ -863,7 +864,7 @@ export const runOptimizationEngine = async (
     const poolOrder = new Int32Array(searchPool.length);
     for (let i = 0; i < poolOrder.length; i++) poolOrder[i] = i;
     const poolShapeCount = new Set(searchPool.map(item => item.shape)).size;
-    const inventoryById = indexInventoryById(inventory);
+    const inventoryById = indexInventoryById(fullInventory);
 
     // One tier per distinct rank in play, most important first
     // With no priorities set this collapses to a single tier holding everything, which is the original objective
@@ -888,7 +889,7 @@ export const runOptimizationEngine = async (
 
     // Only the machine picked for this iteration can change, so the stats and the solution code of every other machine stay valid:
     // cache them instead of recomputing all of them (and re-running the BigInt encoder) on every improvement
-    const currentStats: BoardStats[] = currentBoards.map(b => calculateBoardStats(b, inventory, inventoryById));
+    const currentStats: BoardStats[] = currentBoards.map(b => calculateBoardStats(b, fullInventory, inventoryById));
     const currentCodes: string[] = new Array(machineCount).fill('');
     const codeIsStale: boolean[] = new Array(machineCount).fill(true);
 
@@ -1103,7 +1104,7 @@ export const runOptimizationEngine = async (
                         usedCloneIds.add(cell.id);
                     }
                 }));
-                const inventoryForCode = inventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
+                const inventoryForCode = fullInventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
 
                 currentCodes[mIdx] = generateCodeFromState(m.tier, m.maximizeStats, m.targetStats, inventoryForCode, bestBoards[mIdx]);
                 codeIsStale[mIdx] = false;
@@ -1172,7 +1173,7 @@ export const runOptimizationEngine = async (
                              * It is not the ruin's kind of move: the ruin takes a piece away and lets the fill find something better to do with the space,
                              * and a special is going straight back down whatever happens. Spending a removal on one only means one fewer real piece is reconsidered that iteration
                              */
-                            if (isSpecialModule(cell)) {
+                            if (isSpecialModule(cell) || cell.isLocked) {
                                 let entry = specialsOnBoard[mIdx].find(e => e.piece.id === cell.id);
                                 if (entry === undefined) {
                                     entry = { piece: cell, cells: [] };
@@ -1357,7 +1358,7 @@ export const runOptimizationEngine = async (
 
             // Only rebuilt machines can have changed, so the rest keep their cached stats
             for (const mIdx of rebuiltMachines) {
-                rebuiltStats[mIdx] = calculateBoardStats(testBoards[mIdx], inventory, inventoryById);
+                rebuiltStats[mIdx] = calculateBoardStats(testBoards[mIdx], fullInventory, inventoryById);
             }
             const statsFor = (mIdx: number) =>
                 isRebuilt[mIdx] ? rebuiltStats[mIdx]! : currentStats[mIdx];
@@ -1457,7 +1458,7 @@ export const runOptimizationEngine = async (
                     epochTiers.fill(-Infinity);
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                         currentBoards[mIdx] = initialBoards[mIdx].map(row => [...row]);
-                        currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], inventory, inventoryById);
+                        currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], fullInventory, inventoryById);
                     }
                 }
             }
@@ -1517,6 +1518,18 @@ export function useOptimizer(
     const [warningMsg, setWarningMsg] = useState<string | null>(null);
     const [solutionCode, setSolutionCode] = useState<string>('');
     const isSolvingRef = useRef(false);
+
+    const getAvailableInventory = () => {
+        if (!getUsedItems || !machineId) return inventory.filter(i => !i.isLocked);
+        const used = getUsedItems(machineId);
+        return inventory.filter(item => !used.has(item.id) && !item.isLocked);
+    };
+
+    const getInventoryForCode = () => {
+        if (!getUsedItems || !machineId) return inventory;
+        const used = getUsedItems(machineId);
+        return inventory.filter(item => !used.has(item.id));
+    };
 
     const handleTierChange = (newTier: GridTier) => {
         setTier(newTier);
@@ -1696,7 +1709,8 @@ export function useOptimizer(
             }));
 
             const boardToCalculate = boardChanged ? newBoard : boardRef.current;
-            const { totals, pieceStats } = calculateBoardStats(boardToCalculate, inventory, indexInventoryById(inventory));
+            const availableInventory = getAvailableInventory();
+            const { totals, pieceStats } = calculateBoardStats(boardToCalculate, availableInventory, indexInventoryById(availableInventory));
 
             setBestTotals(totals);
             setBestPieceStats(new Map(pieceStats));
@@ -1708,7 +1722,7 @@ export function useOptimizer(
             }));
 
             if (inventory.length > 0) {
-                // Remove unused infinite clones to avoid super long save code
+                // Remove unused infinite clones to avoid super long solution code
                 const usedCloneIds = new Set<string>();
                 boardToCalculate.forEach(row => row.forEach(cell => {
                     if (cell && cell !== 'Locked' && cell.id.includes('_clone_')) {
@@ -1716,7 +1730,8 @@ export function useOptimizer(
                     }
                 }));
 
-                const availableForCode = inventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
+                const fullInventoryForMachine = getInventoryForCode();
+                const availableForCode = fullInventoryForMachine.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
                 const newCode = generateCodeFromState(tier, maximizeStats, targetStats, availableForCode, boardToCalculate);
                 setSolutionCode(newCode);
 
@@ -1738,6 +1753,7 @@ export function useOptimizer(
             return;
         }
 
+        const fullInventoryForMachine = getInventoryForCode();
         const usedByOthers = getUsedItems(machineId);
 
         const solverPool = inventory.filter(i => !i.isLocked && !usedByOthers.has(i.id));
@@ -1758,7 +1774,7 @@ export function useOptimizer(
 
         const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, statPriority };
 
-        await runOptimizationEngine([config], [boardRef.current], engineInventory, isSolvingRef, (updates) => {
+        await runOptimizationEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
             if (myUpdate) {
                 setBoardSync(myUpdate.board);
