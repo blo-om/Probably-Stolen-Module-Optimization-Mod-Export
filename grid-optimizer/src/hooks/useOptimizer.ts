@@ -1758,7 +1758,12 @@ export function useOptimizer(
 
         const solverPool = inventory.filter(i => !i.isLocked && !usedByOthers.has(i.id));
 
-        if (solverPool.length === 0) {
+        let boardHasMovablePieces = false;
+        boardRef.current.forEach(row => row.forEach(cell => {
+            if (cell && cell !== 'Locked') boardHasMovablePieces = true;
+        }));
+
+        if (solverPool.length === 0 && !boardHasMovablePieces) {
             setWarningMsg(`Cannot optimize: No unused modules available.`);
             return;
         }

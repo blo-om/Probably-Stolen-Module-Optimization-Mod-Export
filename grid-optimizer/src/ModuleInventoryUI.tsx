@@ -369,7 +369,7 @@ const MachineInstance = React.memo(forwardRef(({
                                 }}
                                 onMouseLeave={() => setHoverInfo(null)}
                                 onMouseDown={(e) => {
-                                    if (optimizer.isSolving || isAnySolving || !cell || cell === 'Locked' || cell.isLocked) return;
+                                    if (optimizer.isSolving || isAnySolving || !cell || cell === 'Locked') return;
                                     e.preventDefault();
                                     const footprint = getBoardFootprint(cell.id);
                                     if (!footprint) return;
@@ -424,7 +424,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     height: `${cellSize}px`,
                                     ...getCellStyles(x, y, cell),
                                     opacity: isBeingDragged ? 0.3 : 1,
-                                    cursor: cell && cell !== 'Locked' ? ((optimizer.isSolving || isAnySolving || cell.isLocked) ? 'not-allowed' : 'grab') : 'default',
+                                    cursor: cell && cell !== 'Locked' ? ((optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'grab') : 'default',
                                     boxSizing: 'border-box',
                                     position: 'relative'
                                 }}
@@ -746,12 +746,15 @@ export default function ModuleInventoryUI() {
 
             if (currentDrag) {
                 if (!currentTarget || currentTarget.machineId === null) {
-                    if (currentDrag.sourceMachineId !== null) {
+                    if (currentDrag.sourceMachineId !== null && !currentDrag.item.isLocked) {
                         machinesRef.current[currentDrag.sourceMachineId]?.remove(currentDrag.item.id);
                     }
                 } else {
                     const machine = machinesRef.current[currentTarget.machineId];
-                    if (machine) {
+
+                    if (currentDrag.item.isLocked && currentDrag.sourceMachineId !== currentTarget.machineId) {
+                        // Prevent moving a locked module into a different machine
+                    } else if (machine) {
                         const targetX = currentTarget.x - currentDrag.dragOffsetX;
                         const targetY = currentTarget.y - currentDrag.dragOffsetY;
 
