@@ -613,8 +613,8 @@ const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 
 // Alarm / Junk Processing / Blast modules exist for reasons the grid does not model
 // On stats alone they are neutral at best and negative at worst, so a stat optimizer left to its own devices either ignores them or, worse, treats them as free filler
-// Deciding how many of them a build should carry is a separate question from maximising stats,
-// so the solver neither adds them nor removes ones already placed by hand
+// Deciding how many of them a build should carry is a separate question from maximising stats, so the solver neither adds one nor takes one off a board
+// Where they sit is still the solver's problem. A Blast module against a Node costs real stats, so a special already on a board is free to move around it
 export const isSpecialModule = (item: InventoryItem) =>
     item.displayName.includes('Alarm Module')
     || item.displayName.includes('Junk Processing')
@@ -697,7 +697,8 @@ const dominates = (a: number[], b: number[]) => {
  * Three things keep this from throwing away real options: modules are only compared within the same shape and the same placement-dependent effects,
  * stats no machine scores on are left out of the comparison entirely, and enough candidates are kept per group to fill every board,
  * so pruning can never make a layout unreachable for lack of copies
- * Nodes and the special modules are never dropped. They are placed for reasons the stat comparison does not capture
+ * Nodes are never dropped, and the special modules are left out of the pool entirely
+ * The pool is what the fill draws NEW modules from, and those are never the solver's to add
  */
 export const buildSearchPool = (
     inventory: InventoryItem[],
@@ -971,8 +972,12 @@ export const runOptimizationEngine = async (
     const consumedMark = new Int32Array(searchPool.length);
     let markGen = 0;
     let consumedGen = 0;
-    const piecesOnTarget: string[] = [];
+    const piecesOnTarget: InventoryItem[] = [];
     const seenOnTarget = new Set<string>();
+    const removedIds = new Set<string>();
+    // Every special sitting on each rebuilt board, with the cells it is currently standing on
+    // They stay put until the fill lifts them one at a time, so the board is never in a state where one is missing
+    const specialsOnBoard: { piece: InventoryItem; cells: number[] }[][] = machines.map(() => []);
     const freeCells: number[] = [];
     const rebuiltMachines: number[] = [];
     const isRebuilt: boolean[] = new Array(machineCount).fill(false);
@@ -980,7 +985,92 @@ export const runOptimizationEngine = async (
     // So once one module of a shape finds nowhere to go, every later module of that shape in the same pass finds nowhere either, and can be skipped without scanning
     const infeasibleShapes = new Set<ModuleShape>();
     const rebuiltStats: (BoardStats | null)[] = new Array(machineCount).fill(null);
-    const boardEmpty: boolean[] = new Array(machineCount).fill(true);
+    // A board is empty exactly when every cell it has is free, and which cells it has is fixed by its tier
+    const openCellCount = currentBoards.map(b => {
+        let open = 0;
+        for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) if (b[y][x] !== 'Locked') open++;
+        return open;
+    });
+
+    // Drops the cells that are no longer free, keeping the rest in scan order
+    const compactFreeCells = (fillBoard: (InventoryItem | 'Locked' | null)[][]) => {
+        let write = 0;
+        for (let c = 0; c < freeCells.length; c++) {
+            const idx = freeCells[c];
+            const cx = idx % 7;
+            const cy = (idx - cx) / 7;
+            if (fillBoard[cy][cx] === null) freeCells[write++] = idx;
+        }
+        freeCells.length = write;
+    };
+
+    /* Commits one piece at its best-scoring placement among the free cells, and reports whether it found one
+     * The pool fill and the special-module relocation both go through here on purpose:
+     * a special is only allowed to move because the fill can judge where it should go, and it has to judge it on exactly the terms it judges everything else
+     *
+     * `incumbent` is where the piece is standing already, for a piece being relocated rather than placed for the first time
+     * It is scored ahead of everything else and the scan only takes a strictly better cell, so a piece with nowhere better to be simply stays
+     * Without it the ties decide, and for a module whose score barely varies across the board (which is every special) that means the first cell in scan order:
+     * a Line4 lands in the top-left of whatever the ruin opened up, every iteration, taking the best space on the board from the modules that would have earned something with it
+     */
+    const placeBestFit = (
+        ctx: PlacementContext,
+        orientations: Orientation[],
+        piece: InventoryItem,
+        fillBoard: (InventoryItem | 'Locked' | null)[][],
+        fillBoardEmpty: boolean,
+        weightP: number, weightQ: number, weightE: number,
+        incumbent: { x: number; y: number; orientation: Orientation } | null = null
+    ) => {
+        let bestX = -1, bestY = -1;
+        let bestOrientation: Orientation | null = null;
+        let highestHeuristic = -Infinity;
+
+        if (incumbent !== null) {
+            const incumbentScore = evaluatePlacementDelta(
+                ctx, incumbent.x, incumbent.y, incumbent.orientation, fillBoard, fillBoardEmpty,
+                precomputedInternal, weightP, weightQ, weightE
+            );
+            if (incumbentScore !== -Infinity) {
+                highestHeuristic = incumbentScore;
+                bestX = incumbent.x; bestY = incumbent.y;
+                bestOrientation = incumbent.orientation;
+            }
+        }
+
+        for (let c = 0; c < freeCells.length; c++) {
+            const idx = freeCells[c];
+            const x = idx % 7;
+            const y = (idx - x) / 7;
+
+            for (let o = 0; o < orientations.length; o++) {
+                const orientation = orientations[o];
+                // evaluatePlacementDelta rejects these too, but most anchors on a 7x5 board are out of bounds for a given orientation,
+                // and the bounding box settles it here without the nine-argument call
+                if (x + orientation.minX < 0 || x + orientation.maxX > 6 ||
+                    y + orientation.minY < 0 || y + orientation.maxY > 4) continue;
+
+                const deltaScore = evaluatePlacementDelta(
+                    ctx, x, y, orientation, fillBoard, fillBoardEmpty,
+                    precomputedInternal, weightP, weightQ, weightE
+                );
+                if (deltaScore > highestHeuristic && deltaScore !== -Infinity) {
+                    highestHeuristic = deltaScore;
+                    bestX = x; bestY = y;
+                    bestOrientation = orientation;
+                }
+            }
+        }
+
+        if (!bestOrientation) return false;
+
+        const { xs, ys, count } = bestOrientation;
+        for (let i = 0; i < count; i++) {
+            fillBoard[bestY + ys[i]][bestX + xs[i]] = piece;
+        }
+        compactFreeCells(fillBoard);
+        return true;
+    };
 
     let pendingUpdate = false;
     const flushUpdate = () => {
@@ -1081,21 +1171,36 @@ export const runOptimizationEngine = async (
             }
 
             markGen++;
-            for (let i = 0; i < machineCount; i++) boardEmpty[i] = true;
 
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                 const board = isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx];
                 if (isRebuilt[mIdx]) {
                     piecesOnTarget.length = 0;
                     seenOnTarget.clear();
+                    specialsOnBoard[mIdx].length = 0;
 
                     for (let y = 0; y < 5; y++) {
                         for (let x = 0; x < 7; x++) {
                             const cell = board[y][x];
-                            // Special modules are placed by hand, so leave them where they are. The solver cannot put one back once it takes one out
-                            if (cell && cell !== 'Locked' && !seenOnTarget.has(cell.id) && !isSpecialModule(cell)) {
+                            if (!cell || cell === 'Locked') continue;
+
+                            /* A special is offered a better cell every iteration instead of taking a share of the ruin's removal budget
+                             * It is not the ruin's kind of move: the ruin takes a piece away and lets the fill find something better to do with the space,
+                             * and a special is going straight back down whatever happens. Spending a removal on one only means one fewer real piece is reconsidered that iteration
+                             */
+                            if (isSpecialModule(cell)) {
+                                let entry = specialsOnBoard[mIdx].find(e => e.piece.id === cell.id);
+                                if (entry === undefined) {
+                                    entry = { piece: cell, cells: [] };
+                                    specialsOnBoard[mIdx].push(entry);
+                                }
+                                entry.cells.push(y * 7 + x);
+                                continue;
+                            }
+
+                            if (!seenOnTarget.has(cell.id)) {
                                 seenOnTarget.add(cell.id);
-                                piecesOnTarget.push(cell.id);
+                                piecesOnTarget.push(cell);
                             }
                         }
                     }
@@ -1106,18 +1211,18 @@ export const runOptimizationEngine = async (
                             : Math.floor(Math.random() * Math.min(3, piecesOnTarget.length)) + 1;
 
                         shuffleInPlace(piecesOnTarget);
-                        const removed = new Set(piecesOnTarget.slice(0, removeCount));
+                        removedIds.clear();
+                        for (let i = 0; i < removeCount; i++) removedIds.add(piecesOnTarget[i].id);
 
                         for (let y = 0; y < 5; y++) {
                             for (let x = 0; x < 7; x++) {
                                 const cell = board[y][x];
                                 if (cell && cell !== 'Locked') {
-                                    if (removed.has(cell.id)) {
+                                    if (removedIds.has(cell.id)) {
                                         board[y][x] = null;
                                     } else {
                                         const pIdx = poolIndexOf.get(cell);
                                         if (pIdx !== undefined) placedMark[pIdx] = markGen;
-                                        boardEmpty[mIdx] = false;
                                     }
                                 }
                             }
@@ -1162,7 +1267,6 @@ export const runOptimizationEngine = async (
                 }
 
                 const fillBoard = testBoards[fillMIdx];
-                let fillBoardEmpty = boardEmpty[fillMIdx];
 
                 // Every orientation is normalised so its first cell is the anchor, so only  empty cells can anchor a placement
                 // Tracking them prunes the scan as the board fills up
@@ -1171,6 +1275,46 @@ export const runOptimizationEngine = async (
                     for (let x = 0; x < 7; x++) {
                         if (fillBoard[y][x] === null) freeCells.push(y * 7 + x);
                     }
+                }
+                let fillBoardEmpty = freeCells.length === openCellCount[fillMIdx];
+
+                /* The board's specials, offered a better cell one at a time and before anything is drawn
+                 *
+                 * One at a time is what makes this safe: at the moment a special is placed its own cells are still free, and an anchor-normalised orientation always has an
+                 * anchor among them, so placeBestFit can never come back empty-handed and a special can never be lost on the way. Lifting them all at once would let the
+                 * first one take the second one's cells and leave the second with nowhere guaranteed to go
+                 * Going before the draw also means they choose out of the whole ruined area rather than whatever the fill leaves over
+                 */
+                for (const special of specialsOnBoard[fillMIdx]) {
+                    const ctx = placementContexts.get(special.piece.id);
+                    const orientations = PRECOMPUTED_ORIENTATIONS.get(special.piece.shape);
+                    if (ctx === undefined || orientations === undefined) continue;
+
+                    // The cells were collected in row-major order, and an orientation's offsets are in that same order and anchored on its first cell,
+                    // so the cells the piece is standing on say which orientation it is standing in
+                    const anchor = special.cells[0];
+                    const homeX = anchor % 7;
+                    const homeY = (anchor - homeX) / 7;
+                    let home: Orientation | null = null;
+                    for (const orientation of orientations) {
+                        if (orientation.count !== special.cells.length) continue;
+                        let matches = true;
+                        for (let i = 0; i < orientation.count; i++) {
+                            if (special.cells[i] !== anchor + orientation.ys[i] * 7 + orientation.xs[i]) { matches = false; break; }
+                        }
+                        if (matches) { home = orientation; break; }
+                    }
+
+                    for (const idx of special.cells) {
+                        const cx = idx % 7;
+                        fillBoard[(idx - cx) / 7][cx] = null;
+                        freeCells.push(idx);
+                    }
+                    placeBestFit(
+                        ctx, orientations, special.piece, fillBoard, fillBoardEmpty, dynWp, dynWq, dynWe,
+                        home === null ? null : { x: homeX, y: homeY, orientation: home }
+                    );
+                    fillBoardEmpty = false;
                 }
 
                 infeasibleShapes.clear();
@@ -1218,50 +1362,9 @@ export const runOptimizationEngine = async (
                     const orientations = orientationsByIndex[pieceIdx];
                     if (!orientations) continue;
 
-                    let bestX = -1, bestY = -1;
-                    let bestOrientation: Orientation | null = null;
-                    let highestHeuristic = -Infinity;
-
-                    for (let c = 0; c < freeCells.length; c++) {
-                        const idx = freeCells[c];
-                        const x = idx % 7;
-                        const y = (idx - x) / 7;
-
-                        for (let o = 0; o < orientations.length; o++) {
-                            const orientation = orientations[o];
-                            // evaluatePlacementDelta rejects these too, but most anchors on a 7x5 board are out of bounds for a given orientation,
-                            // and the bounding box settles it here without the nine-argument call
-                            if (x + orientation.minX < 0 || x + orientation.maxX > 6 ||
-                                y + orientation.minY < 0 || y + orientation.maxY > 4) continue;
-
-                            const deltaScore = evaluatePlacementDelta(
-                                ctx, x, y, orientation, fillBoard, fillBoardEmpty,
-                                precomputedInternal, dynWp, dynWq, dynWe
-                            );
-                            if (deltaScore > highestHeuristic && deltaScore !== -Infinity) {
-                                highestHeuristic = deltaScore;
-                                bestX = x; bestY = y;
-                                bestOrientation = orientation;
-                            }
-                        }
-                    }
-
-                    if (bestOrientation) {
-                        const { xs, ys, count } = bestOrientation;
-                        for (let i = 0; i < count; i++) {
-                            fillBoard[bestY + ys[i]][bestX + xs[i]] = piece;
-                        }
+                    if (placeBestFit(ctx, orientations, piece, fillBoard, fillBoardEmpty, dynWp, dynWq, dynWe)) {
                         fillBoardEmpty = false;
                         consumedMark[pieceIdx] = consumedGen;
-
-                        let write = 0;
-                        for (let c = 0; c < freeCells.length; c++) {
-                            const idx = freeCells[c];
-                            const cx = idx % 7;
-                            const cy = (idx - cx) / 7;
-                            if (fillBoard[cy][cx] === null) freeCells[write++] = idx;
-                        }
-                        freeCells.length = write;
                     } else {
                         infeasibleShapes.add(piece.shape);
                     }
