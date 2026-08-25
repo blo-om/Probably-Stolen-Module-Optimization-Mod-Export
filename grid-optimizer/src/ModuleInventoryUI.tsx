@@ -27,33 +27,27 @@ const DragGhost = ({ dragState, cellSize }: { dragState: any, cellSize: number }
 
     return (
         <div ref={ghostRef} style={{
-            position: 'fixed',
-            pointerEvents: 'none',
-            zIndex: 9999,
+            position: 'fixed', pointerEvents: 'none', zIndex: 9999,
             left: `${mousePos.current.x - (dragState.dragOffsetX * cellSize) - (cellSize / 2)}px`,
             top: `${mousePos.current.y - (dragState.dragOffsetY * cellSize) - (cellSize / 2)}px`
         }}>
             {dragState.offsets.map((pt: Point, idx: number) => (
                 <div key={idx} style={{
-                    position: 'absolute',
-                    top: pt.y * cellSize,
-                    left: pt.x * cellSize,
-                    width: `${cellSize}px`,
-                    height: `${cellSize}px`,
+                    position: 'absolute', top: pt.y * cellSize, left: pt.x * cellSize,
+                    width: `${cellSize}px`, height: `${cellSize}px`,
                     backgroundColor: COLOR_MAP[dragState.item.color as ModuleColor],
-                    border: '2px solid rgba(0,0,0,0.5)',
-                    boxSizing: 'border-box'
+                    border: '2px solid rgba(0,0,0,0.5)', boxSizing: 'border-box'
                 }} />
             ))}
         </div>
     );
 };
 
-const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, updateItemEffectValue, handleBlurEffectValue, onRemove, onDragStart, onToggleInfinite }: any) => {
+const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, updateItemEffectValue, handleBlurEffectValue, onRemove, onDragStart, onToggleInfinite, onToggleLock }: any) => {
     return (
         <div
             onMouseDown={(e) => onDragStart(e, item)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: '#252526', borderRadius: '4px', borderLeft: `4px solid ${COLOR_MAP[item.color as ModuleColor]}`, cursor: isAnySolving ? 'default' : 'grab' }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: '#252526', borderRadius: '4px', borderLeft: `4px solid ${COLOR_MAP[item.color as ModuleColor]}`, cursor: (isAnySolving || item.isLocked) ? 'default' : 'grab', opacity: item.isLocked ? 0.6 : 1 }}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
                 <MiniShape shape={item.shape} colorHex={COLOR_MAP[item.color as ModuleColor]} size="10px" />
@@ -111,26 +105,50 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
                     )}
                 </div>
             </div>
-            <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => onRemove(item.id)}
-                disabled={isAnySolving}
-                style={{
-                    background: 'none',
-                    border: 'none',
-                    color: isAnySolving ? '#444' : '#666',
-                    cursor: isAnySolving ? 'not-allowed' : 'pointer',
-                    fontSize: '1.2em',
-                    marginLeft: '10px'
-                }}
-            >
-                &times;
-            </button>
+
+            <div style={{ display: 'flex', marginLeft: '8px', alignItems: 'center', gap: '4px' }}>
+                <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={() => onToggleLock(item.id, !item.isLocked)}
+                    disabled={isAnySolving}
+                    style={{
+                        background: item.isLocked ? 'rgba(255, 77, 77, 0.1)' : 'transparent',
+                        border: `1px solid ${item.isLocked ? '#ff4d4d' : '#555'}`,
+                        color: item.isLocked ? '#ff4d4d' : '#aaa',
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        cursor: isAnySolving ? 'not-allowed' : 'pointer',
+                        fontSize: '0.75em',
+                        fontWeight: 'bold',
+                        minWidth: '60px'
+                    }}
+                >
+                    {item.isLocked ? 'Unlock' : 'Lock'}
+                </button>
+                <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={() => onRemove(item.id)}
+                    disabled={isAnySolving}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        color: isAnySolving ? '#444' : '#666',
+                        cursor: isAnySolving ? 'not-allowed' : 'pointer',
+                        fontSize: '1.4em',
+                        padding: '8px',
+                        marginRight: '-5px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                >
+                    &times;
+                </button>
+            </div>
         </div>
     );
 });
 
-type StatFlags = { Performance: boolean, Quality: boolean, Efficiency: boolean };
 type StatRanks = { Performance: number, Quality: number, Efficiency: number };
 
 const MachineInstance = React.memo(forwardRef(({
@@ -138,11 +156,6 @@ const MachineInstance = React.memo(forwardRef(({
                                                    inventory,
                                                    setInventory,
                                                    getUsedItems,
-                                                   initialTier,
-                                                   initialMax,
-                                                   initialTarget,
-                                                   initialIgnore,
-                                                   initialPriority,
                                                    dragState,
                                                    setHoverInfo,
                                                    onDuplicate,
@@ -153,7 +166,8 @@ const MachineInstance = React.memo(forwardRef(({
                                                    isAnySolving,
                                                    canDelete
                                                }: any, ref) => {
-    const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, initialTier, initialMax, initialTarget || { Performance: null, Quality: null, Efficiency: null }, initialIgnore || { Performance: false, Quality: false, Efficiency: false }, initialPriority || { Performance: 1, Quality: 1, Efficiency: 1 });
+    // Machine state loading handles fallback defaults from localStorage automatically
+    const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [machineType, setMachineType] = useState('Select Machine...');
 
@@ -269,16 +283,9 @@ const MachineInstance = React.memo(forwardRef(({
 
     return (
         <div style={{
-            position: 'relative',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            backgroundColor: '#111',
-            border: '1px solid #333',
-            borderRadius: '8px',
-            padding: '15px',
-            width: 'max-content',
-            boxSizing: 'border-box'
+            position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center',
+            backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px', padding: '15px',
+            width: 'max-content', boxSizing: 'border-box'
         }}>
 
             {canDelete && (
@@ -286,16 +293,10 @@ const MachineInstance = React.memo(forwardRef(({
                     onClick={() => onDelete(machineId)}
                     disabled={optimizer.isSolving || isAnySolving}
                     style={{
-                        position: 'absolute',
-                        top: '8px',
-                        right: '10px',
-                        background: 'none',
-                        border: 'none',
-                        color: (optimizer.isSolving || isAnySolving) ? '#444' : '#666',
+                        position: 'absolute', top: '8px', right: '10px', background: 'none',
+                        border: 'none', color: (optimizer.isSolving || isAnySolving) ? '#444' : '#666',
                         cursor: (optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'pointer',
-                        fontSize: '1.2em',
-                        padding: '0',
-                        zIndex: 10
+                        fontSize: '1.2em', padding: '0', zIndex: 10
                     }}
                     title="Delete Machine"
                 >
@@ -450,15 +451,9 @@ const MachineInstance = React.memo(forwardRef(({
                     onChange={(e) => setMachineType(e.target.value)}
                     disabled={optimizer.isSolving || isAnySolving}
                     style={{
-                        width: '100%',
-                        padding: '6px 8px',
-                        backgroundColor: '#222',
-                        color: '#eee',
-                        border: '1px solid #333',
-                        borderRadius: '6px',
-                        fontSize: '0.85em',
-                        outline: 'none',
-                        cursor: (optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'pointer'
+                        width: '100%', padding: '6px 8px', backgroundColor: '#222', color: '#eee',
+                        border: '1px solid #333', borderRadius: '6px', fontSize: '0.85em',
+                        outline: 'none', cursor: (optimizer.isSolving || isAnySolving) ? 'not-allowed' : 'pointer'
                     }}
                 >
                     <option value="Select Machine..." disabled>Select Machine...</option>
@@ -505,7 +500,6 @@ const MachineInstance = React.memo(forwardRef(({
                                         onChange={() => optimizer.setIgnoreStats((prev: any) => {
                                             const next = { ...prev, [stat]: !prev[stat] };
                                             if (next[stat]) {
-                                                // Ignoring a stat overrides caring about it.
                                                 optimizer.setMaximizeStats((m: any) => ({ ...m, [stat]: false }));
                                                 optimizer.setTargetStats((t: any) => ({ ...t, [stat]: null }));
                                             }
@@ -530,7 +524,7 @@ const MachineInstance = React.memo(forwardRef(({
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
                                 <span style={{ fontSize: '0.65em', color: '#888' }}>Pri:</span>
                                 <select
-                                    title={`Priority for ${stat} — 1 matters most. Stats sharing a priority are traded off against each other exactly as before. A lower priority is only looked at once every higher one is as good as it can get, so a satisfied target is never sold off to chase a less important one.`}
+                                    title={`Priority for ${stat} — 1 matters most.`}
                                     value={optimizer.statPriority[stat]}
                                     onChange={(e) => optimizer.setStatPriority((prev: StatRanks) => ({ ...prev, [stat]: Number(e.target.value) }))}
                                     disabled={optimizer.isSolving || isAnySolving || optimizer.ignoreStats[stat]}
@@ -550,14 +544,9 @@ const MachineInstance = React.memo(forwardRef(({
                         onClick={optimizer.isSolving ? optimizer.stopOptimization : optimizer.runOptimization}
                         disabled={(inventory.length === 0 && !optimizer.isSolving) || (!optimizer.isSolving && isAnySolving)}
                         style={{
-                            flex: 2,
-                            padding: '8px',
-                            fontSize: '0.85em',
+                            flex: 2, padding: '8px', fontSize: '0.85em',
                             backgroundColor: optimizer.isSolving ? '#ff4d4d' : '#4caf50',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '6px',
-                            fontWeight: 'bold',
+                            color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold',
                             cursor: ((inventory.length === 0 && !optimizer.isSolving) || (!optimizer.isSolving && isAnySolving)) ? 'not-allowed' : 'pointer',
                             opacity: ((inventory.length === 0 && !optimizer.isSolving) || (!optimizer.isSolving && isAnySolving)) ? 0.5 : 1
                         }}
@@ -625,7 +614,7 @@ const createInventoryItem = (template: ModuleTemplate): InventoryItem => {
         base.Quality > 0 ? base.Quality : 0,
         base.Efficiency > 0 ? base.Efficiency : 0
     );
-    const defaultDoubleBase = maxPositiveBase * 2;
+    const defaultDoubleBase = Math.floor(maxPositiveBase * 2);
 
     return {
         id: `${template.shape}_${template.color}_${Math.random().toString(36).substring(2, 8)}`,
@@ -650,13 +639,21 @@ export default function ModuleInventoryUI() {
         localStorage.setItem('optimizer_inventory', JSON.stringify(inventory));
     }, [inventory]);
 
-    const [machines, setMachines] = useState<{ id: string, initialTier: GridTier, initialMax: any, initialTarget?: any, initialIgnore?: StatFlags, initialPriority?: StatRanks }[]>([
-        { id: `m_${Math.random().toString(36).substring(2,8)}`, initialTier: 3, initialMax: { Performance: false, Quality: false, Efficiency: false } }
-    ]);
+    const [machines, setMachines] = useState<{ id: string }[]>(() => {
+        const saved = localStorage.getItem('optimizer_machine_list');
+        if (saved) {
+            try { return JSON.parse(saved); } catch (e) { }
+        }
+        return [{ id: `m_${Math.random().toString(36).substring(2,8)}` }];
+    });
+
+    useEffect(() => {
+        localStorage.setItem('optimizer_machine_list', JSON.stringify(machines));
+    }, [machines]);
+
     const machinesRef = useRef<Record<string, any>>({});
     const [solvingStates, setSolvingStates] = useState<Record<string, boolean>>({});
 
-    // shared pool
     const getUsedItems = useCallback((excludeId: string) => {
         const used = new Set<string>();
         Object.entries(machinesRef.current).forEach(([id, m]: [string, any]) => {
@@ -677,6 +674,12 @@ export default function ModuleInventoryUI() {
 
     const [filterGroup, setFilterGroup] = useState<FilterGroup>('All');
     const [filterSize, setFilterSize] = useState<'All' | 3 | 4 | 5>('All');
+
+    // Inventory Display Filters
+    const [invFilterGroup, setInvFilterGroup] = useState<FilterGroup>('All');
+    const [invFilterSize, setInvFilterSize] = useState<'All' | 3 | 4 | 5>('All');
+    const [invFilterEffect, setInvFilterEffect] = useState<ItemEffect | 'All'>('All');
+
     const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, cell: InventoryItem, stats?: Stats } | null>(null);
 
     const [dragState, setDragState] = useState<{
@@ -861,7 +864,13 @@ export default function ModuleInventoryUI() {
         ));
     }, []);
 
-    // Custom value input upper limit based on effects on module
+    const handleToggleLock = useCallback((itemId: string, isLocked: boolean) => {
+        setInventory(prev => prev.map(i => i.id === itemId ? { ...i, isLocked } : i));
+        if (isLocked) {
+            Object.values(machinesRef.current).forEach((m: any) => m?.remove(itemId));
+        }
+    }, []);
+
     const getMaxCustomValue = (item: InventoryItem, effectIndex: number, newEffect?: ItemEffect) => {
         const base = getBaseStats(item);
         let maxPositiveBase = Math.max(
@@ -956,7 +965,7 @@ export default function ModuleInventoryUI() {
     }, []);
 
     const handleInventoryDragStart = useCallback((e: React.MouseEvent, item: InventoryItem) => {
-        if (isAnySolving) { e.preventDefault(); return; }
+        if (isAnySolving || item.isLocked) { e.preventDefault(); return; }
         e.preventDefault();
         const offsets = PRECOMPUTED_OFFSETS.get(item.shape)?.[0] || [{x: 0, y: 0}];
 
@@ -996,14 +1005,50 @@ export default function ModuleInventoryUI() {
         return !(filterSize !== 'All' && m.size !== filterSize);
     });
 
-    // Each row carries two dropdowns, so rendering a very large inventory is very expensive
-    const visibleInventory = inventory.length > MAX_VISIBLE_INVENTORY_ROWS
-        ? inventory.slice(0, MAX_VISIBLE_INVENTORY_ROWS)
-        : inventory;
-    const hiddenInventoryCount = inventory.length - visibleInventory.length;
+    const filteredInventory = inventory.filter(item => {
+        if (invFilterGroup !== 'All') {
+            const template = MODULE_TEMPLATES.find(m => m.shape === item.shape && m.color === item.color);
+            const group = template ? template.group : 'All';
+            if (group !== invFilterGroup) return false;
+        }
+        if (invFilterSize !== 'All') {
+            const offsets = PRECOMPUTED_OFFSETS.get(item.shape)?.[0];
+            const size = offsets ? offsets.length : 0;
+            if (size !== invFilterSize) return false;
+        }
+        if (invFilterEffect !== 'All') {
+            if (invFilterEffect === 'None') {
+                if (item.effects[0] !== 'None' || item.effects[1] !== 'None') return false;
+            } else {
+                if (item.effects[0] !== invFilterEffect && item.effects[1] !== invFilterEffect) return false;
+            }
+        }
+        return true;
+    });
+
+    const visibleInventory = filteredInventory.length > MAX_VISIBLE_INVENTORY_ROWS
+        ? filteredInventory.slice(0, MAX_VISIBLE_INVENTORY_ROWS)
+        : filteredInventory;
+    const hiddenInventoryCount = filteredInventory.length - visibleInventory.length;
+
+    const allDisplayedLocked = filteredInventory.length > 0 && filteredInventory.every(item => item.isLocked);
+
+    const handleToggleDisplayLock = () => {
+        const targetState = !allDisplayedLocked; // Unlocks if all are locked, otherwise locks everything displayed.
+        const filteredIds = new Set(filteredInventory.map(i => i.id));
+
+        setInventory(prev => prev.map(item =>
+            filteredIds.has(item.id) ? { ...item, isLocked: targetState } : item
+        ));
+
+        if (targetState === true) {
+            filteredIds.forEach(id => {
+                Object.values(machinesRef.current).forEach((m: any) => m?.remove(id));
+            });
+        }
+    };
 
     const shouldPushNodeToEnd = filterGroup !== 'All';
-
     const catalogDisplayList = shouldPushNodeToEnd
         ? [...filteredModules, NODE_TEMPLATE]
         : [NODE_TEMPLATE, ...filteredModules];
@@ -1025,9 +1070,12 @@ export default function ModuleInventoryUI() {
 
             const initialBoards = activeMachines.map(([, m]: any) => m.getBoard());
 
+            const availableGlobalPool = expandedInventory.filter(item => !item.isLocked);
+
             runOptimizationEngine(
                 machinesConfig,
                 initialBoards,
+                availableGlobalPool,
                 expandedInventory,
                 globalIsSolvingRef,
                 (updates) => {
@@ -1047,21 +1095,13 @@ export default function ModuleInventoryUI() {
     };
 
     const handleAddMachine = () => {
-        setMachines(prev => [...prev, { id: `m_${Math.random().toString(36).substring(2,8)}`, initialTier: 3, initialMax: { Performance: false, Quality: false, Efficiency: false } }]);
+        setMachines(prev => [...prev, { id: `m_${Math.random().toString(36).substring(2,8)}` }]);
     };
 
     const handleDuplicateMachine = useCallback((machineId: string) => {
         const machine = machinesRef.current[machineId];
         if (machine) {
-            const state = machine.getState();
-            setMachines(prev => [...prev, {
-                id: `m_${Math.random().toString(36).substring(2,8)}`,
-                initialTier: state.tier,
-                initialMax: state.maximizeStats,
-                initialTarget: state.targetStats,
-                initialIgnore: state.ignoreStats,
-                initialPriority: state.statPriority
-            }]);
+            setMachines(prev => [...prev, { id: `m_${Math.random().toString(36).substring(2,8)}` }]);
         }
     }, []);
 
@@ -1073,6 +1113,7 @@ export default function ModuleInventoryUI() {
             delete next[machineId];
             return next;
         });
+        localStorage.removeItem(`optimizer_machine_${machineId}`);
     }, []);
 
     const handleSolvingChange = useCallback((id: string, solving: boolean) => {
@@ -1285,11 +1326,6 @@ export default function ModuleInventoryUI() {
                         inventory={expandedInventory}
                         setInventory={setInventory}
                         getUsedItems={getUsedItems}
-                        initialTier={m.initialTier}
-                        initialMax={m.initialMax}
-                        initialTarget={m.initialTarget}
-                        initialIgnore={m.initialIgnore}
-                        initialPriority={m.initialPriority}
                         dragState={dragState}
                         setHoverInfo={setHoverInfo}
                         onDuplicate={handleDuplicateMachine}
@@ -1339,10 +1375,8 @@ export default function ModuleInventoryUI() {
 
             {/* Catalog & Inventory */}
             <div className="bottom-layout">
-
                 {/* Catalog */}
                 <div style={{ flex: '2', backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '8px', border: '1px solid #2c2c2e', display: 'flex', flexDirection: 'column' }}>
-
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #333' }}>
                         <select value={filterGroup} onChange={(e) => setFilterGroup(e.target.value as FilterGroup)} style={{ flex: 1, minWidth: '150px', padding: '8px 12px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none' }}>
                             <option value="All">All Module Groups</option>
@@ -1369,15 +1403,9 @@ export default function ModuleInventoryUI() {
                                     className="catalog-card"
                                     onClick={() => addPieceToInventory(template)}
                                     style={{
-                                        padding: '16px 12px',
-                                        width: '135px',
-                                        backgroundColor: '#252526',
-                                        border: `1px solid ${COLOR_MAP[template.color]}`,
-                                        borderRadius: '6px',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        cursor: 'pointer'
+                                        padding: '16px 12px', width: '135px', backgroundColor: '#252526',
+                                        border: `1px solid ${COLOR_MAP[template.color]}`, borderRadius: '6px',
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer'
                                     }}
                                 >
                                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -1408,25 +1436,46 @@ export default function ModuleInventoryUI() {
                 >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
                         <span style={{ color: '#888', fontSize: '0.9em' }}>
-                            {inventory.length.toLocaleString()} Selected
+                            {filteredInventory.length.toLocaleString()} Selected
                             {hiddenInventoryCount > 0 && <span style={{ color: '#666' }}> (showing {MAX_VISIBLE_INVENTORY_ROWS})</span>}
                         </span>
                         <button
-                            onClick={() => {
-                                setInventory([]);
-                                handleClearAll();
-                            }}
+                            onClick={() => { setInventory([]); handleClearAll(); }}
                             disabled={isAnySolving || inventory.length === 0}
                             style={{
-                                background: 'none',
-                                border: 'none',
-                                color: (isAnySolving || inventory.length === 0) ? '#555' : '#ff4d4d',
+                                background: 'none', border: 'none', color: (isAnySolving || inventory.length === 0) ? '#555' : '#ff4d4d',
                                 cursor: (isAnySolving || inventory.length === 0) ? 'not-allowed' : 'pointer',
-                                fontSize: '0.85em',
-                                textDecoration: 'underline'
+                                fontSize: '0.85em', textDecoration: 'underline'
                             }}
                         >
                             Clear List
+                        </button>
+                    </div>
+
+                    {/* Inventory Filters */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                        <select value={invFilterGroup} onChange={(e) => setInvFilterGroup(e.target.value as FilterGroup)} style={{ flex: 1, minWidth: '110px', padding: '6px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none', fontSize: '0.8em' }}>
+                            <option value="All">All Groups</option>
+                            <option value="Performance">Performance</option>
+                            <option value="Quality">Quality</option>
+                            <option value="Efficiency">Efficiency</option>
+                            <option value="Special">Special</option>
+                        </select>
+                        <select value={invFilterSize} onChange={(e) => setInvFilterSize(e.target.value === 'All' ? 'All' : Number(e.target.value) as any)} style={{ flex: 1, minWidth: '100px', padding: '6px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none', fontSize: '0.8em' }}>
+                            <option value="All">All Sizes</option>
+                            <option value={3}>Size 3</option>
+                            <option value={4}>Size 4</option>
+                            <option value={5}>Size 5</option>
+                        </select>
+                        <select value={invFilterEffect} onChange={(e) => setInvFilterEffect(e.target.value as ItemEffect | 'All')} style={{ flex: 1, minWidth: '120px', padding: '6px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none', fontSize: '0.8em' }}>
+                            <option value="All">All Effects</option>
+                            {EFFECTS_LIST.map(eff => <option key={eff} value={eff}>{eff === 'None' ? 'No Effect' : eff}</option>)}
+                        </select>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '15px' }}>
+                        <button onClick={handleToggleDisplayLock} disabled={isAnySolving || filteredInventory.length === 0} style={{ flex: 1, padding: '6px', backgroundColor: '#2d2d2d', color: '#eee', border: '1px solid #444', borderRadius: '4px', fontSize: '0.8em', cursor: (isAnySolving || filteredInventory.length === 0) ? 'not-allowed' : 'pointer' }}>
+                            {allDisplayedLocked ? 'Unlock Displayed' : 'Lock Displayed'}
                         </button>
                     </div>
 
@@ -1442,6 +1491,7 @@ export default function ModuleInventoryUI() {
                                 onRemove={handleRemoveItem}
                                 onDragStart={handleInventoryDragStart}
                                 onToggleInfinite={handleToggleInfiniteNodes}
+                                onToggleLock={handleToggleLock}
                             />
                         ))}
 
