@@ -1737,13 +1737,15 @@ export function useOptimizer(
 
                 // Never publish a run that has no representable code
                 // It is an inventory past the 8-bit module count the format allows
-                if (newCode && (totals.Performance !== 0 || totals.Quality !== 0 || totals.Efficiency !== 0)) {
-                    const timer = setTimeout(() => saveToDatabase(tier, totals, newCode, availableForCode), 60000);
-                    return () => clearTimeout(timer);
+                if (newCode) {
+                    if (totals.Performance !== 0 || totals.Quality !== 0 || totals.Efficiency !== 0) {
+                        const timer = setTimeout(() => saveToDatabase(tier, totals, newCode, availableForCode), 10000);
+                        return () => clearTimeout(timer);
+                    }
                 }
             } else {
-                setSolutionCode('');
-            }
+                    setSolutionCode('');
+                }
         }
     }, [inventory, tier, maximizeStats, targetStats, ignoreStats, statPriority, machineId, getUsedItems, board, isSolving, isExternallySolving]);
 
