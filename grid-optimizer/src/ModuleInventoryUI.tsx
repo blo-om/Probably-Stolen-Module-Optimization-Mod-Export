@@ -678,8 +678,8 @@ const MachineInstance = React.memo(forwardRef(({
                                         : `${stat} is ignored. Click to turn it on.`}
                                     style={{
                                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1,
-                                        backgroundColor: isOn ? '#202621' : '#222', padding: '6px 4px', borderRadius: '6px',
-                                        border: `1px solid ${isOn ? '#555' : '#2a2a2a'}`,
+                                        backgroundColor: isOn ? '#1d3323' : '#222', padding: '6px 4px', borderRadius: '6px',
+                                        border: `1px solid ${isOn ? '#3f7a4c' : '#2a2a2a'}`,
                                         opacity: isOn ? 1 : 0.35, cursor: currentSolving ? 'not-allowed' : 'pointer',
                                         userSelect: 'none', transition: 'opacity 0.15s ease-in-out'
                                     }}
@@ -1796,6 +1796,20 @@ export default function ModuleInventoryUI() {
             </div>
 
             {/* Main Grid & Controls */}
+            {/* Card order is priority: a small left-to-right arrow over the machine cards */}
+            {machines.length > 1 && (
+                <div
+                    title="Run All gives the best modules to the first card, then the next, and so on. Drag a card by its header to change the order."
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 12px 4px', color: '#888', fontSize: '0.75em', userSelect: 'none' }}
+                >
+                    <span style={{ fontWeight: 'bold', letterSpacing: '0.08em', color: '#aaa' }}>PRIORITY</span>
+                    <span style={{ display: 'flex', alignItems: 'center', width: '140px' }}>
+                        <span style={{ flex: 1, height: '2px', background: 'linear-gradient(to right, rgba(76, 175, 80, 0.15), rgba(76, 175, 80, 0.9))' }} />
+                        <span style={{ width: 0, height: 0, borderTop: '5px solid transparent', borderBottom: '5px solid transparent', borderLeft: '8px solid rgba(76, 175, 80, 0.9)' }} />
+                    </span>
+                    <span>drag cards to reorder</span>
+                </div>
+            )}
             <div className="machines-container" ref={containerRef}>
                 {machines.map(m => (
                     <div
