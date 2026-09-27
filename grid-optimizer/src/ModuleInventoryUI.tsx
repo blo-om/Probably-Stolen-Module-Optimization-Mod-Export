@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
@@ -199,7 +199,6 @@ const MachineInstance = React.memo(forwardRef(({
                                                    isThisMachineSolving,
                                                    canDelete,
                                                    onReorderStart,
-                                                   onReorderEnd,
                                                    onStopAll
                                                }: any, ref) => {
     // Machine state loading handles fallback defaults from localStorage automatically
@@ -379,13 +378,7 @@ const MachineInstance = React.memo(forwardRef(({
         }}>
 
             <div
-                draggable={!isAnySolving}
-                onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', machineId);
-                    onReorderStart(machineId);
-                }}
-                onDragEnd={onReorderEnd}
+                onPointerDown={(e) => { if (!isAnySolving) onReorderStart(machineId, e); }}
                 title="Drag to reorder. Machines are prioritised left to right, then top to bottom."
                 style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center', cursor: isAnySolving ? 'default' : 'grab' }}
             >
@@ -1316,21 +1309,161 @@ export default function ModuleInventoryUI() {
         }
     };
 
-    // Drag a card by its header to change its priority
-    const [reorderingId, setReorderingId] = useState<string | null>(null);
-    const [reorderTargetId, setReorderTargetId] = useState<string | null>(null);
+    // Reordering cards (= priority): press on a card's header and drag. The card lifts and follows the pointer,
+    // the other cards slide aside live as it passes over them, and it settles into its slot on release.
+    // Positions are animated with FLIP: remember where every slot was, reorder, then let each card glide from
+    // its old spot to its new one. Hit testing uses layout positions (offsetLeft/Top), which ignore the
+    // in-flight animations, so a card that is still sliding can't make the order flicker back and forth.
+    const containerRef = useRef<HTMLDivElement>(null);
+    const slotRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const orderRef = useRef(machines);
+    orderRef.current = machines;
+    const sortRef = useRef<{ id: string; grabX: number; grabY: number; x: number; y: number; startX: number; startY: number; started: boolean } | null>(null);
+    const slotSnapshot = useRef<Map<string, { left: number; top: number }> | null>(null);
+    const [sortingId, setSortingId] = useState<string | null>(null);
+    const SORT_EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+    const SORT_MS = 220;
+    const reduceMotion = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    const moveMachine = (fromId: string, toId: string) => {
-        if (fromId === toId) return;
-        setMachines(prev => {
-            const from = prev.findIndex(m => m.id === fromId);
-            const to = prev.findIndex(m => m.id === toId);
-            if (from < 0 || to < 0) return prev;
-            const next = [...prev];
-            const [moved] = next.splice(from, 1);
-            next.splice(to, 0, moved);
-            return next;
-        });
+    const slotBox = (id: string) => {
+        const el = slotRefs.current[id];
+        const container = containerRef.current;
+        if (!el || !container) return null;
+        const c = container.getBoundingClientRect();
+        return { left: c.left + el.offsetLeft, top: c.top + el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
+    };
+
+    // Keeps the lifted card under the pointer, wherever its slot currently is
+    const followPointer = () => {
+        const drag = sortRef.current;
+        if (!drag || !drag.started) return;
+        const card = cardRefs.current[drag.id];
+        const box = slotBox(drag.id);
+        if (!card || !box) return;
+        card.style.transform = `translate(${drag.x - drag.grabX - box.left}px, ${drag.y - drag.grabY - box.top}px) scale(1.03)`;
+    };
+
+    useLayoutEffect(() => {
+        const before = slotSnapshot.current;
+        slotSnapshot.current = null;
+        if (before) {
+            const animate = !reduceMotion();
+            orderRef.current.forEach(m => {
+                if (m.id === sortRef.current?.id) return;
+                const el = slotRefs.current[m.id];
+                const old = before.get(m.id);
+                if (!el || !old) return;
+                const dx = old.left - el.offsetLeft;
+                const dy = old.top - el.offsetTop;
+                if (!dx && !dy) return;
+                if (!animate) return;
+                // Jump back to where it was drawn, then glide to the new slot
+                el.style.transition = 'none';
+                el.style.transform = `translate(${dx}px, ${dy}px)`;
+                void el.offsetWidth;
+                el.style.transition = `transform ${SORT_MS}ms ${SORT_EASE}`;
+                el.style.transform = '';
+            });
+        }
+        followPointer();
+    }, [machines]);
+
+    const handleSortMove = (e: PointerEvent) => {
+        const drag = sortRef.current;
+        if (!drag) return;
+        drag.x = e.clientX;
+        drag.y = e.clientY;
+        if (!drag.started) {
+            if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < 5) return;
+            drag.started = true;
+            setSortingId(drag.id);
+            const card = cardRefs.current[drag.id];
+            if (card) {
+                card.style.transition = `box-shadow ${SORT_MS}ms ${SORT_EASE}`;
+                card.style.zIndex = '50';
+                card.style.boxShadow = '0 22px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(76, 175, 80, 0.35)';
+                card.style.borderRadius = '8px';
+            }
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'grabbing';
+        }
+        followPointer();
+
+        // Over another card's slot? Move into it and let the rest slide
+        for (const m of orderRef.current) {
+            if (m.id === drag.id) continue;
+            const box = slotBox(m.id);
+            if (!box) continue;
+            if (drag.x < box.left || drag.x > box.left + box.width || drag.y < box.top || drag.y > box.top + box.height) continue;
+            const snapshot = new Map<string, { left: number; top: number }>();
+            orderRef.current.forEach(o => {
+                const el = slotRefs.current[o.id];
+                if (el) snapshot.set(o.id, { left: el.offsetLeft, top: el.offsetTop });
+            });
+            slotSnapshot.current = snapshot;
+            setMachines(prev => {
+                const from = prev.findIndex(x => x.id === drag.id);
+                const to = prev.findIndex(x => x.id === m.id);
+                if (from < 0 || to < 0 || from === to) return prev;
+                const next = [...prev];
+                const [moved] = next.splice(from, 1);
+                next.splice(to, 0, moved);
+                return next;
+            });
+            break;
+        }
+    };
+
+    const handleSortEnd = () => {
+        const drag = sortRef.current;
+        sortRef.current = null;
+        if (!drag || !drag.started) return;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        const card = cardRefs.current[drag.id];
+        if (card) {
+            const clear = () => {
+                card.style.transition = '';
+                card.style.transform = '';
+                card.style.zIndex = '';
+                card.style.boxShadow = '';
+            };
+            if (reduceMotion()) {
+                clear();
+            } else {
+                card.style.transition = `transform ${SORT_MS}ms ${SORT_EASE}, box-shadow ${SORT_MS}ms ${SORT_EASE}`;
+                card.style.transform = 'translate(0px, 0px) scale(1)';
+                card.style.boxShadow = '0 0 0 0 rgba(0, 0, 0, 0)';
+                window.setTimeout(clear, SORT_MS + 30);
+            }
+        }
+        setSortingId(null);
+    };
+
+    const handleSortStart = (id: string, e: React.PointerEvent) => {
+        if (e.button !== 0 || sortRef.current) return;
+        // The header's own controls keep working as normal clicks
+        if ((e.target as HTMLElement).closest('button, select, input, option')) return;
+        const card = cardRefs.current[id];
+        if (!card) return;
+        const rect = card.getBoundingClientRect();
+        sortRef.current = {
+            id, grabX: e.clientX - rect.left, grabY: e.clientY - rect.top,
+            x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, started: false
+        };
+        // Bound once per drag, so the exact same functions are removed again (the handlers only touch refs and
+        // state setters, so the ones from this render stay valid for the whole drag)
+        const onMove = (ev: PointerEvent) => handleSortMove(ev);
+        const onEnd = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onEnd);
+            window.removeEventListener('pointercancel', onEnd);
+            handleSortEnd();
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onEnd);
+        window.addEventListener('pointercancel', onEnd);
     };
 
     const [copiedAllForMod, setCopiedAllForMod] = useState(false);
@@ -1508,6 +1641,7 @@ export default function ModuleInventoryUI() {
                     margin-top: 20px;
                 }
                 .machines-container {
+                    position: relative;
                     display: flex;
                     flex-wrap: wrap;
                     justify-content: center;
@@ -1665,30 +1799,25 @@ export default function ModuleInventoryUI() {
             </div>
 
             {/* Main Grid & Controls */}
-            <div className="machines-container">
+            <div className="machines-container" ref={containerRef}>
                 {machines.map(m => (
                     <div
                         key={m.id}
-                        onDragOver={(e) => {
-                            if (!reorderingId) return;
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                            if (reorderTargetId !== m.id) setReorderTargetId(m.id);
-                        }}
-                        onDrop={(e) => {
-                            if (!reorderingId) return;
-                            e.preventDefault();
-                            moveMachine(reorderingId, m.id);
-                            setReorderingId(null);
-                            setReorderTargetId(null);
-                        }}
+                        ref={(el) => { slotRefs.current[m.id] = el; }}
                         style={{
-                            borderRadius: '10px',
-                            opacity: reorderingId === m.id ? 0.4 : 1,
-                            outline: reorderingId && reorderTargetId === m.id && reorderingId !== m.id ? '2px dashed #4caf50' : 'none',
-                            outlineOffset: '4px'
+                            position: 'relative',
+                            borderRadius: '8px',
+                            // The slot a lifted card will drop into
+                            outline: sortingId === m.id ? '2px dashed rgba(76, 175, 80, 0.55)' : 'none',
+                            outlineOffset: '-2px',
+                            backgroundColor: sortingId === m.id ? 'rgba(76, 175, 80, 0.04)' : 'transparent',
+                            transition: 'background-color 150ms ease'
                         }}
                     >
+                      <div
+                        ref={(el) => { cardRefs.current[m.id] = el; }}
+                        style={{ position: 'relative', willChange: sortingId === m.id ? 'transform' : undefined }}
+                      >
                         <MachineInstance
                             machineId={m.id}
                             ref={(el: any) => { if (el) machinesRef.current[m.id] = el; }}
@@ -1705,10 +1834,10 @@ export default function ModuleInventoryUI() {
                             isAnySolving={isAnySolving}
                             isThisMachineSolving={solvingStates[m.id] || false}
                             canDelete={machines.length > 1}
-                            onReorderStart={setReorderingId}
-                            onReorderEnd={() => { setReorderingId(null); setReorderTargetId(null); }}
+                            onReorderStart={handleSortStart}
                             onStopAll={stopAll}
                         />
+                      </div>
                     </div>
                 ))}
             </div>
