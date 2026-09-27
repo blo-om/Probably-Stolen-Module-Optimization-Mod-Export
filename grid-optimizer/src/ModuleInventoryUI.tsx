@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
-import { encodeModExport } from './modExport';
+import { encodeModExport, boardModules } from './modExport';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES, NODE_TEMPLATE } from './constants';
@@ -274,7 +274,9 @@ const MachineInstance = React.memo(forwardRef(({
         getBoard: () => optimizer.boardRef.current,
         applyUpdate: optimizer.applyUpdate,
         isLocked: () => isMachineLocked,
-        getModExport: () => optimizer.solutionCode ? { name: machineType, code: optimizer.solutionCode } : null
+        getModExport: () => optimizer.solutionCode
+            ? { name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }
+            : null
     }), [optimizer, isMachineLocked, machineType]);
 
     useEffect(() => {
@@ -735,7 +737,7 @@ const MachineInstance = React.memo(forwardRef(({
                             Duplicate
                         </button>
                         <button
-                            onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode }]))}
+                            onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }]))}
                             disabled={!optimizer.solutionCode}
                             title="Copy this machine's layout for the Module Loadout mod's import button"
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer', opacity: !optimizer.solutionCode ? 0.5 : 1 }}

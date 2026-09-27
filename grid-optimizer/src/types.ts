@@ -17,6 +17,8 @@ export interface InventoryItem {
     isInfinite?: boolean;
     isLocked?: boolean;
     originalPath?: string;
+    // The game's uniqueId for modules that came from Import Save - stable across save/load, unique per save
+    uid?: number;
 }
 
 export interface ModuleTemplate {
