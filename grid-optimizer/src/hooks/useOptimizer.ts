@@ -313,9 +313,9 @@ export const calculateBoardStats = (
     const internalStats = new Map<string, Stats>();
     const absorptionStats = new Map<string, Stats>();
     for (const { item, cells } of placedPieces.values()) {
-        if (item.displayName.includes('Alarm Module')) placedAlarmsCount++;
-        if (item.displayName.includes('Junk Processing')) placedJunkCount++;
-        if (item.displayName.includes('Blast Module')) placedBlastCount++;
+        if (isAlarmModule(item)) placedAlarmsCount++;
+        if (isJunkModule(item)) placedJunkCount++;
+        if (isBlastModule(item)) placedBlastCount++;
 
         if (item.color === 'White') continue;
 
@@ -658,10 +658,15 @@ const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 // On stats alone they are neutral at best and negative at worst, so a stat optimizer left to its own devices either ignores them or, worse, treats them as free filler
 // Deciding how many of them a build should carry is a separate question from maximising stats, so the solver neither adds one nor takes one off a board
 // Where they sit is still the solver's problem. A Blast module against a Node costs real stats, so a special already on a board is free to move around it
+// The in-game names are "Alarm Transmitter Module", "Furnace Module (Junk Processing)" and "Furnace Module (Blast)".
+// (Matching on "Alarm Module" / "Blast Module" never hit the real names, so the solver stripped those two out of
+// their machines for their Efficiency cost.)
+const isAlarmModule = (item: InventoryItem) => item.displayName.includes('Alarm Transmitter');
+const isJunkModule = (item: InventoryItem) => item.displayName.includes('Junk Processing');
+const isBlastModule = (item: InventoryItem) => item.displayName.includes('(Blast)');
+
 export const isSpecialModule = (item: InventoryItem) =>
-    item.displayName.includes('Alarm Module')
-    || item.displayName.includes('Junk Processing')
-    || item.displayName.includes('Blast Module');
+    isAlarmModule(item) || isJunkModule(item) || isBlastModule(item);
 
 // An ignored stat is worth nothing to this machine in either direction
 const statIsIgnored = (m: MachineConfig, key: keyof Stats) => Boolean(m.ignoreStats?.[key]);
