@@ -382,7 +382,7 @@ const MachineInstance = React.memo(forwardRef(({
                             title={machineType}
                             style={{ color: '#eee', fontSize: '0.8em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                         >
-                            {machineType.length > 34 ? '...' + machineType.substring(machineType.length - 31) : machineType}
+                            {machineType.split(' > ').pop()}
                         </span>
                     ) : (
                         <select
@@ -631,9 +631,6 @@ const MachineInstance = React.memo(forwardRef(({
                                     }}
                                 >
                                     <span style={{ fontSize: '0.6em', color: '#ddd', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
-                                    <span style={{ fontSize: '0.6em', color: isOn ? (hasTarget ? '#ffd700' : '#4caf50') : '#888', fontWeight: 'bold' }}>
-                                        {isOn ? (hasTarget ? 'TARGET' : 'MAX') : 'OFF'}
-                                    </span>
                                     <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
                                         <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
                                         <input
@@ -676,14 +673,14 @@ const MachineInstance = React.memo(forwardRef(({
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
                             style={{
-                                flex: 2, padding: '8px', fontSize: '0.85em',
+                                flex: 1, padding: '8px', fontSize: '0.85em',
                                 backgroundColor: currentSolving ? '#ff4d4d' : '#4caf50',
-                                color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold',
+                                color: 'white', border: `1px solid ${currentSolving ? '#ff4d4d' : '#4caf50'}`, borderRadius: '6px', fontWeight: 'bold',
                                 cursor: (inventory.length === 0 && !currentSolving) ? 'not-allowed' : 'pointer',
                                 opacity: (inventory.length === 0 && !currentSolving) ? 0.5 : 1
                             }}
                         >
-                            {currentSolving ? 'Stop Optimizer' : 'Run Optimizer'}
+                            {currentSolving ? 'Stop' : 'Run'}
                         </button>
                         <button
                             onClick={optimizer.resetBoard}
@@ -699,45 +696,16 @@ const MachineInstance = React.memo(forwardRef(({
                         >
                             Duplicate
                         </button>
+                        <button
+                            onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode }]))}
+                            disabled={!optimizer.solutionCode}
+                            title="Copy this machine's layout for the Module Loadout mod's import button"
+                            style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer', opacity: !optimizer.solutionCode ? 0.5 : 1 }}
+                        >
+                            Export
+                        </button>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', width: '100%', boxSizing: 'border-box' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flex: '7' }}>
-                            <span style={{ fontSize: '0.75em', color: '#888' }}>Code:</span>
-                            <input
-                                type="text"
-                                value={optimizer.solutionCode}
-                                onChange={(e) => optimizer.setSolutionCode(e.target.value)}
-                                placeholder="Solution code..."
-                                disabled={isAnySolving}
-                                style={{ flex: 1, minWidth: 0, padding: '6px', fontSize: '0.75em', backgroundColor: '#111', color: '#eee', border: '1px solid #555', borderRadius: '6px' }}
-                            />
-                        </div>
-                        <div style={{ display: 'flex', gap: '5px', flex: '3' }}>
-                            <button
-                                onClick={() => optimizer.importSolution(optimizer.solutionCode)}
-                                disabled={!optimizer.solutionCode || isAnySolving}
-                                style={{ flex: 1, padding: '6px', fontSize: '0.85em', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '6px', cursor: (!optimizer.solutionCode || isAnySolving) ? 'not-allowed' : 'pointer' }}
-                            >
-                                Import
-                            </button>
-                            <button
-                                onClick={() => navigator.clipboard.writeText(optimizer.solutionCode)}
-                                disabled={!optimizer.solutionCode}
-                                style={{ flex: 1, padding: '6px', fontSize: '0.85em', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer' }}
-                            >
-                                Copy
-                            </button>
-                            <button
-                                onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode }]))}
-                                disabled={!optimizer.solutionCode}
-                                title="Copy this machine's code with its name, for the Module Loadout mod's import button"
-                                style={{ flex: 1, padding: '6px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer' }}
-                            >
-                                Mod
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -1346,7 +1314,6 @@ export default function ModuleInventoryUI() {
 
     const cellSize = machines.length <= 2 ? 50 : (machines.length <= 4 ? 40 : 35);
 
-    const [copiedPath, setCopiedPath] = useState(false);
 
     return (
         <div className="main-container">
@@ -1542,7 +1509,7 @@ export default function ModuleInventoryUI() {
             )}
 
             {/* Toolbar */}
-            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '10px', width: '100%', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '10px', marginBottom: '34px', width: '100%', flexWrap: 'wrap' }}>
                 <button
                     onClick={handleRunAll}
                     disabled={inventory.length === 0 && !isAnySolving}
@@ -1583,50 +1550,16 @@ export default function ModuleInventoryUI() {
                     {copiedAllForMod ? 'Copied!' : 'Copy All for Mod'}
                 </button>
                 <SaveFileImporter onImport={handleImportSave} />
-            </div>
-
-            <div
-                title="Click to copy path"
-                onClick={() => {
-                    navigator.clipboard.writeText('%USERPROFILE%\\AppData\\LocalLow\\Questing Goose Studio\\Probably Stolen');
-                    setCopiedPath(true);
-                    setTimeout(() => setCopiedPath(false), 2000);
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#eee'} // hover
-                onMouseLeave={(e) => e.currentTarget.style.color = '#888'} // default
-                style={{
-                    marginTop: '8px',
-                    marginBottom: '20px',
-                    color: '#888',
-                    fontSize: '0.85em',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    transition: 'color 0.15s ease-in-out'
-                }}
-            >
-                {copiedPath
-                    ? "Path copied to clipboard!"
-                    : "Default save_#.es3 file path: %USERPROFILE%\\AppData\\LocalLow\\Questing Goose Studio\\Probably Stolen"
-                }
+                <button
+                    onClick={handleClearAllMachines}
+                    disabled={isAnySolving}
+                    style={{ padding: '10px 24px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
+                >
+                    Delete All
+                </button>
             </div>
 
             {/* Main Grid & Controls */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                <div style={{ width: '120px' }}></div>
-                <div style={{ color: '#888', fontSize: '0.85em', textAlign: 'center', flex: 1 }}>
-                    Tip: While dragging a module, press Q, E, or F to rotate or flip.
-                </div>
-                <div style={{ width: '120px', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                        onClick={handleClearAllMachines}
-                        disabled={isAnySolving}
-                        style={{ padding: '6px 12px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.8em' }}
-                    >
-                        Delete All
-                    </button>
-                </div>
-            </div>
-
             <div className="machines-container">
                 {machines.map(m => (
                     <MachineInstance
