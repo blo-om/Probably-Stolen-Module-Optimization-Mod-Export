@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
+import { encodeModExport } from './modExport';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES, NODE_TEMPLATE } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
@@ -230,8 +231,9 @@ const MachineInstance = React.memo(forwardRef(({
         isValidPlacement: optimizer.isValidPlacement,
         getBoard: () => optimizer.boardRef.current,
         applyUpdate: optimizer.applyUpdate,
-        isLocked: () => isMachineLocked
-    }), [optimizer, isMachineLocked]);
+        isLocked: () => isMachineLocked,
+        getModExport: () => optimizer.solutionCode ? { name: machineType, code: optimizer.solutionCode } : null
+    }), [optimizer, isMachineLocked, machineType]);
 
     useEffect(() => {
         if (dragState && dragState.sourceMachineId === machineId && dragState.initialTarget && localHover === null) {
@@ -699,6 +701,14 @@ const MachineInstance = React.memo(forwardRef(({
                                 style={{ flex: 1, padding: '6px', fontSize: '0.85em', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer' }}
                             >
                                 Copy
+                            </button>
+                            <button
+                                onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode }]))}
+                                disabled={!optimizer.solutionCode}
+                                title="Copy this machine's code with its name, for the Module Loadout mod's import button"
+                                style={{ flex: 1, padding: '6px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer' }}
+                            >
+                                Mod
                             </button>
                         </div>
                     </div>
@@ -1224,6 +1234,17 @@ export default function ModuleInventoryUI() {
         }
     };
 
+    const [copiedAllForMod, setCopiedAllForMod] = useState(false);
+    const handleCopyAllForMod = () => {
+        const entries = machines
+            .map(m => machinesRef.current[m.id]?.getModExport?.())
+            .filter((e: any) => e && e.code);
+        if (entries.length === 0) return;
+        navigator.clipboard.writeText(encodeModExport(entries));
+        setCopiedAllForMod(true);
+        setTimeout(() => setCopiedAllForMod(false), 2000);
+    };
+
     const handleClearAll = () => {
         Object.values(machinesRef.current).forEach((m: any) => {
             if (m && typeof m.isLocked === 'function' && !m.isLocked()) {
@@ -1565,6 +1586,14 @@ export default function ModuleInventoryUI() {
                     style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
                     + Add Machine
+                </button>
+                <button
+                    onClick={handleCopyAllForMod}
+                    disabled={isAnySolving}
+                    title="Copy every machine's code with its name, for the Module Loadout mod"
+                    style={{ padding: '10px 24px', backgroundColor: '#2e4a35', color: '#eee', border: '1px solid #4caf50', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
+                >
+                    {copiedAllForMod ? 'Copied!' : 'Copy All for Mod'}
                 </button>
                 <SaveFileImporter onImport={handleImportSave} />
             </div>
