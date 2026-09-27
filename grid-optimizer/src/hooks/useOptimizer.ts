@@ -1,13 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import type {GridTier, InventoryItem, Stats, TargetStats, Point, ModuleShape, ModuleColor, ItemEffect} from '../types';
 import type { Orientation } from '../utils';
 import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS, roundStat } from '../utils';
 import { MODULE_TEMPLATES } from '../constants';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://yhiojdutwgfxrgakbrjs.supabase.co';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloaW9qZHV0d2dmeHJnYWticmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0ODcwMjMsImV4cCI6MjEwMjA2MzAyM30.lVkU06tLfM64aFYL2Gx-UMPFL9KCRSaadu58TDWMmSI';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 const SHAPE_MAP: ModuleShape[] = ['Node1x2', 'L3', 'L4_Base', 'T4_Base', 'Square4_Base', 'L4_High', 'T4_High', 'Square4_High', 'P5', 'C5', 'Line4'];
 const COLOR_MAP_KEYS: ModuleColor[] = ['White', 'Red', 'Yellow', 'Green', 'Purple', 'DarkRed', 'Grey'];
@@ -177,30 +173,6 @@ const generateCodeFromState = (
     });
 
     return writer.toBase85();
-};
-
-const saveToDatabase = (
-    currentTier: GridTier,
-    totals: Stats,
-    code: string,
-    inv: InventoryItem[]
-) => {
-    const hasNeuralCore = inv.some(item => item.displayName.includes('Neural Core'));
-    const averageStat = (totals.Performance + totals.Quality + totals.Efficiency) / 3;
-
-    const submission = {
-        tier: currentTier,
-        has_neural_core: hasNeuralCore,
-        performance: totals.Performance,
-        quality: totals.Quality,
-        efficiency: totals.Efficiency,
-        average_stat: parseFloat(averageStat.toFixed(2)),
-        solution_code: code
-    };
-
-    supabase.from('leaderboards').insert([submission]).then(({ error }) => {
-        if (error) console.error(error);
-    });
 };
 
 export function initializeBoard(currentTier: GridTier, initialIds?: (string | 'Locked' | null)[][], inventory?: InventoryItem[]) {
@@ -1833,14 +1805,7 @@ export function useOptimizer(
                 const newCode = generateCodeFromState(tier, maximizeStats, targetStats, availableForCode, boardToCalculate);
                 setSolutionCode(newCode);
 
-                // Never publish a run that has no representable code
-                // It is an inventory past the 8-bit module count the format allows
-                if (newCode) {
-                    if (totals.Performance !== 0 || totals.Quality !== 0 || totals.Efficiency !== 0) {
-                        const timer = setTimeout(() => saveToDatabase(tier, totals, newCode, availableForCode), 30000); // save timer
-                        return () => clearTimeout(timer);
-                    }
-                }
+                // This fork does not submit results to the original site's leaderboard.
             } else {
                 setSolutionCode('');
             }
