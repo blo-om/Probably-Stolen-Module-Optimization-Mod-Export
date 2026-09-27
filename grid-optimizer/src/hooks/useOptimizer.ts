@@ -1567,8 +1567,10 @@ export function useOptimizer(
     });
 
     const [targetStats, setTargetStats] = useState<TargetStats>(savedState?.targetStats ?? { Performance: null, Quality: null, Efficiency: null });
-    const [maximizeStats, setMaximizeStats] = useState(savedState?.maximizeStats ?? { Performance: true, Quality: true, Efficiency: true });
-    const [ignoreStats, setIgnoreStats] = useState(savedState?.ignoreStats ?? { Performance: false, Quality: false, Efficiency: false });
+    // New machines start with Efficiency off (it only changes energy use); Import Save and picking a machine type
+    // set per-type defaults on top of this (see machineDefaults.ts)
+    const [maximizeStats, setMaximizeStats] = useState(savedState?.maximizeStats ?? { Performance: true, Quality: true, Efficiency: false });
+    const [ignoreStats, setIgnoreStats] = useState(savedState?.ignoreStats ?? { Performance: false, Quality: false, Efficiency: true });
     const [statPriority, setStatPriority] = useState(savedState?.statPriority ?? { Performance: 1, Quality: 1, Efficiency: 1 });
 
     const [board, setBoard] = useState<(InventoryItem | 'Locked' | null)[][]>(() => initializeBoard(savedState?.tier ?? defaultTier, savedState?.boardIds, inventory));

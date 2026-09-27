@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
+import { defaultIgnoreStats, defaultMaximizeStats } from './machineDefaults';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES, NODE_TEMPLATE } from './constants';
@@ -453,6 +454,7 @@ const MachineInstance = React.memo(forwardRef(({
                                         }
                                     });
                                     setMachineType(`${selected} ${max + 1}`);
+                                    optimizer.setIgnoreStats(defaultIgnoreStats(selected));
                                 }}
                                 disabled={currentSolving}
                                 style={{
@@ -1225,7 +1227,9 @@ export default function ModuleInventoryUI() {
         setInventory(newItems);
 
         newMachines.forEach(m => {
-            localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier }));
+            // Each imported machine starts with the stats that matter for its type switched on
+            const ignoreStats = defaultIgnoreStats(m.machineType);
+            localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats: defaultMaximizeStats(ignoreStats) }));
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
         });
 
