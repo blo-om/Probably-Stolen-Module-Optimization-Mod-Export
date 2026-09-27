@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { SAVE_NAME_KEY, SAVE_SLOT_KEY } from '../modExport';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
@@ -10,7 +11,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     // Name of the last imported save (without .es3), kept across reloads like the rest of the page state
-    const [saveName, setSaveName] = useState<string | null>(() => localStorage.getItem('optimizer_save_name'));
+    const [saveName, setSaveName] = useState<string | null>(() => localStorage.getItem(SAVE_NAME_KEY));
 
     const getShapeFromData = (width: number, data: number[], isHighTier: boolean, blocks: number): ModuleShape | null => {
         if (blocks <= 2) return 'Node1x2';
@@ -344,7 +345,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         effectValues: [eff1Val, eff2Val],
                         isInfinite: false,
                         isLocked: false,
-                        originalPath: pathStr
+                        originalPath: pathStr,
+                        uid: typeof item.uniqueId === 'number' ? item.uniqueId : undefined
                     } as any);
 
                     const parentId = parentMap.get(item.uuid);
@@ -444,7 +446,11 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
 
                 onImport(parsedInventory, newMachines);
                 const importedName = file.name.replace(/\.es3$/i, '');
-                localStorage.setItem('optimizer_save_name', importedName);
+                localStorage.setItem(SAVE_NAME_KEY, importedName);
+                // The save's own slot number, which the mod compares with the loaded game before trusting module uids
+                const slotMatch = /"saveSlotId"\s*:\s*(\d+)/.exec(text);
+                if (slotMatch) localStorage.setItem(SAVE_SLOT_KEY, slotMatch[1]);
+                else localStorage.removeItem(SAVE_SLOT_KEY);
                 setSaveName(importedName);
             } catch (err) {
                 console.error("Failed to parse save:", err);

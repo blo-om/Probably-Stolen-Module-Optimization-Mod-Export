@@ -20,10 +20,23 @@ PSMOD1:<base64url(UTF-8 JSON)>
 ```
 
 ```json
-{ "v": 1, "machines": [ { "name": "Inv. > Machine Bay (Expanded) 1 > Furnace 2", "code": "<solution code>" } ] }
+{
+  "v": 2,
+  "slot": 1,
+  "save": "save_1",
+  "machines": [
+    {
+      "name": "Inv. > Machine Bay (Expanded) 1 > Furnace 2",
+      "code": "<solution code>",
+      "modules": [ { "uid": 3585, "cells": [0, 1, 2, 8] } ]
+    }
+  ]
+}
 ```
 
+- `slot` / `save` identify the save that was imported (`saveSlotId` from the file, and its file name).
 - `name` is the machine name shown on the card. For machines added with **Import Save (.es3)** that is the full path the save importer builds; the mod rebuilds the same names in-game to find the machine.
+- `modules` lists every save module on the board by the game's own `uniqueId` (stored in the save and kept by the running game) with the board cells (`y * 7 + x`) it covers, so the mod moves exactly those items. Modules added from the catalog have no uid and are only in `code`.
 - `code` is the unchanged solution code from the card.
 - The string has no whitespace. Encoding is in `grid-optimizer/src/modExport.ts`.
 
