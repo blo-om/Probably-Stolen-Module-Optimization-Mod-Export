@@ -9,6 +9,7 @@ A fork of [hoydoy/probably-stolen-module-optimization](https://github.com/hoydoy
 - **Mod export.** Each machine card has a **Mod** button, and the toolbar has **Copy All for Mod**. They copy the machine's name together with its solution code, so the *Module Loadout* MelonLoader mod can put the modules into the right machine in-game.
 - **No leaderboard submissions.** Results are not sent to the original site's Supabase leaderboard, and the original site's analytics script is removed.
 
+- **Smarter targets.** A target (Tar %) is a hard minimum that outranks card order. A machine whose stats are all targets reaches them with the weakest modules that suffice, leaving strong modules for machines that maximize, and a clean-up pass swaps out any module a weaker same-shaped one can replace.
 - **Layout.** Machine cards show the machine's icon and short name in the header, stat cards toggle on/off with a click, and the page toolbar sits at the top.
 
 The machine icons in `grid-optimizer/public/machines/` are item art from *Probably Stolen* © Questing Goose Studio, used to identify machines in this fan tool.
