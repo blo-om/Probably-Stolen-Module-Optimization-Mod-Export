@@ -1562,7 +1562,7 @@ export function useOptimizer(
     });
 
     const [targetStats, setTargetStats] = useState<TargetStats>(savedState?.targetStats ?? { Performance: null, Quality: null, Efficiency: null });
-    const [maximizeStats, setMaximizeStats] = useState(savedState?.maximizeStats ?? { Performance: false, Quality: false, Efficiency: false });
+    const [maximizeStats, setMaximizeStats] = useState(savedState?.maximizeStats ?? { Performance: true, Quality: true, Efficiency: true });
     const [ignoreStats, setIgnoreStats] = useState(savedState?.ignoreStats ?? { Performance: false, Quality: false, Efficiency: false });
     const [statPriority, setStatPriority] = useState(savedState?.statPriority ?? { Performance: 1, Quality: 1, Efficiency: 1 });
 

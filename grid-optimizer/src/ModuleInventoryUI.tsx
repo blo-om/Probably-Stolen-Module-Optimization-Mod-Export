@@ -194,6 +194,10 @@ const MachineInstance = React.memo(forwardRef(({
         return localStorage.getItem(`optimizer_machine_type_${machineId}`) || 'Select Machine...';
     });
 
+    // Save-imported machines are named by their path in the save ("Inv. > ..."); their name and tier come from
+    // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
+    const isImportedMachine = machineType.startsWith('Inv.');
+
     useEffect(() => {
         if (machineType !== 'Select Machine...') {
             localStorage.setItem(`optimizer_machine_type_${machineId}`, machineType);
@@ -518,56 +522,73 @@ const MachineInstance = React.memo(forwardRef(({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-                    <select
-                        title={machineType !== "Select Machine..." ? machineType : undefined}
-                        value={machineType}
-                        onChange={(e) => {
-                            const selected = e.target.value;
-                            const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
-                            let max = 0;
+                    {isImportedMachine ? (
+                        <div
+                            title={machineType}
+                            style={{
+                                width: '100%', padding: '6px 8px', backgroundColor: '#222', color: '#eee',
+                                border: '1px solid #333', borderRadius: '6px', fontSize: '0.85em', boxSizing: 'border-box',
+                                textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden', textAlign: 'center'
+                            }}
+                        >
+                            {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
+                        </div>
+                    ) : (
+                        <select
+                            title={machineType !== "Select Machine..." ? machineType : undefined}
+                            value={machineType}
+                            onChange={(e) => {
+                                const selected = e.target.value;
+                                const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
+                                let max = 0;
 
-                            const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                            const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
+                                const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
 
-                            allKeys.forEach(k => {
-                                if (k === `optimizer_machine_type_${machineId}`) return;
-                                const val = localStorage.getItem(k);
-                                if (val) {
-                                    const match = val.match(regex);
-                                    if (match) {
-                                        const num = parseInt(match[1], 10);
-                                        if (num > max) max = num;
+                                allKeys.forEach(k => {
+                                    if (k === `optimizer_machine_type_${machineId}`) return;
+                                    const val = localStorage.getItem(k);
+                                    if (val) {
+                                        const match = val.match(regex);
+                                        if (match) {
+                                            const num = parseInt(match[1], 10);
+                                            if (num > max) max = num;
+                                        }
                                     }
-                                }
-                            });
-                            setMachineType(`${selected} ${max + 1}`);
-                        }}
-                        disabled={currentSolving}
-                        style={{
-                            width: '100%', padding: '6px 8px', backgroundColor: '#222', color: '#eee',
-                            border: '1px solid #333', borderRadius: '6px', fontSize: '0.85em',
-                            outline: 'none', cursor: currentSolving ? 'not-allowed' : 'pointer',
-                            textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
-                        }}
-                    >
-                        <option value="Select Machine..." disabled>Select Machine...</option>
-                        {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
-                            <option value={machineType}>
-                                {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
-                            </option>
-                        )}
-                        <option value="Moisture Farm">Moisture Farm</option>
-                        <option value="Furnace">Furnace</option>
-                        <option value="Water Purifier">Water Purifier</option>
-                        <option value="Alarm System">Alarm System</option>
-                        <option value="AgeWell">AgeWell</option>
-                        <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
-                        <option value="Mirage Projector">Mirage Projector</option>
-                    </select>
+                                });
+                                setMachineType(`${selected} ${max + 1}`);
+                            }}
+                            disabled={currentSolving}
+                            style={{
+                                width: '100%', padding: '6px 8px', backgroundColor: '#222', color: '#eee',
+                                border: '1px solid #333', borderRadius: '6px', fontSize: '0.85em',
+                                outline: 'none', cursor: currentSolving ? 'not-allowed' : 'pointer',
+                                textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
+                            }}
+                        >
+                            <option value="Select Machine..." disabled>Select Machine...</option>
+                            {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
+                                <option value={machineType}>
+                                    {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
+                                </option>
+                            )}
+                            <option value="Moisture Farm">Moisture Farm</option>
+                            <option value="Furnace">Furnace</option>
+                            <option value="Water Purifier">Water Purifier</option>
+                            <option value="Alarm System">Alarm System</option>
+                            <option value="AgeWell">AgeWell</option>
+                            <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
+                            <option value="Mirage Projector">Mirage Projector</option>
+                        </select>
+                    )}
 
                     <div style={{ display: 'flex', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', gap: '5px', backgroundColor: '#222', padding: '5px', borderRadius: '6px' }}>
-                            {[1, 2, 3].map((t) => (
+                            {isImportedMachine ? (
+                                <span title="Upgrade tier read from the imported save" style={{ padding: '6px 12px', fontSize: '0.85em', color: 'white' }}>
+                                    Tier {optimizer.tier}
+                                </span>
+                            ) : [1, 2, 3].map((t) => (
                                 <button key={t} onClick={() => optimizer.handleTierChange(t as GridTier)} disabled={currentSolving} style={{ padding: '6px 12px', fontSize: '0.85em', backgroundColor: optimizer.tier === t ? '#555' : 'transparent', color: 'white', border: 'none', borderRadius: '4px', cursor: currentSolving ? 'not-allowed' : 'pointer' }}>
                                     Tier {t}
                                 </button>
@@ -1515,47 +1536,8 @@ export default function ModuleInventoryUI() {
                 </div>
             )}
 
-            {/* Main Grid & Controls */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                <div style={{ width: '120px' }}></div>
-                <div style={{ color: '#888', fontSize: '0.85em', textAlign: 'center', flex: 1 }}>
-                    Tip: While dragging a module, press Q, E, or F to rotate or flip.
-                </div>
-                <div style={{ width: '120px', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                        onClick={handleClearAllMachines}
-                        disabled={isAnySolving}
-                        style={{ padding: '6px 12px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.8em' }}
-                    >
-                        Delete All
-                    </button>
-                </div>
-            </div>
-
-            <div className="machines-container">
-                {machines.map(m => (
-                    <MachineInstance
-                        key={m.id}
-                        machineId={m.id}
-                        ref={(el: any) => { if (el) machinesRef.current[m.id] = el; }}
-                        inventory={expandedInventory}
-                        setInventory={setInventory}
-                        getUsedItems={getUsedItems}
-                        dragState={dragState}
-                        setHoverInfo={setHoverInfo}
-                        onDuplicate={handleDuplicateMachine}
-                        onDelete={handleDeleteMachine}
-                        cellSize={cellSize}
-                        onSolvingChange={handleSolvingChange}
-                        onDragTargetRefChange={setDragTargetRefChange}
-                        isAnySolving={isAnySolving}
-                        isThisMachineSolving={solvingStates[m.id] || false}
-                        canDelete={machines.length > 1}
-                    />
-                ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '30px', width: '100%', flexWrap: 'wrap' }}>
+            {/* Toolbar */}
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '10px', width: '100%', flexWrap: 'wrap' }}>
                 <button
                     onClick={handleRunAll}
                     disabled={inventory.length === 0 && !isAnySolving}
@@ -1609,6 +1591,7 @@ export default function ModuleInventoryUI() {
                 onMouseLeave={(e) => e.currentTarget.style.color = '#888'} // default
                 style={{
                     marginTop: '8px',
+                    marginBottom: '20px',
                     color: '#888',
                     fontSize: '0.85em',
                     textAlign: 'center',
@@ -1620,6 +1603,46 @@ export default function ModuleInventoryUI() {
                     ? "Path copied to clipboard!"
                     : "Default save_#.es3 file path: %USERPROFILE%\\AppData\\LocalLow\\Questing Goose Studio\\Probably Stolen"
                 }
+            </div>
+
+            {/* Main Grid & Controls */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <div style={{ width: '120px' }}></div>
+                <div style={{ color: '#888', fontSize: '0.85em', textAlign: 'center', flex: 1 }}>
+                    Tip: While dragging a module, press Q, E, or F to rotate or flip.
+                </div>
+                <div style={{ width: '120px', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                        onClick={handleClearAllMachines}
+                        disabled={isAnySolving}
+                        style={{ padding: '6px 12px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.8em' }}
+                    >
+                        Delete All
+                    </button>
+                </div>
+            </div>
+
+            <div className="machines-container">
+                {machines.map(m => (
+                    <MachineInstance
+                        key={m.id}
+                        machineId={m.id}
+                        ref={(el: any) => { if (el) machinesRef.current[m.id] = el; }}
+                        inventory={expandedInventory}
+                        setInventory={setInventory}
+                        getUsedItems={getUsedItems}
+                        dragState={dragState}
+                        setHoverInfo={setHoverInfo}
+                        onDuplicate={handleDuplicateMachine}
+                        onDelete={handleDeleteMachine}
+                        cellSize={cellSize}
+                        onSolvingChange={handleSolvingChange}
+                        onDragTargetRefChange={setDragTargetRefChange}
+                        isAnySolving={isAnySolving}
+                        isThisMachineSolving={solvingStates[m.id] || false}
+                        canDelete={machines.length > 1}
+                    />
+                ))}
             </div>
 
             {/* Catalog & Inventory */}
