@@ -915,11 +915,103 @@ export const runOptimizationEngine = async (
     const tierOfRank = new Map<number, number>(rankOrder.map((r, i) => [r, i]));
     const tierOf = (m: MachineConfig, key: keyof Stats) => tierOfRank.get(priorityOf(m, key))!;
 
-    const currentTiers = new Float64Array(tierCount + 1);
+    // Tier layout, most important first:
+    //   [0]              every machine's target shortfall - a target is a hard minimum, whatever the card order
+    //   [1 .. tierCount] maximized stats, one tier per priority rank (card order)
+    //   [tierCount + 1]  tiebreak: how much the boards hold (see boardTiebreak)
+    const TARGET_TIER = 0;
+    const RANK_OFFSET = 1;
+    const TIEBREAK_TIER = tierCount + 1;
+    const currentTiers = new Float64Array(tierCount + 2);
     // epochTiers is the best this attempt has reached, bestTiers the best ever reached
     // They are the same thing until the search restarts; (see RESTART_AFTER_STAGNATIONS)
-    const epochTiers = new Float64Array(tierCount + 1).fill(-Infinity);
-    const bestTiers = new Float64Array(tierCount + 1).fill(-Infinity);
+    const epochTiers = new Float64Array(tierCount + 2).fill(-Infinity);
+    const bestTiers = new Float64Array(tierCount + 2).fill(-Infinity);
+
+    // A machine whose every enabled stat has a target only has to reach those targets. It should do that with the
+    // least valuable modules that get there, so the strong ones stay free for machines that maximize.
+    const isTargetOnly = machines.map(m => {
+        let hasTarget = false;
+        for (const key of STAT_KEYS) {
+            if (statIsIgnored(m, key)) continue;
+            if (m.maximizeStats[key]) return false;
+            if (m.targetStats[key] !== null) hasTarget = true;
+        }
+        return hasTarget;
+    });
+    const meetsTargets = (m: MachineConfig, t: Stats) =>
+        STAT_KEYS.every(key => statIsIgnored(m, key) || m.targetStats[key] === null || t[key] >= m.targetStats[key]!);
+
+    // What a module is worth to the machines that maximize: its positive stats in the stats someone maximizes
+    // (or in every stat, if nobody maximizes anything). Nodes carry no stats of their own but still help, so they
+    // count a little; specials never move between machines, so they count for nothing.
+    const maximizedKeys = STAT_KEYS.filter(key => machines.some(m => !statIsIgnored(m, key) && m.maximizeStats[key]));
+    const valueKeys = maximizedKeys.length > 0 ? maximizedKeys : STAT_KEYS;
+    const NODE_VALUE = 3;
+    const moduleValue = (item: InventoryItem) => {
+        if (isSpecialModule(item)) return 0;
+        if (item.color === 'White') return NODE_VALUE;
+        const stats = precomputedInternal.get(item.id);
+        if (stats === undefined) return 0;
+        let value = 0;
+        for (const key of valueKeys) value += Math.max(0, stats[key]);
+        return value;
+    };
+
+    // Least important tier. Target-only machines pay for the value they hold, so between two layouts that meet
+    // their targets the one using weaker modules wins. Every other machine keeps the original "fewer pieces" nudge.
+    const boardTiebreak = (mIdx: number, board: (InventoryItem | 'Locked' | null)[][], placedPieces: number) => {
+        if (!isTargetOnly[mIdx]) return placedPieces * 5;
+        const seen = new Set<string>();
+        let held = 0;
+        for (const row of board) {
+            for (const cell of row) {
+                if (!cell || cell === 'Locked' || seen.has(cell.id)) continue;
+                seen.add(cell.id);
+                held += moduleValue(cell);
+            }
+        }
+        return held;
+    };
+
+    // Swaps modules on target-only machines for weaker unused ones of the same shape (so the same cells), as long as
+    // every target is still met. The freed modules go back to the pool for the machines that maximize.
+    const downgradeTargetMachines = (boards: (InventoryItem | 'Locked' | null)[][][]) => {
+        if (!isTargetOnly.some(Boolean)) return false;
+        const onBoards = new Set<string>();
+        boards.forEach(b => b.forEach(row => row.forEach(cell => { if (cell && cell !== 'Locked') onBoards.add(cell.id); })));
+        const spare = searchPoolInventory.filter(item => !item.isLocked && !isSpecialModule(item) && item.color !== 'White' && !onBoards.has(item.id));
+        let changed = false;
+        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+            if (!isTargetOnly[mIdx]) continue;
+            const board = boards[mIdx];
+            const pieces = new Map<string, InventoryItem>();
+            board.forEach(row => row.forEach(cell => {
+                if (cell && cell !== 'Locked' && !cell.isLocked && !isSpecialModule(cell) && cell.color !== 'White') pieces.set(cell.id, cell);
+            }));
+            const byValue = [...pieces.values()].sort((a, b) => moduleValue(b) - moduleValue(a));
+            for (const piece of byValue) {
+                const pieceValue = moduleValue(piece);
+                const candidates = spare
+                    .filter(q => q.shape === piece.shape && moduleValue(q) < pieceValue)
+                    .sort((a, b) => moduleValue(a) - moduleValue(b));
+                const swapCells = (from: InventoryItem, to: InventoryItem) => {
+                    for (const row of board) for (let x = 0; x < row.length; x++) if (row[x] !== null && row[x] !== 'Locked' && (row[x] as InventoryItem).id === from.id) row[x] = to;
+                };
+                for (const candidate of candidates) {
+                    swapCells(piece, candidate);
+                    if (meetsTargets(machines[mIdx], calculateBoardStats(board, fullInventory, inventoryById).totals)) {
+                        spare.splice(spare.indexOf(candidate), 1);
+                        spare.push(piece);
+                        changed = true;
+                        break;
+                    }
+                    swapCells(candidate, piece);
+                }
+            }
+        }
+        return changed;
+    };
     const currentBoards = initialBoards.map(b => b.map(row => [...row]));
 
     // Only the machine picked for this iteration can change, so the stats and the solution code of every other machine stay valid:
@@ -1420,27 +1512,23 @@ export const runOptimizationEngine = async (
                 isRebuilt[mIdx] ? rebuiltStats[mIdx]! : currentStats[mIdx];
 
             currentTiers.fill(0);
-            let totalPiecesPlaced = 0;
 
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                 const stats = statsFor(mIdx);
-                totalPiecesPlaced += stats.placedPiecesCount;
-
                 const m = machines[mIdx];
                 const t = stats.totals;
 
                 for (const key of STAT_KEYS) {
                     if (statIsIgnored(m, key)) continue;
 
-                    const ti = tierOf(m, key);
                     const target = m.targetStats[key];
-                    if (target !== null && t[key] < target) currentTiers[ti] -= (target - t[key]) * 10000;
-                    if (m.maximizeStats[key]) currentTiers[ti] += (t[key] * 10);
+                    if (target !== null && t[key] < target) currentTiers[TARGET_TIER] -= (target - t[key]) * 10000;
+                    if (m.maximizeStats[key]) currentTiers[tierOf(m, key) + RANK_OFFSET] += (t[key] * 10);
                 }
-            }
 
-            // Density reward: a general tiebreak, so it sits in the least important tier and can never take a ranked stat out of its own tier
-            currentTiers[tierCount] -= totalPiecesPlaced * 5;
+                // Tiebreak: the least important tier, so it can never take a ranked stat or a target out of its own tier
+                currentTiers[TIEBREAK_TIER] -= boardTiebreak(mIdx, isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx], stats.placedPiecesCount);
+            }
 
             // Machines are only pulled towards each other within the same priority rank. Balancing across ranks
             // would drag a higher-priority machine down to lift a lower one, which is the opposite of what the
@@ -1463,7 +1551,7 @@ export const runOptimizationEngine = async (
                         const avg = sum / members.length;
                         let mad = 0;
                         for (const mIdx of members) mad += Math.abs(statsFor(mIdx).totals[statKey] - avg);
-                        currentTiers[ti] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
+                        currentTiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
                     });
                 }
             }
@@ -1502,6 +1590,12 @@ export const runOptimizationEngine = async (
 
             if (isStagnant) {
                 stagnationCounter = 0;
+                // Hand strong modules held by target-only machines back to the pool while the search can still use them
+                if (downgradeTargetMachines(currentBoards)) {
+                    for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                        currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], fullInventory, inventoryById);
+                    }
+                }
                 // A big ruin is still judged against the epoch's best, so it only ever gets kept if it comes out ahead
                 // On a board that has been hill-climbed for thousands of iterations it almost never does
                 // Past a point it is very likely that this attempt is finished, and the iterations are better spent on a fresh one than on shaking the same board forever
@@ -1528,6 +1622,14 @@ export const runOptimizationEngine = async (
             }
         }
     } finally {
+        // Final clean-up of the reported layout: target-only machines give up any module a weaker one can replace
+        if (downgradeTargetMachines(bestBoards)) {
+            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                bestStats[mIdx] = calculateBoardStats(bestBoards[mIdx], fullInventory, inventoryById);
+            }
+            codeIsStale.fill(true);
+            pendingUpdate = true;
+        }
         flushUpdate();
         dispose();
     }
