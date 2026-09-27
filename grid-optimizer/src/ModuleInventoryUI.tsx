@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport } from './modExport';
+import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES, NODE_TEMPLATE } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
@@ -159,11 +160,10 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
     );
 });
 
-type StatRanks = { Performance: number, Quality: number, Efficiency: number };
-
 // Card header: machine icon on the left, about as tall as the stat % block, controls and name to its right.
 const HEADER_TOP = 10;
-const HEADER_HEIGHT = 64;
+const HEADER_HEIGHT = 52;
+const ICON_SIZE = 46; // 20% under the first version's 58px
 
 // Item art from the game (resources.assets sprites), in public/machines/. Picked by the machine's own name,
 // so it works for save-imported paths ("... > Furnace 2") and hand-added cards ("Furnace 1") alike.
@@ -197,7 +197,10 @@ const MachineInstance = React.memo(forwardRef(({
                                                    onDragTargetRefChange,
                                                    isAnySolving,
                                                    isThisMachineSolving,
-                                                   canDelete
+                                                   canDelete,
+                                                   onReorderStart,
+                                                   onReorderEnd,
+                                                   onStopAll
                                                }: any, ref) => {
     // Machine state loading handles fallback defaults from localStorage automatically
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
@@ -373,7 +376,17 @@ const MachineInstance = React.memo(forwardRef(({
             width: 'max-content', boxSizing: 'border-box'
         }}>
 
-            <div style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center' }}>
+            <div
+                draggable={!isAnySolving}
+                onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', machineId);
+                    onReorderStart(machineId);
+                }}
+                onDragEnd={onReorderEnd}
+                title="Drag to reorder. Machines are prioritised left to right, then top to bottom."
+                style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center', cursor: isAnySolving ? 'default' : 'grab' }}
+            >
                 <div
                     title={machineType !== 'Select Machine...' ? machineType : undefined}
                     style={{ width: `${HEADER_HEIGHT}px`, height: `${HEADER_HEIGHT}px`, flexShrink: 0, backgroundColor: '#1a1a1a', border: '1px solid #2c2c2e', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}
@@ -383,7 +396,7 @@ const MachineInstance = React.memo(forwardRef(({
                             src={machineIconUrl}
                             alt=""
                             draggable={false}
-                            style={{ width: `${HEADER_HEIGHT - 6}px`, height: `${HEADER_HEIGHT - 6}px`, objectFit: 'contain', imageRendering: 'pixelated' }}
+                            style={{ width: `${ICON_SIZE}px`, height: `${ICON_SIZE}px`, objectFit: 'contain', imageRendering: 'pixelated' }}
                         />
                     )}
                 </div>
@@ -412,25 +425,12 @@ const MachineInstance = React.memo(forwardRef(({
                         >
                             {isMachineLocked ? 'Unlock' : 'Lock'}
                         </button>
-                    {canDelete && (
-                        <button
-                            onClick={() => onDelete(machineId)}
-                            disabled={isAnySolving}
-                            style={{
-                                background: 'none', border: 'none', color: isAnySolving ? '#444' : '#666',
-                                cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '1.2em', padding: '4px 4px'
-                            }}
-                            title="Delete Machine"
-                        >
-                            &times;
-                        </button>
-                    )}
                     </div>
-                    <div style={{ minWidth: 0, display: 'flex' }}>
+                    <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
                         {isImportedMachine ? (
                             <span
                                 title={machineType}
-                                style={{ color: '#eee', fontSize: '0.95em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}
+                                style={{ color: '#eee', fontSize: '0.95em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', textAlign: 'right' }}
                             >
                                 {machineType.split(' > ').pop()}
                             </span>
@@ -484,6 +484,19 @@ const MachineInstance = React.memo(forwardRef(({
                         )}
                     </div>
                 </div>
+            {canDelete && (
+                    <button
+                        onClick={() => onDelete(machineId)}
+                        disabled={isAnySolving}
+                        style={{
+                            background: 'none', border: 'none', color: isAnySolving ? '#444' : '#666',
+                            cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '1.2em', padding: '0 4px', alignSelf: 'flex-start', lineHeight: 1
+                        }}
+                        title="Delete Machine"
+                    >
+                        &times;
+                    </button>
+                )}
             </div>
 
             <div style={{ visibility: showPaths ? 'hidden' : 'visible', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -662,7 +675,7 @@ const MachineInstance = React.memo(forwardRef(({
                                         : `${stat} is ignored. Click to turn it on.`}
                                     style={{
                                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1,
-                                        backgroundColor: '#222', padding: '6px 4px', borderRadius: '6px',
+                                        backgroundColor: isOn ? '#202621' : '#222', padding: '6px 4px', borderRadius: '6px',
                                         border: `1px solid ${isOn ? '#555' : '#2a2a2a'}`,
                                         opacity: isOn ? 1 : 0.35, cursor: currentSolving ? 'not-allowed' : 'pointer',
                                         userSelect: 'none', transition: 'opacity 0.15s ease-in-out'
@@ -680,20 +693,6 @@ const MachineInstance = React.memo(forwardRef(({
                                         />
                                         <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
                                     </div>
-                                    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
-                                        <span style={{ fontSize: '0.65em', color: '#888' }}>Pri:</span>
-                                        <select
-                                            title={`Priority for ${stat} (1 matters most).`}
-                                            value={optimizer.statPriority[stat]}
-                                            onChange={(e) => optimizer.setStatPriority((prev: StatRanks) => ({ ...prev, [stat]: Number(e.target.value) }))}
-                                            disabled={currentSolving || !isOn}
-                                            style={{ padding: '1px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', cursor: (currentSolving || !isOn) ? 'not-allowed' : 'pointer' }}
-                                        >
-                                            <option value={1}>1</option>
-                                            <option value={2}>2</option>
-                                            <option value={3}>3</option>
-                                        </select>
-                                    </div>
                                 </div>
                             );
                         })}
@@ -705,6 +704,7 @@ const MachineInstance = React.memo(forwardRef(({
                                 if (currentSolving) {
                                     optimizer.stopOptimization();
                                     onSolvingChange(machineId, false);
+                                    onStopAll();
                                 } else {
                                     optimizer.runOptimization();
                                 }
@@ -1254,16 +1254,81 @@ export default function ModuleInventoryUI() {
         ? [...filteredModules, NODE_TEMPLATE]
         : [NODE_TEMPLATE, ...filteredModules];
 
-    const handleRunAll = () => {
+    // Run All optimizes every unlocked machine together in one engine run, so modules are shared out between
+    // them instead of each machine racing for whatever the others are not holding yet. Card order is priority:
+    // each machine's stats get its position as their rank, and the engine compares ranks strictly, so the first
+    // card gets the best layout its modules allow before the second is considered, and so on.
+    const jointRunRef = useRef<{ current: boolean }>({ current: false });
+
+    const stopAll = useCallback(() => {
+        jointRunRef.current.current = false;
+        Object.values(machinesRef.current).forEach((m: any) => m?.stop());
+    }, []);
+
+    const handleRunAll = async () => {
         if (isAnySolving) {
-            Object.values(machinesRef.current).forEach((m: any) => m?.stop());
-        } else {
-            Object.values(machinesRef.current).forEach((m: any) => {
-                if (m && typeof m.isLocked === 'function' && !m.isLocked()) {
-                    m.run();
-                }
-            });
+            stopAll();
+            return;
         }
+        const active = machines.filter(m => {
+            const ref = machinesRef.current[m.id];
+            return ref && !ref.isLocked();
+        });
+        if (active.length === 0) return;
+
+        // Modules on locked machines stay where they are
+        const activeIds = new Set(active.map(m => m.id));
+        const heldByLocked = new Set<string>();
+        machines.forEach(m => {
+            if (activeIds.has(m.id)) return;
+            const board = machinesRef.current[m.id]?.getBoard();
+            board?.forEach((row: any[]) => row.forEach(cell => { if (cell && cell !== 'Locked') heldByLocked.add(cell.id); }));
+        });
+        const engineInventory = expandedInventory.map(item => heldByLocked.has(item.id) ? { ...item, isLocked: true } : item);
+
+        const configs = active.map((m, rank) => {
+            const state = machinesRef.current[m.id].getState();
+            const priority = rank + 1;
+            return {
+                id: m.id,
+                tier: state.tier,
+                targetStats: state.targetStats,
+                maximizeStats: state.maximizeStats,
+                ignoreStats: state.ignoreStats,
+                statPriority: { Performance: priority, Quality: priority, Efficiency: priority }
+            };
+        });
+        const boards = active.map(m => machinesRef.current[m.id].getBoard());
+
+        jointRunRef.current = { current: true };
+        active.forEach(m => handleSolvingChange(m.id, true));
+        try {
+            await runOptimizationEngine(configs, boards, engineInventory, expandedInventory, jointRunRef.current, (updates) => {
+                updates.forEach((update, id) => {
+                    machinesRef.current[id]?.applyUpdate(update.board, update.totals, update.pieceStats, update.code);
+                });
+            });
+        } finally {
+            jointRunRef.current.current = false;
+            active.forEach(m => handleSolvingChange(m.id, false));
+        }
+    };
+
+    // Drag a card by its header to change its priority
+    const [reorderingId, setReorderingId] = useState<string | null>(null);
+    const [reorderTargetId, setReorderTargetId] = useState<string | null>(null);
+
+    const moveMachine = (fromId: string, toId: string) => {
+        if (fromId === toId) return;
+        setMachines(prev => {
+            const from = prev.findIndex(m => m.id === fromId);
+            const to = prev.findIndex(m => m.id === toId);
+            if (from < 0 || to < 0) return prev;
+            const next = [...prev];
+            const [moved] = next.splice(from, 1);
+            next.splice(to, 0, moved);
+            return next;
+        });
     };
 
     const [copiedAllForMod, setCopiedAllForMod] = useState(false);
@@ -1600,24 +1665,49 @@ export default function ModuleInventoryUI() {
             {/* Main Grid & Controls */}
             <div className="machines-container">
                 {machines.map(m => (
-                    <MachineInstance
+                    <div
                         key={m.id}
-                        machineId={m.id}
-                        ref={(el: any) => { if (el) machinesRef.current[m.id] = el; }}
-                        inventory={expandedInventory}
-                        setInventory={setInventory}
-                        getUsedItems={getUsedItems}
-                        dragState={dragState}
-                        setHoverInfo={setHoverInfo}
-                        onDuplicate={handleDuplicateMachine}
-                        onDelete={handleDeleteMachine}
-                        cellSize={cellSize}
-                        onSolvingChange={handleSolvingChange}
-                        onDragTargetRefChange={setDragTargetRefChange}
-                        isAnySolving={isAnySolving}
-                        isThisMachineSolving={solvingStates[m.id] || false}
-                        canDelete={machines.length > 1}
-                    />
+                        onDragOver={(e) => {
+                            if (!reorderingId) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            if (reorderTargetId !== m.id) setReorderTargetId(m.id);
+                        }}
+                        onDrop={(e) => {
+                            if (!reorderingId) return;
+                            e.preventDefault();
+                            moveMachine(reorderingId, m.id);
+                            setReorderingId(null);
+                            setReorderTargetId(null);
+                        }}
+                        style={{
+                            borderRadius: '10px',
+                            opacity: reorderingId === m.id ? 0.4 : 1,
+                            outline: reorderingId && reorderTargetId === m.id && reorderingId !== m.id ? '2px dashed #4caf50' : 'none',
+                            outlineOffset: '4px'
+                        }}
+                    >
+                        <MachineInstance
+                            machineId={m.id}
+                            ref={(el: any) => { if (el) machinesRef.current[m.id] = el; }}
+                            inventory={expandedInventory}
+                            setInventory={setInventory}
+                            getUsedItems={getUsedItems}
+                            dragState={dragState}
+                            setHoverInfo={setHoverInfo}
+                            onDuplicate={handleDuplicateMachine}
+                            onDelete={handleDeleteMachine}
+                            cellSize={cellSize}
+                            onSolvingChange={handleSolvingChange}
+                            onDragTargetRefChange={setDragTargetRefChange}
+                            isAnySolving={isAnySolving}
+                            isThisMachineSolving={solvingStates[m.id] || false}
+                            canDelete={machines.length > 1}
+                            onReorderStart={setReorderingId}
+                            onReorderEnd={() => { setReorderingId(null); setReorderTargetId(null); }}
+                            onStopAll={stopAll}
+                        />
+                    </div>
                 ))}
             </div>
 
