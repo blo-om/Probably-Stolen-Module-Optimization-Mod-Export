@@ -2,8 +2,8 @@ import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImp
 import { encodeModExport, boardModules } from './modExport';
 import { defaultIgnoreStats, defaultMaximizeStats } from './machineDefaults';
 import { runOptimizationEngine } from './hooks/useOptimizer';
-import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleTemplate, ModuleColor, Point } from './types';
-import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES, NODE_TEMPLATE } from './constants';
+import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
+import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
 import { useOptimizer } from './hooks/useOptimizer';
 import MiniShape from './components/MiniShape';
@@ -200,6 +200,7 @@ const MachineInstance = React.memo(forwardRef(({
                                                    isThisMachineSolving,
                                                    canDelete,
                                                    onReorderStart,
+                                                   onBoardChange,
                                                    onStopAll
                                                }: any, ref) => {
     // Machine state loading handles fallback defaults from localStorage automatically
@@ -290,6 +291,11 @@ const MachineInstance = React.memo(forwardRef(({
     useEffect(() => {
         onSolvingChange(machineId, optimizer.isSolving);
     }, [optimizer.isSolving, machineId, onSolvingChange]);
+
+    // Lets the page refresh "Unused Module Storage" whenever this board changes
+    useEffect(() => {
+        onBoardChange?.();
+    }, [optimizer.board, onBoardChange]);
 
     const getCellStyles = (x: number, y: number, cell: any): React.CSSProperties => {
         if (cell === 'Locked') {
@@ -781,26 +787,6 @@ const MachineInstance = React.memo(forwardRef(({
 // Rendering every row of a very large inventory costs a lot
 const MAX_VISIBLE_INVENTORY_ROWS = 255;
 
-const createInventoryItem = (template: ModuleTemplate): InventoryItem => {
-    const base = getBaseStats(template);
-    const maxPositiveBase = Math.max(
-        base.Performance > 0 ? base.Performance : 0,
-        base.Quality > 0 ? base.Quality : 0,
-        base.Efficiency > 0 ? base.Efficiency : 0
-    );
-    const defaultDoubleBase = Math.floor(maxPositiveBase * 2);
-
-    return {
-        id: `${template.shape}_${template.color}_${Math.random().toString(36).substring(2, 8)}`,
-        shape: template.shape,
-        color: template.color,
-        displayName: template.displayName,
-        effects: ['None', 'None'],
-        effectValues: [defaultDoubleBase, defaultDoubleBase],
-        originalPath: 'Manual'
-    } as any;
-};
-
 export default function ModuleInventoryUI() {
     const [inventory, setInventory] = useState<InventoryItem[]>(() => {
         const savedInventory = localStorage.getItem('optimizer_inventory');
@@ -848,8 +834,6 @@ export default function ModuleInventoryUI() {
         return used;
     }, []);
 
-    const [filterGroup, setFilterGroup] = useState<FilterGroup>('All');
-    const [filterSize, setFilterSize] = useState<'All' | 3 | 4 | 5>('All');
 
     const [invFilterGroup, setInvFilterGroup] = useState<FilterGroup | 'Placed' | 'NotPlaced'>('All');
     const [invFilterSize, setInvFilterSize] = useState<'All' | 3 | 4 | 5>('All');
@@ -1031,10 +1015,6 @@ export default function ModuleInventoryUI() {
         };
     }, [!!dragState]);
 
-    const addPieceToInventory = (template: ModuleTemplate) => {
-        setInventory((prev) => [createInventoryItem(template), ...prev]);
-    };
-
     const handleToggleInfiniteNodes = useCallback((isInfinite: boolean) => {
         setInventory(prev => prev.map(invItem =>
             invItem.shape === 'Node1x2' ? { ...invItem, isInfinite } : invItem
@@ -1173,13 +1153,28 @@ export default function ModuleInventoryUI() {
         window.dispatchEvent(evt);
     }, [isAnySolving]);
 
-    const filteredModules = MODULE_TEMPLATES.filter(m => {
-        if (m.shapeType === 'Node') return false;
-        if (filterGroup !== 'All' && m.group !== filterGroup) return false;
-        return !(filterSize !== 'All' && m.size !== filterSize);
-    });
-
     const allUsedItems = getUsedItems(null);
+
+    // "Unused Module Storage": every owned module that no machine board holds. Boards live inside the cards, so
+    // they report changes (throttled, since a running optimizer changes them many times a second).
+    const [boardVersion, setBoardVersion] = useState(0);
+    const boardBumpTimer = useRef<number | null>(null);
+    const handleBoardChange = useCallback(() => {
+        if (boardBumpTimer.current !== null) return;
+        boardBumpTimer.current = window.setTimeout(() => {
+            boardBumpTimer.current = null;
+            setBoardVersion(v => v + 1);
+        }, 150);
+    }, []);
+
+    const unusedModules = useMemo(() => {
+        const used = getUsedItems(null);
+        const groupOrder: Record<string, number> = { Red: 0, Yellow: 1, Green: 2, Purple: 3, DarkRed: 4, Grey: 5, White: 6 };
+        const size = (item: InventoryItem) => PRECOMPUTED_OFFSETS.get(item.shape)?.[0]?.length ?? 0;
+        return inventory
+            .filter(item => !used.has(item.id) && !(item.isInfinite && [...used].some(id => id.startsWith(item.id + '_clone_'))))
+            .sort((a, b) => (groupOrder[a.color] ?? 9) - (groupOrder[b.color] ?? 9) || size(b) - size(a) || a.displayName.localeCompare(b.displayName));
+    }, [inventory, boardVersion, machines, getUsedItems]);
     const filteredInventory = inventory.filter(item => {
         if (invFilterGroup === 'Placed') {
             const isPlaced = allUsedItems.has(item.id) || (item.isInfinite && Array.from(allUsedItems).some(usedId => usedId.startsWith(item.id + '_clone_')));
@@ -1247,11 +1242,6 @@ export default function ModuleInventoryUI() {
         machinesRef.current = {};
         setSolvingStates({});
     }, []);
-
-    const shouldPushNodeToEnd = filterGroup !== 'All';
-    const catalogDisplayList = shouldPushNodeToEnd
-        ? [...filteredModules, NODE_TEMPLATE]
-        : [NODE_TEMPLATE, ...filteredModules];
 
     // Run All optimizes every unlocked machine together in one engine run, so modules are shared out between
     // them instead of each machine racing for whatever the others are not holding yet. Card order is priority:
@@ -1639,10 +1629,12 @@ export default function ModuleInventoryUI() {
                 }
                 .bottom-layout {
                     display: flex;
-                    flex: 1;
                     gap: 30px;
                     min-height: 0;
                     margin-top: 20px;
+                    /* Fixed height (not flex-grown): storage and inventory scroll inside instead of stretching the page to fit every row */
+                    flex: none;
+                    height: 75vh;
                 }
                 .machines-container {
                     position: relative;
@@ -1663,6 +1655,7 @@ export default function ModuleInventoryUI() {
                         flex-direction: column;
                         gap: 15px;
                         min-height: auto;
+                        height: auto;
                     }
                     .stats-header {
                         gap: 15px;
@@ -1839,6 +1832,7 @@ export default function ModuleInventoryUI() {
                             isThisMachineSolving={solvingStates[m.id] || false}
                             canDelete={machines.length > 1}
                             onReorderStart={handleSortStart}
+                            onBoardChange={handleBoardChange}
                             onStopAll={stopAll}
                         />
                       </div>
@@ -1846,56 +1840,63 @@ export default function ModuleInventoryUI() {
                 ))}
             </div>
 
-            {/* Catalog & Inventory */}
+            {/* Unused Module Storage & Inventory */}
             <div className="bottom-layout">
-                {/* Catalog */}
+                {/* Unused Module Storage */}
                 <div style={{ flex: '2', backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '8px', border: '1px solid #2c2c2e', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #333' }}>
-                        <select value={filterGroup} onChange={(e) => setFilterGroup(e.target.value as FilterGroup)} style={{ flex: 1, minWidth: '150px', padding: '8px 12px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none' }}>
-                            <option value="All">All Module Groups</option>
-                            <option value="Performance">Performance (Red)</option>
-                            <option value="Quality">Quality (Yellow)</option>
-                            <option value="Efficiency">Efficiency (Green)</option>
-                            <option value="Special">Special Modules</option>
-                        </select>
-                        <select value={filterSize} onChange={(e) => setFilterSize(e.target.value === 'All' ? 'All' : Number(e.target.value) as any)} style={{ flex: 1, minWidth: '150px', padding: '8px 12px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '4px', outline: 'none' }}>
-                            <option value="All">All Sizes</option>
-                            <option value={3}>Size 3</option>
-                            <option value={4}>Size 4</option>
-                            <option value={5}>Size 5</option>
-                        </select>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '15px', paddingBottom: '12px', borderBottom: '1px solid #333' }}>
+                        <span style={{ color: '#eee', fontWeight: 'bold', fontSize: '1em' }}>Unused Module Storage</span>
+                        <span style={{ color: '#888', fontSize: '0.85em' }}>
+                            {unusedModules.length} of {inventory.length} module{inventory.length === 1 ? '' : 's'}
+                        </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', overflowY: 'auto', alignContent: 'flex-start', padding: '5px 5px 20px 5px', justifyContent: 'center' }}>
-                        {catalogDisplayList.map((template, idx) => {
-                            const uniqueKey = `${template.shape}_${template.color}_${idx}`;
-
-                            return (
-                                <div
-                                    key={uniqueKey}
-                                    className="catalog-card"
-                                    onClick={() => addPieceToInventory(template)}
-                                    style={{
-                                        padding: '16px 12px', width: '135px', backgroundColor: '#252526',
-                                        border: `1px solid ${COLOR_MAP[template.color]}`, borderRadius: '6px',
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer'
-                                    }}
-                                >
-                                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    {unusedModules.length === 0 ? (
+                        <div style={{ color: '#777', fontSize: '0.85em', textAlign: 'center', padding: '30px 10px' }}>
+                            {inventory.length === 0
+                                ? 'Import a save to see your modules here.'
+                                : 'Every module you own is placed in a machine.'}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', overflowY: 'auto', alignContent: 'flex-start', padding: '5px 5px 20px 5px', justifyContent: 'center' }}>
+                            {unusedModules.map(item => {
+                                const effects = item.effects
+                                    .map((eff, i) => eff === 'None' ? null
+                                        : (eff === 'Learning Algorithm' || eff === 'Degrading') ? `${eff} ${item.effectValues[i]}%` : eff)
+                                    .filter(Boolean)
+                                    .join(' · ');
+                                const where = item.originalPath ? item.originalPath.split(' > ').pop() : null;
+                                const canDrag = !isAnySolving && !item.isLocked;
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className="catalog-card"
+                                        onMouseDown={(e) => { if (canDrag) handleInventoryDragStart(e, item); }}
+                                        title={[item.displayName, effects, item.originalPath ? `In game: ${item.originalPath}` : null, canDrag ? 'Drag onto a machine to place it' : null].filter(Boolean).join('\n')}
+                                        style={{
+                                            padding: '14px 10px', width: '135px', backgroundColor: '#252526',
+                                            border: `1px solid ${COLOR_MAP[item.color as ModuleColor]}`, borderRadius: '6px',
+                                            display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                            cursor: canDrag ? 'grab' : 'default', opacity: item.isLocked ? 0.6 : 1, userSelect: 'none'
+                                        }}
+                                    >
                                         <div style={{ height: '50px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                            <MiniShape shape={template.shape} colorHex={COLOR_MAP[template.color]} />
+                                            <MiniShape shape={item.shape} colorHex={COLOR_MAP[item.color as ModuleColor]} />
                                         </div>
-                                        <span style={{ fontSize: '0.7em', color: '#ccc', marginTop: '15px', textAlign: 'center', fontWeight: 'bold' }}>
-                                            {template.displayName}
+                                        <span style={{ fontSize: '0.7em', color: '#ccc', marginTop: '12px', textAlign: 'center', fontWeight: 'bold' }}>
+                                            {item.displayName}
                                         </span>
-                                        <span style={{ fontSize: '0.65em', color: '#777', marginTop: '6px', textAlign: 'center' }}>
-                                            {template.shape === 'Node1x2' ? 'Node' : `${template.shapeType} - Size ${template.size}`}
-                                        </span>
+                                        {effects && (
+                                            <span style={{ fontSize: '0.62em', color: '#9ab', marginTop: '5px', textAlign: 'center' }}>{effects}</span>
+                                        )}
+                                        {where && (
+                                            <span style={{ fontSize: '0.6em', color: '#666', marginTop: '5px', textAlign: 'center' }}>{where}</span>
+                                        )}
                                     </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 {/* Inventory */}
