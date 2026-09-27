@@ -198,6 +198,18 @@ const MachineInstance = React.memo(forwardRef(({
     // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
     const isImportedMachine = machineType.startsWith('Inv.');
 
+    // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
+    // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
+    useEffect(() => {
+        const next = { Performance: false, Quality: false, Efficiency: false };
+        let changed = false;
+        for (const key of ['Performance', 'Quality', 'Efficiency'] as const) {
+            next[key] = !optimizer.ignoreStats[key] && optimizer.targetStats[key] === null;
+            if (Boolean(optimizer.maximizeStats[key]) !== next[key]) changed = true;
+        }
+        if (changed) optimizer.setMaximizeStats(next);
+    }, [optimizer.ignoreStats, optimizer.targetStats, optimizer.maximizeStats]);
+
     useEffect(() => {
         if (machineType !== 'Select Machine...') {
             localStorage.setItem(`optimizer_machine_type_${machineId}`, machineType);
@@ -364,6 +376,63 @@ const MachineInstance = React.memo(forwardRef(({
                         {isMachineLocked ? 'Unlock' : 'Lock'}
                     </button>
                 </div>
+                <div style={{ flex: 1, minWidth: 0, margin: '0 10px', display: 'flex', justifyContent: 'center' }}>
+                    {isImportedMachine ? (
+                        <span
+                            title={machineType}
+                            style={{ color: '#eee', fontSize: '0.8em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                            {machineType.length > 34 ? '...' + machineType.substring(machineType.length - 31) : machineType}
+                        </span>
+                    ) : (
+                        <select
+                            title={machineType !== "Select Machine..." ? machineType : undefined}
+                            value={machineType}
+                            onChange={(e) => {
+                                const selected = e.target.value;
+                                const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
+                                let max = 0;
+
+                                const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
+
+                                allKeys.forEach(k => {
+                                    if (k === `optimizer_machine_type_${machineId}`) return;
+                                    const val = localStorage.getItem(k);
+                                    if (val) {
+                                        const match = val.match(regex);
+                                        if (match) {
+                                            const num = parseInt(match[1], 10);
+                                            if (num > max) max = num;
+                                        }
+                                    }
+                                });
+                                setMachineType(`${selected} ${max + 1}`);
+                            }}
+                            disabled={currentSolving}
+                            style={{
+                                width: '100%', padding: '3px 6px', backgroundColor: '#222', color: '#eee',
+                                border: '1px solid #333', borderRadius: '6px', fontSize: '0.75em',
+                                outline: 'none', cursor: currentSolving ? 'not-allowed' : 'pointer',
+                                textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
+                            }}
+                        >
+                            <option value="Select Machine..." disabled>Select Machine...</option>
+                            {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
+                                <option value={machineType}>
+                                    {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
+                                </option>
+                            )}
+                            <option value="Moisture Farm">Moisture Farm</option>
+                            <option value="Furnace">Furnace</option>
+                            <option value="Water Purifier">Water Purifier</option>
+                            <option value="Alarm System">Alarm System</option>
+                            <option value="AgeWell">AgeWell</option>
+                            <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
+                            <option value="Mirage Projector">Mirage Projector</option>
+                        </select>
+                    )}
+                </div>
                 {canDelete && (
                     <button
                         onClick={() => onDelete(machineId)}
@@ -522,141 +591,77 @@ const MachineInstance = React.memo(forwardRef(({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-                    {isImportedMachine ? (
-                        <div
-                            title={machineType}
-                            style={{
-                                width: '100%', padding: '6px 8px', backgroundColor: '#222', color: '#eee',
-                                border: '1px solid #333', borderRadius: '6px', fontSize: '0.85em', boxSizing: 'border-box',
-                                textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden', textAlign: 'center'
-                            }}
-                        >
-                            {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
-                        </div>
-                    ) : (
-                        <select
-                            title={machineType !== "Select Machine..." ? machineType : undefined}
-                            value={machineType}
-                            onChange={(e) => {
-                                const selected = e.target.value;
-                                const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
-                                let max = 0;
 
-                                const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
-
-                                allKeys.forEach(k => {
-                                    if (k === `optimizer_machine_type_${machineId}`) return;
-                                    const val = localStorage.getItem(k);
-                                    if (val) {
-                                        const match = val.match(regex);
-                                        if (match) {
-                                            const num = parseInt(match[1], 10);
-                                            if (num > max) max = num;
-                                        }
-                                    }
-                                });
-                                setMachineType(`${selected} ${max + 1}`);
-                            }}
-                            disabled={currentSolving}
-                            style={{
-                                width: '100%', padding: '6px 8px', backgroundColor: '#222', color: '#eee',
-                                border: '1px solid #333', borderRadius: '6px', fontSize: '0.85em',
-                                outline: 'none', cursor: currentSolving ? 'not-allowed' : 'pointer',
-                                textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
-                            }}
-                        >
-                            <option value="Select Machine..." disabled>Select Machine...</option>
-                            {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
-                                <option value={machineType}>
-                                    {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
-                                </option>
-                            )}
-                            <option value="Moisture Farm">Moisture Farm</option>
-                            <option value="Furnace">Furnace</option>
-                            <option value="Water Purifier">Water Purifier</option>
-                            <option value="Alarm System">Alarm System</option>
-                            <option value="AgeWell">AgeWell</option>
-                            <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
-                            <option value="Mirage Projector">Mirage Projector</option>
-                        </select>
-                    )}
-
+                    {!isImportedMachine && (
                     <div style={{ display: 'flex', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', gap: '5px', backgroundColor: '#222', padding: '5px', borderRadius: '6px' }}>
-                            {isImportedMachine ? (
-                                <span title="Upgrade tier read from the imported save" style={{ padding: '6px 12px', fontSize: '0.85em', color: 'white' }}>
-                                    Tier {optimizer.tier}
-                                </span>
-                            ) : [1, 2, 3].map((t) => (
+                            {[1, 2, 3].map((t) => (
                                 <button key={t} onClick={() => optimizer.handleTierChange(t as GridTier)} disabled={currentSolving} style={{ padding: '6px 12px', fontSize: '0.85em', backgroundColor: optimizer.tier === t ? '#555' : 'transparent', color: 'white', border: 'none', borderRadius: '4px', cursor: currentSolving ? 'not-allowed' : 'pointer' }}>
                                     Tier {t}
                                 </button>
                             ))}
                         </div>
                     </div>
+                    )}
 
-                    <div style={{ display: 'flex', gap: '5px', backgroundColor: '#222', padding: '6px 8px', borderRadius: '6px', border: '1px solid #333', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
-                        {(['Performance', 'Quality', 'Efficiency'] as const).map((stat, idx) => (
-                            <div key={stat} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1, borderRight: idx < 2 ? '1px solid #444' : 'none' }}>
-                                <span style={{ fontSize: '0.6em', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <label style={{ fontSize: '0.7em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
+                    <div style={{ display: 'flex', gap: '5px', width: '100%', boxSizing: 'border-box' }}>
+                        {(['Performance', 'Quality', 'Efficiency'] as const).map((stat) => {
+                            const isOn = !optimizer.ignoreStats[stat];
+                            const hasTarget = optimizer.targetStats[stat] !== null;
+                            const toggle = () => {
+                                if (currentSolving) return;
+                                optimizer.setIgnoreStats((prev: any) => ({ ...prev, [stat]: !prev[stat] }));
+                            };
+                            return (
+                                <div
+                                    key={stat}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={toggle}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
+                                    title={isOn
+                                        ? `${stat} is on (${hasTarget ? 'held to the target' : 'maximized'}). Click to ignore it.`
+                                        : `${stat} is ignored. Click to turn it on.`}
+                                    style={{
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1,
+                                        backgroundColor: '#222', padding: '6px 4px', borderRadius: '6px',
+                                        border: `1px solid ${isOn ? '#555' : '#2a2a2a'}`,
+                                        opacity: isOn ? 1 : 0.35, cursor: currentSolving ? 'not-allowed' : 'pointer',
+                                        userSelect: 'none', transition: 'opacity 0.15s ease-in-out'
+                                    }}
+                                >
+                                    <span style={{ fontSize: '0.6em', color: '#ddd', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
+                                    <span style={{ fontSize: '0.6em', color: isOn ? (hasTarget ? '#ffd700' : '#4caf50') : '#888', fontWeight: 'bold' }}>
+                                        {isOn ? (hasTarget ? 'TARGET' : 'MAX') : 'OFF'}
+                                    </span>
+                                    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+                                        <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
                                         <input
-                                            type="checkbox"
-                                            checked={optimizer.maximizeStats[stat]}
-                                            onChange={() => optimizer.setMaximizeStats((prev: any) => ({ ...prev, [stat]: !prev[stat] }))}
-                                            disabled={currentSolving || optimizer.ignoreStats[stat]}
-                                            style={{ margin: 0, cursor: (currentSolving || optimizer.ignoreStats[stat]) ? 'not-allowed' : 'pointer' }}
-                                        /> Max
-                                    </label>
-                                    <label
-                                        title={`Ignore ${stat} entirely — it stops counting toward the score in either direction, so the optimizer is free to let it go as negative as it likes.`}
-                                        style={{ fontSize: '0.7em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer' }}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={optimizer.ignoreStats[stat]}
-                                            onChange={() => optimizer.setIgnoreStats((prev: any) => {
-                                                const next = { ...prev, [stat]: !prev[stat] };
-                                                if (next[stat]) {
-                                                    optimizer.setMaximizeStats((m: any) => ({ ...m, [stat]: false }));
-                                                    optimizer.setTargetStats((t: any) => ({ ...t, [stat]: null }));
-                                                }
-                                                return next;
-                                            })}
-                                            disabled={currentSolving}
-                                            style={{ margin: 0, cursor: currentSolving ? 'not-allowed' : 'pointer' }}
-                                        /> Ign
-                                    </label>
+                                            type="number"
+                                            value={optimizer.targetStats[stat] ?? ''}
+                                            onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
+                                            disabled={currentSolving || !isOn}
+                                            style={{ width: '35px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
+                                        />
+                                        <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
+                                    </div>
+                                    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+                                        <span style={{ fontSize: '0.65em', color: '#888' }}>Pri:</span>
+                                        <select
+                                            title={`Priority for ${stat} (1 matters most).`}
+                                            value={optimizer.statPriority[stat]}
+                                            onChange={(e) => optimizer.setStatPriority((prev: StatRanks) => ({ ...prev, [stat]: Number(e.target.value) }))}
+                                            disabled={currentSolving || !isOn}
+                                            style={{ padding: '1px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', cursor: (currentSolving || !isOn) ? 'not-allowed' : 'pointer' }}
+                                        >
+                                            <option value={1}>1</option>
+                                            <option value={2}>2</option>
+                                            <option value={3}>3</option>
+                                        </select>
+                                    </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
-                                    <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
-                                    <input
-                                        type="number"
-                                        value={optimizer.targetStats[stat] ?? ''}
-                                        onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
-                                        disabled={currentSolving || optimizer.ignoreStats[stat]}
-                                        style={{ width: '35px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
-                                    />
-                                    <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', opacity: optimizer.ignoreStats[stat] ? 0.4 : 1 }}>
-                                    <span style={{ fontSize: '0.65em', color: '#888' }}>Pri:</span>
-                                    <select
-                                        title={`Priority for ${stat} — 1 matters most.`}
-                                        value={optimizer.statPriority[stat]}
-                                        onChange={(e) => optimizer.setStatPriority((prev: StatRanks) => ({ ...prev, [stat]: Number(e.target.value) }))}
-                                        disabled={currentSolving || optimizer.ignoreStats[stat]}
-                                        style={{ padding: '1px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', cursor: (currentSolving || optimizer.ignoreStats[stat]) ? 'not-allowed' : 'pointer' }}
-                                    >
-                                        <option value={1}>1</option>
-                                        <option value={2}>2</option>
-                                        <option value={3}>3</option>
-                                    </select>
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     <div style={{ display: 'flex', gap: '5px', width: '100%' }}>
