@@ -1278,19 +1278,22 @@ export const runOptimizationEngine = async (
                 // dynamic heuristic weight adjustment if stats% are behind other machines
                 const fillConfig = machines[fillMIdx];
                 if (machineCount > 1) {
-                    let sumP = 0, sumQ = 0, sumE = 0;
-                    for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        const t = currentStats[mIdx].totals;
-                        sumP += t.Performance; sumQ += t.Quality; sumE += t.Efficiency;
-                    }
                     const mine = currentStats[fillMIdx].totals;
-                    const laggingOn = (key: keyof Stats, sum: number) =>
-                        !statIsIgnored(fillConfig, key) && fillConfig.maximizeStats[key]
-                        && fillConfig.targetStats[key] === null && mine[key] < sum / machineCount;
+                    const laggingOn = (key: keyof Stats) => {
+                        if (statIsIgnored(fillConfig, key) || !fillConfig.maximizeStats[key] || fillConfig.targetStats[key] !== null) return false;
+                        const ti = tierOf(fillConfig, key);
+                        let sum = 0, count = 0;
+                        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                            if (tierOf(machines[mIdx], key) !== ti) continue;
+                            sum += currentStats[mIdx].totals[key];
+                            count++;
+                        }
+                        return count > 1 && mine[key] < sum / count;
+                    };
 
-                    if (laggingOn('Performance', sumP)) dynWp *= 2.0;
-                    if (laggingOn('Quality', sumQ)) dynWq *= 2.0;
-                    if (laggingOn('Efficiency', sumE)) dynWe *= 2.0;
+                    if (laggingOn('Performance')) dynWp *= 2.0;
+                    if (laggingOn('Quality')) dynWq *= 2.0;
+                    if (laggingOn('Efficiency')) dynWe *= 2.0;
                 }
 
                 const fillBoard = testBoards[fillMIdx];
@@ -1434,32 +1437,29 @@ export const runOptimizationEngine = async (
             // Density reward: a general tiebreak, so it sits in the least important tier and can never take a ranked stat out of its own tier
             currentTiers[tierCount] -= totalPiecesPlaced * 5;
 
+            // Machines are only pulled towards each other within the same priority rank. Balancing across ranks
+            // would drag a higher-priority machine down to lift a lower one, which is the opposite of what the
+            // ranking asks for.
             if (machineCount > 1) {
                 for (const statKey of STAT_KEYS) {
-                    const isBalanced = (mIdx: number) => {
-                        const m = machines[mIdx];
-                        return !statIsIgnored(m, statKey) && m.maximizeStats[statKey] && m.targetStats[statKey] === null;
-                    };
-
-                    let sum = 0, count = 0;
-                    // Balancing a stat is part of caring about it, so the penalty lands in the tier of whichever machine ranks it highest
-                    let topTier = tierCount - 1;
+                    const byTier = new Map<number, number[]>();
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        if (!isBalanced(mIdx)) continue;
-                        sum += statsFor(mIdx).totals[statKey];
-                        count++;
-                        const ti = tierOf(machines[mIdx], statKey);
-                        if (ti < topTier) topTier = ti;
+                        const m = machines[mIdx];
+                        if (statIsIgnored(m, statKey) || !m.maximizeStats[statKey] || m.targetStats[statKey] !== null) continue;
+                        const ti = tierOf(m, statKey);
+                        let members = byTier.get(ti);
+                        if (members === undefined) { members = []; byTier.set(ti, members); }
+                        members.push(mIdx);
                     }
-                    if (count > 1) {
-                        const avg = sum / count;
+                    byTier.forEach((members, ti) => {
+                        if (members.length < 2) return;
+                        let sum = 0;
+                        for (const mIdx of members) sum += statsFor(mIdx).totals[statKey];
+                        const avg = sum / members.length;
                         let mad = 0;
-                        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                            if (!isBalanced(mIdx)) continue;
-                            mad += Math.abs(statsFor(mIdx).totals[statKey] - avg);
-                        }
-                        currentTiers[topTier] -= (mad / count) * BALANCE_PENALTY_WEIGHT;
-                    }
+                        for (const mIdx of members) mad += Math.abs(statsFor(mIdx).totals[statKey] - avg);
+                        currentTiers[ti] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
+                    });
                 }
             }
 
@@ -1842,7 +1842,7 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, statPriority };
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats };
 
         await runOptimizationEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
