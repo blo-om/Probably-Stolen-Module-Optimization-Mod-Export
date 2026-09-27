@@ -161,6 +161,28 @@ const InventoryItemRow = React.memo(({ item, isAnySolving, updateItemEffect, upd
 
 type StatRanks = { Performance: number, Quality: number, Efficiency: number };
 
+// Card header: machine icon on the left, about as tall as the stat % block, controls and name to its right.
+const HEADER_TOP = 10;
+const HEADER_HEIGHT = 64;
+
+// Item art from the game (resources.assets sprites), in public/machines/. Picked by the machine's own name,
+// so it works for save-imported paths ("... > Furnace 2") and hand-added cards ("Furnace 1") alike.
+const MACHINE_ICONS: [string, string][] = [
+    ['desequencer', 'desequencer'],
+    ['purifier', 'water_purifier'],
+    ['farm', 'moisture_farm'],
+    ['alarm', 'alarm_system'],
+    ['agewell', 'agewell'],
+    ['projector', 'mirage_projector'],
+    ['furnace', 'furnace'],
+];
+
+const machineIcon = (machineType: string): string | null => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    const hit = MACHINE_ICONS.find(([keyword]) => name.includes(keyword));
+    return hit ? `${import.meta.env.BASE_URL}machines/${hit[1]}.png` : null;
+};
+
 const MachineInstance = React.memo(forwardRef(({
                                                    machineId,
                                                    inventory,
@@ -197,6 +219,7 @@ const MachineInstance = React.memo(forwardRef(({
     // Save-imported machines are named by their path in the save ("Inv. > ..."); their name and tier come from
     // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
     const isImportedMachine = machineType.startsWith('Inv.');
+    const machineIconUrl = machineIcon(machineType);
 
     // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
@@ -346,106 +369,121 @@ const MachineInstance = React.memo(forwardRef(({
     return (
         <div style={{
             position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center',
-            backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px', padding: '40px 15px 15px 15px',
+            backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px', padding: `${HEADER_TOP + HEADER_HEIGHT + 10}px 15px 15px 15px`,
             width: 'max-content', boxSizing: 'border-box'
         }}>
 
-            <div style={{ position: 'absolute', top: '6px', left: '15px', right: '10px', display: 'flex', justifyContent: 'space-between', zIndex: 10, alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                        onClick={() => setShowPaths(!showPaths)}
-                        style={{
-                            background: showPaths ? '#333' : 'transparent', border: '1px solid #555',
-                            borderRadius: '6px', color: '#aaa', cursor: 'pointer', fontSize: '0.75em',
-                            padding: '4px 8px', fontWeight: 'bold'
-                        }}
-                    >
-                        {showPaths ? 'Hide Paths' : 'Show Paths'}
-                    </button>
-                    <button
-                        onClick={() => setIsMachineLocked(!isMachineLocked)}
-                        disabled={isAnySolving}
-                        style={{
-                            background: isMachineLocked ? 'rgba(255, 77, 77, 0.1)' : 'transparent',
-                            border: `1px solid ${isMachineLocked ? '#ff4d4d' : '#555'}`,
-                            borderRadius: '6px', color: isMachineLocked ? '#ff4d4d' : '#aaa',
-                            cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.75em',
-                            padding: '4px 8px', fontWeight: 'bold'
-                        }}
-                    >
-                        {isMachineLocked ? 'Unlock' : 'Lock'}
-                    </button>
-                </div>
-                <div style={{ flex: 1, minWidth: 0, margin: '0 10px', display: 'flex', justifyContent: 'center' }}>
-                    {isImportedMachine ? (
-                        <span
-                            title={machineType}
-                            style={{ color: '#eee', fontSize: '0.8em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        >
-                            {machineType.split(' > ').pop()}
-                        </span>
-                    ) : (
-                        <select
-                            title={machineType !== "Select Machine..." ? machineType : undefined}
-                            value={machineType}
-                            onChange={(e) => {
-                                const selected = e.target.value;
-                                const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
-                                let max = 0;
-
-                                const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
-
-                                allKeys.forEach(k => {
-                                    if (k === `optimizer_machine_type_${machineId}`) return;
-                                    const val = localStorage.getItem(k);
-                                    if (val) {
-                                        const match = val.match(regex);
-                                        if (match) {
-                                            const num = parseInt(match[1], 10);
-                                            if (num > max) max = num;
-                                        }
-                                    }
-                                });
-                                setMachineType(`${selected} ${max + 1}`);
-                            }}
-                            disabled={currentSolving}
-                            style={{
-                                width: '100%', padding: '3px 6px', backgroundColor: '#222', color: '#eee',
-                                border: '1px solid #333', borderRadius: '6px', fontSize: '0.75em',
-                                outline: 'none', cursor: currentSolving ? 'not-allowed' : 'pointer',
-                                textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
-                            }}
-                        >
-                            <option value="Select Machine..." disabled>Select Machine...</option>
-                            {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
-                                <option value={machineType}>
-                                    {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
-                                </option>
-                            )}
-                            <option value="Moisture Farm">Moisture Farm</option>
-                            <option value="Furnace">Furnace</option>
-                            <option value="Water Purifier">Water Purifier</option>
-                            <option value="Alarm System">Alarm System</option>
-                            <option value="AgeWell">AgeWell</option>
-                            <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
-                            <option value="Mirage Projector">Mirage Projector</option>
-                        </select>
+            <div style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center' }}>
+                <div
+                    title={machineType !== 'Select Machine...' ? machineType : undefined}
+                    style={{ width: `${HEADER_HEIGHT}px`, height: `${HEADER_HEIGHT}px`, flexShrink: 0, backgroundColor: '#1a1a1a', border: '1px solid #2c2c2e', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}
+                >
+                    {machineIconUrl && (
+                        <img
+                            src={machineIconUrl}
+                            alt=""
+                            draggable={false}
+                            style={{ width: `${HEADER_HEIGHT - 6}px`, height: `${HEADER_HEIGHT - 6}px`, objectFit: 'contain', imageRendering: 'pixelated' }}
+                        />
                     )}
                 </div>
-                {canDelete && (
-                    <button
-                        onClick={() => onDelete(machineId)}
-                        disabled={isAnySolving}
-                        style={{
-                            background: 'none', border: 'none', color: isAnySolving ? '#444' : '#666',
-                            cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '1.2em', padding: '4px 4px'
-                        }}
-                        title="Delete Machine"
-                    >
-                        &times;
-                    </button>
-                )}
+                <div style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '2px 0' , boxSizing: 'border-box' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            onClick={() => setShowPaths(!showPaths)}
+                            style={{
+                                background: showPaths ? '#333' : 'transparent', border: '1px solid #555',
+                                borderRadius: '6px', color: '#aaa', cursor: 'pointer', fontSize: '0.75em',
+                                padding: '4px 8px', fontWeight: 'bold'
+                            }}
+                        >
+                            {showPaths ? 'Hide Paths' : 'Show Paths'}
+                        </button>
+                        <button
+                            onClick={() => setIsMachineLocked(!isMachineLocked)}
+                            disabled={isAnySolving}
+                            style={{
+                                background: isMachineLocked ? 'rgba(255, 77, 77, 0.1)' : 'transparent',
+                                border: `1px solid ${isMachineLocked ? '#ff4d4d' : '#555'}`,
+                                borderRadius: '6px', color: isMachineLocked ? '#ff4d4d' : '#aaa',
+                                cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.75em',
+                                padding: '4px 8px', fontWeight: 'bold'
+                            }}
+                        >
+                            {isMachineLocked ? 'Unlock' : 'Lock'}
+                        </button>
+                    {canDelete && (
+                        <button
+                            onClick={() => onDelete(machineId)}
+                            disabled={isAnySolving}
+                            style={{
+                                background: 'none', border: 'none', color: isAnySolving ? '#444' : '#666',
+                                cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '1.2em', padding: '4px 4px'
+                            }}
+                            title="Delete Machine"
+                        >
+                            &times;
+                        </button>
+                    )}
+                    </div>
+                    <div style={{ minWidth: 0, display: 'flex' }}>
+                        {isImportedMachine ? (
+                            <span
+                                title={machineType}
+                                style={{ color: '#eee', fontSize: '0.95em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}
+                            >
+                                {machineType.split(' > ').pop()}
+                            </span>
+                        ) : (
+                            <select
+                                title={machineType !== "Select Machine..." ? machineType : undefined}
+                                value={machineType}
+                                onChange={(e) => {
+                                    const selected = e.target.value;
+                                    const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
+                                    let max = 0;
+
+                                    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                    const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
+
+                                    allKeys.forEach(k => {
+                                        if (k === `optimizer_machine_type_${machineId}`) return;
+                                        const val = localStorage.getItem(k);
+                                        if (val) {
+                                            const match = val.match(regex);
+                                            if (match) {
+                                                const num = parseInt(match[1], 10);
+                                                if (num > max) max = num;
+                                            }
+                                        }
+                                    });
+                                    setMachineType(`${selected} ${max + 1}`);
+                                }}
+                                disabled={currentSolving}
+                                style={{
+                                    width: '100%', padding: '3px 6px', backgroundColor: '#222', color: '#eee',
+                                    border: '1px solid #333', borderRadius: '6px', fontSize: '0.75em',
+                                    outline: 'none', cursor: currentSolving ? 'not-allowed' : 'pointer',
+                                    textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
+                                }}
+                            >
+                                <option value="Select Machine..." disabled>Select Machine...</option>
+                                {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
+                                    <option value={machineType}>
+                                        {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
+                                    </option>
+                                )}
+                                <option value="Moisture Farm">Moisture Farm</option>
+                                <option value="Furnace">Furnace</option>
+                                <option value="Water Purifier">Water Purifier</option>
+                                <option value="Alarm System">Alarm System</option>
+                                <option value="AgeWell">AgeWell</option>
+                                <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
+                                <option value="Mirage Projector">Mirage Projector</option>
+                            </select>
+                        )}
+                    </div>
+                </div>
             </div>
 
             <div style={{ visibility: showPaths ? 'hidden' : 'visible', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -711,7 +749,7 @@ const MachineInstance = React.memo(forwardRef(({
 
             {showPaths && (
                 <div style={{
-                    position: 'absolute', top: '40px', left: '15px', right: '15px', bottom: '15px',
+                    position: 'absolute', top: `${HEADER_TOP + HEADER_HEIGHT + 10}px`, left: '15px', right: '15px', bottom: '15px',
                     backgroundColor: '#1a1a1a', borderRadius: '6px', border: '1px solid #333',
                     overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px',
                     zIndex: 5
