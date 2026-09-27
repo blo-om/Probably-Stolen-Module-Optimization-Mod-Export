@@ -9,6 +9,8 @@ interface SaveFileImporterProps {
 export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    // Name of the last imported save (without .es3), kept across reloads like the rest of the page state
+    const [saveName, setSaveName] = useState<string | null>(() => localStorage.getItem('optimizer_save_name'));
 
     const getShapeFromData = (width: number, data: number[], isHighTier: boolean, blocks: number): ModuleShape | null => {
         if (blocks <= 2) return 'Node1x2';
@@ -441,6 +443,9 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 });
 
                 onImport(parsedInventory, newMachines);
+                const importedName = file.name.replace(/\.es3$/i, '');
+                localStorage.setItem('optimizer_save_name', importedName);
+                setSaveName(importedName);
             } catch (err) {
                 console.error("Failed to parse save:", err);
                 setErrorMsg("Failed to parse save file. Please ensure it is a valid .es3 save string.");
@@ -476,9 +481,13 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
             >
                 Import Save (.es3)
             </label>
-            {errorMsg && (
+            {errorMsg ? (
                 <div style={{ position: 'absolute', top: '100%', marginTop: '5px', left: 0, color: '#ff4d4d', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
                     {errorMsg}
+                </div>
+            ) : saveName && (
+                <div style={{ position: 'absolute', top: '100%', marginTop: '5px', left: 0, right: 0, textAlign: 'center', color: '#888', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
+                    {saveName}
                 </div>
             )}
         </div>
