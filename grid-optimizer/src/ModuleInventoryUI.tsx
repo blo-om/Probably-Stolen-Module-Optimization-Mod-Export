@@ -740,7 +740,7 @@ const MachineInstance = React.memo(forwardRef(({
                         <button
                             onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }]))}
                             disabled={!optimizer.solutionCode}
-                            title="Copy this machine's layout for the Module Loadout mod's import button"
+                            title="Copy this machine's layout for the Module Optimizer Import mod"
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer', opacity: !optimizer.solutionCode ? 0.5 : 1 }}
                         >
                             Export
@@ -1780,7 +1780,7 @@ export default function ModuleInventoryUI() {
                 <button
                     onClick={handleCopyAllForMod}
                     disabled={isAnySolving}
-                    title="Copy every machine's code with its name, for the Module Loadout mod"
+                    title="Copy every machine's code with its name, for the Module Optimizer Import mod"
                     style={{ padding: '10px 24px', backgroundColor: '#2e4a35', color: '#eee', border: '1px solid #4caf50', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
                     {copiedAllForMod ? 'Copied!' : 'Copy All for Mod'}

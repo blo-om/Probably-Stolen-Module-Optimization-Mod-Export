@@ -1,4 +1,4 @@
-// Export format read by the Module Loadout MelonLoader mod.
+// Export format read by the Module Optimizer Import MelonLoader mod.
 //
 //   PSMOD1:<base64url(UTF-8 JSON)>
 //   JSON: {
