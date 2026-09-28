@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImp
 import { encodeModExport, boardModules } from './modExport';
 import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, desequencerCutoffs } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
-import { runOptimizationEngine } from './hooks/useOptimizer';
+import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
@@ -1257,7 +1257,7 @@ export default function ModuleInventoryUI() {
         jointRunRef.current = { current: true };
         active.forEach(m => handleSolvingChange(m.id, true));
         try {
-            await runOptimizationEngine(configs, boards, engineInventory, expandedInventory, jointRunRef.current, (updates) => {
+            await runParallelEngine(configs, boards, engineInventory, expandedInventory, jointRunRef.current, (updates) => {
                 updates.forEach((update, id) => {
                     machinesRef.current[id]?.applyUpdate(update.board, update.totals, update.pieceStats, update.code);
                 });
