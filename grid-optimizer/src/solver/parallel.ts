@@ -73,12 +73,12 @@ const significant = (tiers: number[], reference: number[], targetShare: number) 
 
 /* Stepped targets that cannot be met are lowered one step at a time, so the modules chasing them go where they count
  * The search decides for itself when it runs alone; with workers the coordinator decides for all of them together (their reports are
- * ranked on one scale): once the record has gone a quarter of the run so far (RELAX_AFTER_SHARE, at least RELAX_MIN_MS) without a
+ * ranked on one scale): once the record has gone half the run so far (RELAX_AFTER_SHARE, at least RELAX_MIN_MS) without a
  * significant improvement, the unmet stepped target of the
  * lowest priority (last card) drops a step. Creeping towards a target counts only as a fifth of what it was missing (in practice
  * meeting it), so a search stuck just short of one no longer holds the relax off
  */
-const RELAX_AFTER_SHARE = 0.25;
+const RELAX_AFTER_SHARE = 0.5;
 const RELAX_MIN_MS = 500;
 const RELAX_TARGET_SHARE = 0.2;
 const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
