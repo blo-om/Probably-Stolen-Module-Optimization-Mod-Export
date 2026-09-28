@@ -1280,7 +1280,7 @@ export const runOptimizationEngine = async (
         const spare = learningAlgorithms.filter(item => !onBoards.has(item.id));
         if (spare.length === 0) return null;
 
-        const order = machines.map((m, mIdx) => mIdx)
+        const order = machines.map((_, mIdx) => mIdx)
             .filter(mIdx => machines[mIdx].targetStats.Efficiency === null || statIsIgnored(machines[mIdx], 'Efficiency'))
             .sort((a, b) => Number(!statIsIgnored(machines[a], 'Efficiency')) - Number(!statIsIgnored(machines[b], 'Efficiency')));
         let out: (InventoryItem | 'Locked' | null)[][][] | null = null;
@@ -1288,7 +1288,8 @@ export const runOptimizationEngine = async (
         for (const piece of spare) {
             const orientations = PRECOMPUTED_ORIENTATIONS.get(piece.shape);
             if (!orientations) continue;
-            let best: { mIdx: number; x: number; y: number; o: Orientation; nodes: number } | null = null;
+            type Spot = { mIdx: number; x: number; y: number; o: Orientation; nodes: number };
+            let best = null as Spot | null;
             for (const mIdx of order) {
                 const board = (out ?? boards)[mIdx];
                 for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) for (const o of orientations) {
@@ -1307,12 +1308,14 @@ export const runOptimizationEngine = async (
                     if (fits && (best === null || nodes < best.nodes)) best = { mIdx, x, y, o, nodes };
                 }
                 // A machine earlier in the order wins unless it could only take it against a Node
-                if (best !== null && best.nodes === 0) break;
+                if (best !== null && (best as Spot).nodes === 0) break;
             }
-            if (best === null) continue;
+            // Assigned inside the loops, which TypeScript's narrowing does not follow
+            const spot = best as Spot | null;
+            if (spot === null) continue;
             if (out === null) out = boards.map(b => b.map(row => [...row]));
-            for (let i = 0; i < best.o.count; i++) out[best.mIdx][best.y + best.o.ys[i]][best.x + best.o.xs[i]] = piece;
-            changed.add(best.mIdx);
+            for (let i = 0; i < spot.o.count; i++) out[spot.mIdx][spot.y + spot.o.ys[i]][spot.x + spot.o.xs[i]] = piece;
+            changed.add(spot.mIdx);
         }
         return out ? { boards: out, changed } : null;
     };
