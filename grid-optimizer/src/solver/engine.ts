@@ -51,8 +51,10 @@ const STAGNATION_LIMIT = 150;
 
 // A missed stepped target costs this much on top of the distance, so reaching one fully always beats getting close on two
 const STEP_MISS_PENALTY = 50;
-// How long the record may go without a significant improvement before the lowest-priority unmet stepped target is lowered one step
-const RELAX_AFTER_MS = 2000;
+// How long the record may go without a significant improvement before the lowest-priority unmet stepped target is lowered one step:
+// a quarter of the run so far, never under half a second (the same rule as solver/parallel.ts)
+const RELAX_AFTER_SHARE = 0.25;
+const RELAX_MIN_MS = 500;
 // A significant improvement, judged on the first tier that changed:
 //   a target tier closed at least this share of what it was missing (a stepped target's miss penalty included, so in practice
 //   meeting a target, or a big jump while still far off)
@@ -695,7 +697,8 @@ export const runOptimizationEngine = async (
         }
         return false;
     };
-    let progressAt = now();
+    const startedAt = now();
+    let progressAt = startedAt;
     // Checked on the clock (every yield), not only at restarts, which can be far apart on big sets; the clock runs from the last
     // significant improvement, so a search still making real gains is left alone however long it takes
     const checkRelax = () => {
@@ -707,7 +710,7 @@ export const runOptimizationEngine = async (
         } else if (significantlyImproved()) {
             progressAt = now();
             progressMark.set(bestTiers);
-        } else if (now() - progressAt >= RELAX_AFTER_MS) {
+        } else if (now() - progressAt >= Math.max(RELAX_MIN_MS, (now() - startedAt) * RELAX_AFTER_SHARE)) {
             relaxed = relaxLowestTarget();
         }
         if (relaxed) {

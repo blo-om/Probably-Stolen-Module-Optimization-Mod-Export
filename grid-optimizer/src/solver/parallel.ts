@@ -73,11 +73,13 @@ const significant = (tiers: number[], reference: number[], targetShare: number) 
 
 /* Stepped targets that cannot be met are lowered one step at a time, so the modules chasing them go where they count
  * The search decides for itself when it runs alone; with workers the coordinator decides for all of them together (their reports are
- * ranked on one scale): once the record has gone RELAX_AFTER_MS without a significant improvement, the unmet stepped target of the
+ * ranked on one scale): once the record has gone a quarter of the run so far (RELAX_AFTER_SHARE, at least RELAX_MIN_MS) without a
+ * significant improvement, the unmet stepped target of the
  * lowest priority (last card) drops a step. Creeping towards a target counts only as a fifth of what it was missing (in practice
  * meeting it), so a search stuck just short of one no longer holds the relax off
  */
-const RELAX_AFTER_MS = 2000;
+const RELAX_AFTER_SHARE = 0.25;
+const RELAX_MIN_MS = 500;
 const RELAX_TARGET_SHARE = 0.2;
 const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
 
@@ -141,7 +143,8 @@ export const runParallelEngine = async (
     const targets = machines.map(m => ({ ...m.targetStats }));
     let relaxGen = 0;
     let progressMark: number[] | null = null;
-    let progressAt = Date.now();
+    const startedAt = Date.now();
+    let progressAt = startedAt;
     const relaxLowestTarget = () => {
         if (!bestUpdates) return;
         let pick: { mIdx: number; s: number; rank: number } | null = null;
@@ -211,7 +214,8 @@ export const runParallelEngine = async (
             stopSent = true;
             workers.forEach(w => w.postMessage({ type: 'stop' } satisfies WorkerMessage));
         }
-        if (!stopSent && Date.now() - progressAt >= RELAX_AFTER_MS) relaxLowestTarget();
+        const t = Date.now();
+        if (!stopSent && t - progressAt >= Math.max(RELAX_MIN_MS, (t - startedAt) * RELAX_AFTER_SHARE)) relaxLowestTarget();
     }, 50);
     try {
         await Promise.all(finished);
