@@ -2,6 +2,7 @@ import { runOptimizationEngine } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
 import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
+import type { EngineTuning } from './engine';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
 
@@ -10,6 +11,23 @@ type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
  * every report so far (on the tier score each search attaches, which is always against the targets as set). The caller sees one record that only improves
  * Running off the page's thread also means the search never pauses for the UI, and the UI never stalls for the search
  */
+
+/* Each worker runs the search with its own settings rather than 15 copies of one
+ * Which settings suit a save depends on the save (re-layout helps a single crowded board and costs a set with stepped targets, for one),
+ * and the record gate keeps whichever does best. On the save_1 benchmarks the best of 15 mixed workers beat the best of 15 identical ones
+ * in 75% of head-to-heads on three of four scenarios (56% on the fourth), and reached the best result ever found for the Alarm board every time
+ */
+const PRESETS: EngineTuning[] = [
+    {},
+    { relayoutOneIn: 6 },
+    { swapOneIn: 3 },
+    { tournament: 2 },
+    { tournament: 8 },
+    { ruinMax: 5 },
+    { stagnationLimit: 80 },
+    { stagnationLimit: 300 },
+    { repackOneIn: 2 },
+];
 
 // Solves running at the same time (several cards can be solving individually) share the cores rather than each taking all of them
 let activeSolves = 0;
@@ -60,8 +78,8 @@ export const runParallelEngine = async (
         return runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
     }
 
-    const start: WorkerMessage = { type: 'start', machines, boards: initialBoards, searchPoolInventory, fullInventory };
-    const finished = workers.map(worker => new Promise<void>((resolve) => {
+    const startFor = (i: number): WorkerMessage => ({ type: 'start', machines, boards: initialBoards, searchPoolInventory, fullInventory, tuning: PRESETS[i % PRESETS.length] });
+    const finished = workers.map((worker, i) => new Promise<void>((resolve) => {
         worker.onmessage = (event: MessageEvent<WorkerReply>) => {
             const reply = event.data;
             if (reply.type === 'done') {
@@ -78,7 +96,7 @@ export const runParallelEngine = async (
             worker.terminate();
             resolve();
         };
-        worker.postMessage(start);
+        worker.postMessage(startFor(i));
     }));
 
     // The caller stops a solve by clearing its ref; every worker is told, and each flushes its last record before it reports done

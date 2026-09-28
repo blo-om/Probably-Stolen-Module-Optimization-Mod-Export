@@ -113,6 +113,25 @@ const statOf = (p: MachineParams, t: Totals, s: number) => (s === 0 && p.sumPQ ?
 // A scored board: its totals, and its tiebreak once worked out (tbGen says under which targets)
 type Scored = Totals & { tb: number; tbGen: number };
 
+/* Knobs of the search. The defaults are the search as it runs by default; the rest exist so variants can be run side by side (see solver/parallel.ts)
+ *   tournament       DRAW_TOURNAMENT
+ *   ruinMax          most pieces an ordinary ruin takes off a board
+ *   stagnationLimit  non-improving iterations before a big ruin
+ *   repackOneIn      REPACK_ONE_IN
+ *   swapOneIn        one iteration in so many is a same-shape swap instead of a rebuild (0: never; default 6)
+ *   relayoutOneIn    one iteration in so many re-lays one board's own modules in a new order instead of a rebuild (0: never)
+ *   lateAcceptance   history length of late-acceptance hill climbing (0: plain hill climbing; measured no better at 100 and worse at 500, so off)
+ */
+export type EngineTuning = {
+    tournament?: number;
+    ruinMax?: number;
+    stagnationLimit?: number;
+    repackOneIn?: number;
+    swapOneIn?: number;
+    relayoutOneIn?: number;
+    lateAcceptance?: number;
+};
+
 export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>;
 
 export const runOptimizationEngine = async (
@@ -122,8 +141,17 @@ export const runOptimizationEngine = async (
     fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
     // `tiers` is the reported layout's score against the targets as set (not this run's relaxed copy), so reports from separate runs can be ranked
-    onUpdate: (updates: EngineUpdates, tiers: number[]) => void
+    onUpdate: (updates: EngineUpdates, tiers: number[]) => void,
+    tuning: EngineTuning = {}
 ) => {
+    const TOURNAMENT = tuning.tournament ?? DRAW_TOURNAMENT;
+    const RUIN_MAX = tuning.ruinMax ?? 3;
+    const STAGNATION = tuning.stagnationLimit ?? STAGNATION_LIMIT;
+    const REPACK_EVERY = tuning.repackOneIn ?? REPACK_ONE_IN;
+    // On by default: measured better or level on every benchmark scenario at 1 in 6 (1 in 3 cost the all-Auto case)
+    const SWAP_EVERY = tuning.swapOneIn ?? 6;
+    const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
+    const LAHC = tuning.lateAcceptance ?? 0;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
     const machineCount = machines.length;
@@ -645,16 +673,118 @@ export const runOptimizationEngine = async (
     };
     let targetProgressAt = now();
 
-    const { portYield, timerYield, dispose } = createYielder();
-    let lastYield = now();
-    let lastTimerYield = lastYield;
     const cur = [0, 0, 0];
     const w = [0, 0, 0];
 
+    // Late acceptance: the tiers of the layout being worked on, and of the layouts it was on the last LAHC iterations
+    const acceptedTiers = new Float64Array(TIER_LENGTH).fill(-Infinity);
+    const lahcHistory = new Float64Array(Math.max(1, LAHC) * TIER_LENGTH).fill(-Infinity);
+    let lahcStep = 0;
+    let lahcFresh = true;
+
+    const beginMove = (boards: number[]) => {
+        rebuiltMachines.length = 0;
+        for (let mIdx = 0; mIdx < machineCount; mIdx++) isRebuilt[mIdx] = false;
+        for (const mIdx of boards) {
+            rebuiltMachines.push(mIdx);
+            isRebuilt[mIdx] = true;
+            testBoards[mIdx].set(currentBoards[mIdx]);
+        }
+    };
+
+    /* Same-shape swap: a module on one board trades places with a module of the same shape on another board or off the boards entirely
+     * Same shape means the same cells fit it, so nothing is re-packed: it is the cheap move for "which machine gets this module",
+     * which a rebuild only finds when it happens to lift and redraw the right pieces
+     */
+    const swapPieces: number[] = [];
+    const swapOwners: number[] = [];
+    const trySwap = () => {
+        swapPieces.length = 0;
+        swapOwners.length = 0;
+        const g = ++itemGen;
+        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+            const b = currentBoards[mIdx];
+            for (let c = 0; c < CELLS; c++) {
+                const a = b[c];
+                if (a < 0 || itemStamp[a] === g) continue;
+                itemStamp[a] = g;
+                if (fixed[a] || core.white[a]) continue;
+                swapPieces.push(a);
+                swapOwners.push(mIdx);
+            }
+        }
+        if (swapPieces.length === 0) return false;
+        const k = Math.floor(Math.random() * swapPieces.length);
+        const a = swapPieces[k], owner = swapOwners[k];
+        const shape = core.shape[a];
+        // Partners: same shape, on another board, or in the pool and on no board
+        let partner = -1, partnerOwner = -1, seen = 0;
+        for (let i = 0; i < swapPieces.length; i++) {
+            const b = swapPieces[i];
+            if (b === a || swapOwners[i] === owner || core.shape[b] !== shape) continue;
+            if (Math.random() * ++seen < 1) { partner = b; partnerOwner = swapOwners[i]; }
+        }
+        for (let i = 0; i < P; i++) {
+            const b = searchPool[i];
+            if (b === a || itemStamp[b] === g || core.shape[b] !== shape || fixed[b] || core.white[b]) continue;
+            if (Math.random() * ++seen < 1) { partner = b; partnerOwner = -1; }
+        }
+        if (partner === -1) return false;
+        beginMove(partnerOwner === -1 ? [owner] : [owner, partnerOwner]);
+        const ta = testBoards[owner];
+        for (let c = 0; c < CELLS; c++) if (ta[c] === a) ta[c] = partner;
+        if (partnerOwner !== -1) {
+            const tb = testBoards[partnerOwner];
+            for (let c = 0; c < CELLS; c++) if (tb[c] === partner) tb[c] = a;
+        }
+        return true;
+    };
+
+    /* Re-layout: one board's own modules lifted and put back one by one in a new random order, each at its best cell
+     * The same set in a different arrangement; a module that no longer fits is left out and goes back to the pool
+     */
+    const relayoutPieces: number[] = [];
+    const tryRelayout = () => {
+        const k = Math.floor(Math.random() * machineCount);
+        beginMove([k]);
+        const board = testBoards[k];
+        relayoutPieces.length = 0;
+        const g = ++itemGen;
+        for (let c = 0; c < CELLS; c++) {
+            const a = board[c];
+            if (a < 0 || fixed[a]) continue;
+            if (itemStamp[a] !== g) { itemStamp[a] = g; relayoutPieces.push(a); }
+            board[c] = EMPTY;
+        }
+        if (relayoutPieces.length < 2) return false;
+        shuffle(relayoutPieces);
+        rebuildFreeCells(board);
+        let boardIsEmpty = freeCells.length === openCellCount[k];
+        const t = core.boardTotals(board);
+        cur[0] = t.p; cur[1] = t.q; cur[2] = t.e;
+        w[0] = baseWeights[k][0]; w[1] = baseWeights[k][1]; w[2] = baseWeights[k][2];
+        for (const it of relayoutPieces) {
+            if (placeBestFit(it, board, boardIsEmpty, w, cur, params[k])) {
+                boardIsEmpty = false;
+                cur[0] += committed[0]; cur[1] += committed[1]; cur[2] += committed[2];
+            }
+        }
+        return true;
+    };
+
+    const { portYield, timerYield, dispose } = createYielder();
+    let lastYield = now();
+    let lastTimerYield = lastYield;
+
     try {
         while (isSolvingRef.current) {
-            const isStagnant = stagnationCounter >= STAGNATION_LIMIT;
+            const isStagnant = stagnationCounter >= STAGNATION;
 
+            const special = !isStagnant && (
+                (SWAP_EVERY > 0 && Math.random() * SWAP_EVERY < 1 && trySwap()) ||
+                (RELAYOUT_EVERY > 0 && Math.random() * RELAYOUT_EVERY < 1 && tryRelayout())
+            );
+            if (!special) {
             // One random board per iteration; a stagnant set rebuilds every board at once, the only step that can make a coordinated swap
             const rebuildAll = isStagnant && machineCount > 1;
             const targetMIdx = Math.floor(Math.random() * machineCount);
@@ -694,7 +824,7 @@ export const runOptimizationEngine = async (
                     if (pieces.length > 0) {
                         const removeCount = isStagnant
                             ? Math.max(1, Math.floor(pieces.length * (0.5 + Math.random() * 0.4)))
-                            : Math.floor(Math.random() * Math.min(3, pieces.length)) + 1;
+                            : Math.floor(Math.random() * Math.min(RUIN_MAX, pieces.length)) + 1;
                         shuffle(pieces);
                         for (let i = 0; i < removeCount; i++) removed[pieces[i]] = 1;
                         for (let c = 0; c < CELLS; c++) {
@@ -766,7 +896,7 @@ export const runOptimizationEngine = async (
 
                 // Specials first: all together now and then (see REPACK_ONE_IN), otherwise each offered a better cell with the others standing still
                 const specials = specialsOnBoard[fillMIdx];
-                const repacked = specials.length > 0 && (isStagnant || Math.random() * REPACK_ONE_IN < 1) && repackSpecials(board, specials);
+                const repacked = specials.length > 0 && (isStagnant || Math.random() * REPACK_EVERY < 1) && repackSpecials(board, specials);
                 if (repacked) {
                     boardIsEmpty = false;
                     t = core.boardTotals(board);
@@ -809,7 +939,7 @@ export const runOptimizationEngine = async (
                     // Best of DRAW_TOURNAMENT random candidates; the losers stay in the undrawn region of the permutation
                     const remaining = P - drawn;
                     let swapAt = drawn + Math.floor(Math.random() * remaining);
-                    for (let k = 1; k < DRAW_TOURNAMENT && k < remaining; k++) {
+                    for (let k = 1; k < TOURNAMENT && k < remaining; k++) {
                         const alt = drawn + Math.floor(Math.random() * remaining);
                         if (values[poolOrder[alt]] > values[poolOrder[swapAt]]) swapAt = alt;
                     }
@@ -845,6 +975,7 @@ export const runOptimizationEngine = async (
                 isRebuilt[offeredOwner] = true;
                 rebuiltMachines.push(offeredOwner);
             }
+            }
 
             for (const mIdx of rebuiltMachines) rebuiltStats[mIdx] = score(testBoards[mIdx]);
             const statsFor = (mIdx: number) => isRebuilt[mIdx] ? rebuiltStats[mIdx] : currentStats[mIdx];
@@ -853,9 +984,27 @@ export const runOptimizationEngine = async (
             if (!isSolvingRef.current) break;
 
             // Judged against the best of this attempt, so a restart can climb from a deliberately worse board
+            // Late acceptance also takes a step that is no worse than the current layout, or than the layout LAHC iterations ago
             const ordering = compareTiers(currentTiers, epochTiers);
             const improved = ordering > 0;
-            if (improved || (ordering === 0 && Math.random() > 0.5)) {
+            let accept = improved || (ordering === 0 && Math.random() > 0.5);
+            let slot = 0;
+            if (LAHC > 0 && !accept) {
+                slot = lahcStep % LAHC;
+                const past = lahcHistory.subarray(slot * TIER_LENGTH, (slot + 1) * TIER_LENGTH);
+                accept = !lahcFresh && (compareTiers(currentTiers, acceptedTiers) >= 0 || compareTiers(currentTiers, past) >= 0);
+            }
+            if (LAHC > 0) {
+                slot = lahcStep++ % LAHC;
+                if (accept) acceptedTiers.set(currentTiers);
+                // A fresh history starts full of the first layout accepted, not empty: an empty one would accept anything for LAHC steps
+                if (lahcFresh && accept) {
+                    for (let i = 0; i < LAHC; i++) lahcHistory.set(acceptedTiers, i * TIER_LENGTH);
+                    lahcFresh = false;
+                }
+                lahcHistory.set(acceptedTiers, slot * TIER_LENGTH);
+            }
+            if (accept) {
                 if (improved) epochTiers.set(currentTiers);
                 for (const mIdx of rebuiltMachines) {
                     currentBoards[mIdx].set(testBoards[mIdx]);
@@ -889,6 +1038,9 @@ export const runOptimizationEngine = async (
                 if (++stagnationRuns >= RESTART_AFTER_STAGNATIONS) {
                     stagnationRuns = 0;
                     epochTiers.fill(-Infinity);
+                    acceptedTiers.fill(-Infinity);
+                    lahcHistory.fill(-Infinity);
+                    lahcFresh = true;
                     if (targetTiersImproved()) {
                         targetProgressAt = now();
                     } else if (now() - targetProgressAt >= RELAX_AFTER_MS && relaxLowestTarget()) {

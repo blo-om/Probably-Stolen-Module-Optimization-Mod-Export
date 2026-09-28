@@ -1,6 +1,7 @@
 // One independent search, run off the page's thread. See parallel.ts
 import { runOptimizationEngine } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
+import type { EngineTuning } from './engine';
 import type { InventoryItem } from '../types';
 
 export type WorkerStart = {
@@ -9,6 +10,7 @@ export type WorkerStart = {
     boards: any[][][];
     searchPoolInventory: InventoryItem[];
     fullInventory: InventoryItem[];
+    tuning?: EngineTuning;
 };
 export type WorkerMessage = WorkerStart | { type: 'stop' };
 export type WorkerReply =
@@ -25,6 +27,6 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     }
     running.current = true;
     await runOptimizationEngine(message.machines, message.boards, message.searchPoolInventory, message.fullInventory, running,
-        (updates, tiers) => self.postMessage({ type: 'update', updates, tiers } satisfies WorkerReply));
+        (updates, tiers) => self.postMessage({ type: 'update', updates, tiers } satisfies WorkerReply), message.tuning);
     self.postMessage({ type: 'done' } satisfies WorkerReply);
 };
