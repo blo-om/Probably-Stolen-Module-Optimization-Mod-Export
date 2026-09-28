@@ -696,6 +696,15 @@ const TARGET_MET_DRAW_SCALE = 0.25;
 // The best board found is kept and reported throughout, so this only decides how the remaining iterations are spent
 const RESTART_AFTER_STAGNATIONS = 8;
 
+// Every so many restarts one board goes back to its initial state instead of the record, handing its modules back to the pool for the others
+const FRESH_START_EVERY = 4;
+
+/* One iteration in so many offers the board being rebuilt one module off another board of the set
+ * If the fill places it, it is lifted from its owner and both boards are judged together - the only single step that moves a module between machines
+ * Offering one at a time matters: offering every foreign module at once lets the strongest win nearly every time, and those swaps are nearly always rejected
+ */
+const STEAL_ONE_IN = 4;
+
 /* How hard the score pushes machines maximising the same stat towards each other.
 
  * This has to stay well under 20, or the score stops being monotone in each machine's stats
@@ -960,8 +969,16 @@ export const runOptimizationEngine = async (
 
     // Least important tier. Target-only machines pay for the value they hold, so between two layouts that meet
     // their targets the one using weaker modules wins. Every other machine keeps the original "fewer pieces" nudge.
-    const boardTiebreak = (mIdx: number, board: (InventoryItem | 'Locked' | null)[][], placedPieces: number) => {
-        if (!isTargetOnly[mIdx]) return placedPieces * 5;
+    const boardTiebreak = (mIdx: number, board: (InventoryItem | 'Locked' | null)[][], placedPieces: number, totals: Stats) => {
+        // Points above a target that is not also maximized earn nothing and hold modules another machine could use
+        const m = machines[mIdx];
+        let overshoot = 0;
+        for (const key of STAT_KEYS) {
+            const target = m.targetStats[key];
+            if (statIsIgnored(m, key) || target === null || m.maximizeStats[key]) continue;
+            if (totals[key] > target) overshoot += totals[key] - target;
+        }
+        if (!isTargetOnly[mIdx]) return placedPieces * 5 + overshoot;
         const seen = new Set<string>();
         let held = 0;
         for (const row of board) {
@@ -971,7 +988,7 @@ export const runOptimizationEngine = async (
                 held += moduleValue(cell);
             }
         }
-        return held;
+        return held + overshoot;
     };
 
     // Swaps modules on target-only machines for weaker unused ones of the same shape (so the same cells), as long as
@@ -1032,7 +1049,12 @@ export const runOptimizationEngine = async (
 
     let stagnationCounter = 0;
     let stagnationRuns = 0;
+    let restarts = 0;
     const STAGNATION_LIMIT = 150;
+    // Not scaled by the set size: the every-board ruin that makes coordinated swaps comes on each stagnation, and scaling made those too rare
+    // to find them (measured on two machines trading a strong module for weak ones)
+    const stagnationLimit = STAGNATION_LIMIT;
+    const stealCandidates: { pIdx: number; owner: number }[] = [];
 
     // A stat marked ignored gets weight 0 so the placement heuristic stops steering away from it at all;
     // otherwise an unmaximised stat keeps the small 0.1 tiebreak weight
@@ -1264,15 +1286,16 @@ export const runOptimizationEngine = async (
 
     try {
         while (isSolvingRef.current) {
-            const isStagnant = stagnationCounter >= STAGNATION_LIMIT;
+            const isStagnant = stagnationCounter >= stagnationLimit;
 
-            // Normally one random machine is rebuilt per iteration. That alone cannot climb a multi-machine setup
-            // The balance penalty outweighs the stat reward, so once the machines are level, every single-machine gain scores worse than standing still and the search is stuck for good
-            // So the ruin-and-recreate step rebuilds every machine at once, which is the only move that can reach a better balanced layout
-            // The objective itself is unchanged
+            /* One random board is rebuilt per iteration; single modules move between boards through steals (see STEAL_ONE_IN)
+             * A stagnant set rebuilds every board at once, judged like any other move. That is the only step that can make a coordinated swap,
+             * e.g. a target-only machine trading its strong module for weak ones another machine holds while that machine takes the strong one:
+             * each half alone scores worse, so neither a steal nor a single-board rebuild can get there
+             * (Keeping a stagnant ruin whatever it scores, as a perturbation, was tried and measured no better on one board and worse on sets)
+             */
             const rebuildAll = isStagnant && machineCount > 1;
             const targetMIdx = Math.floor(Math.random() * machineCount);
-
             rebuiltMachines.length = 0;
             if (rebuildAll) {
                 for (let mIdx = 0; mIdx < machineCount; mIdx++) rebuiltMachines.push(mIdx);
@@ -1362,6 +1385,32 @@ export const runOptimizationEngine = async (
                             }
                         }
                     }
+                }
+            }
+
+            // Steal: one module off another board is made drawable for this fill
+            let offeredIdx = -1;
+            let offeredOwner = -1;
+            if (machineCount > 1 && !isStagnant && Math.random() * STEAL_ONE_IN < 1) {
+                stealCandidates.length = 0;
+                for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                    if (mIdx === targetMIdx) continue;
+                    const seen = new Set<number>();
+                    for (const row of currentBoards[mIdx]) {
+                        for (const cell of row) {
+                            if (!cell || cell === 'Locked') continue;
+                            const pIdx = poolIndexOf.get(cell.id);
+                            if (pIdx === undefined || seen.has(pIdx)) continue;
+                            seen.add(pIdx);
+                            stealCandidates.push({ pIdx, owner: mIdx });
+                        }
+                    }
+                }
+                if (stealCandidates.length > 0) {
+                    const pick = stealCandidates[Math.floor(Math.random() * stealCandidates.length)];
+                    offeredIdx = pick.pIdx;
+                    offeredOwner = pick.owner;
+                    placedMark[offeredIdx] = 0;
                 }
             }
 
@@ -1504,6 +1553,21 @@ export const runOptimizationEngine = async (
                 }
             }
 
+            // The fill took the offered module: lift it off its owner, which is then judged along with the rebuilt board
+            if (offeredIdx !== -1 && consumedMark[offeredIdx] === consumedGen) {
+                const stolenId = searchPool[offeredIdx].id;
+                const src = currentBoards[offeredOwner];
+                const dst = testBoards[offeredOwner];
+                for (let y = 0; y < 5; y++) {
+                    for (let x = 0; x < 7; x++) {
+                        const cell = src[y][x];
+                        dst[y][x] = cell && cell !== 'Locked' && cell.id === stolenId ? null : cell;
+                    }
+                }
+                isRebuilt[offeredOwner] = true;
+                rebuiltMachines.push(offeredOwner);
+            }
+
             // Only rebuilt machines can have changed, so the rest keep their cached stats
             for (const mIdx of rebuiltMachines) {
                 rebuiltStats[mIdx] = calculateBoardStats(testBoards[mIdx], fullInventory, inventoryById);
@@ -1527,7 +1591,7 @@ export const runOptimizationEngine = async (
                 }
 
                 // Tiebreak: the least important tier, so it can never take a ranked stat or a target out of its own tier
-                currentTiers[TIEBREAK_TIER] -= boardTiebreak(mIdx, isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx], stats.placedPiecesCount);
+                currentTiers[TIEBREAK_TIER] -= boardTiebreak(mIdx, isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx], stats.placedPiecesCount, t);
             }
 
             // Machines are only pulled towards each other within the same priority rank. Balancing across ranks
@@ -1560,6 +1624,8 @@ export const runOptimizationEngine = async (
 
             // Judged against the best of THIS attempt, not the best ever
             // After a restart the boards are deliberately worse than the record, and comparing them to it would reject every move and leave the restart unable to climb at all
+            // Judged against the best of THIS attempt, not the best ever
+            // After a restart the boards are deliberately worse than the record, and comparing them to it would reject every move and leave the restart unable to climb at all
             const ordering = compareTiers(currentTiers, epochTiers);
             const improved = ordering > 0;
             if (improved || (ordering === 0 && Math.random() > 0.5)) {
@@ -1569,18 +1635,20 @@ export const runOptimizationEngine = async (
                     currentStats[mIdx] = rebuiltStats[mIdx]!;
                 }
 
-                // A new record is the only thing worth reporting, and the only thing that resets the stagnation count
-                if (improved && compareTiers(currentTiers, bestTiers) > 0) {
-                    bestTiers.set(currentTiers);
-                    for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        bestBoards[mIdx] = currentBoards[mIdx].map(row => [...row]);
-                        bestStats[mIdx] = currentStats[mIdx];
-                    }
-                    // Every code lists the modules the other machines are not using,
-                    // so moving one machine's pieces invalidates all of them, not just the rebuilt one
-                    codeIsStale.fill(true);
-                    pendingUpdate = true;
+                // Any step up from this attempt's best is progress worth riding out; a new record is also the only thing worth reporting
+                if (improved) {
                     stagnationCounter = 0;
+                    if (compareTiers(currentTiers, bestTiers) > 0) {
+                        bestTiers.set(currentTiers);
+                        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                            bestBoards[mIdx] = currentBoards[mIdx].map(row => [...row]);
+                            bestStats[mIdx] = currentStats[mIdx];
+                        }
+                        // Every code lists the modules the other machines are not using,
+                        // so moving one machine's pieces invalidates all of them, not just the rebuilt one
+                        codeIsStale.fill(true);
+                        pendingUpdate = true;
+                    }
                 } else {
                     stagnationCounter++;
                 }
@@ -1596,16 +1664,24 @@ export const runOptimizationEngine = async (
                         currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], fullInventory, inventoryById);
                     }
                 }
-                // A big ruin is still judged against the epoch's best, so it only ever gets kept if it comes out ahead
-                // On a board that has been hill-climbed for thousands of iterations it almost never does
-                // Past a point it is very likely that this attempt is finished, and the iterations are better spent on a fresh one than on shaking the same board forever
-                // The record is already banked in bestBoards, so a restart can only cost time, never a result
+                // Perturbing the same neighbourhood for long without a new record means the record is probably as good as this region gets
+                // The next ruins start from the record itself, and every FRESH_START_EVERY restarts one board also goes back to its initial
+                // state (minus what the others have taken since), so the search sees other regions and redistributes that board's modules
                 if (++stagnationRuns >= RESTART_AFTER_STAGNATIONS) {
                     stagnationRuns = 0;
                     epochTiers.fill(-Infinity);
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        currentBoards[mIdx] = initialBoards[mIdx].map(row => [...row]);
-                        currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], fullInventory, inventoryById);
+                        currentBoards[mIdx] = bestBoards[mIdx].map(row => [...row]);
+                        currentStats[mIdx] = bestStats[mIdx];
+                    }
+                    if (++restarts % FRESH_START_EVERY === 0) {
+                        const k = Math.floor(Math.random() * machineCount);
+                        const elsewhere = new Set<string>();
+                        currentBoards.forEach((b, mIdx) => {
+                            if (mIdx !== k) b.forEach(row => row.forEach(cell => { if (cell && cell !== 'Locked') elsewhere.add(cell.id); }));
+                        });
+                        currentBoards[k] = initialBoards[k].map(row => row.map(cell => (cell && cell !== 'Locked' && elsewhere.has(cell.id)) ? null : cell));
+                        currentStats[k] = calculateBoardStats(currentBoards[k], fullInventory, inventoryById);
                     }
                 }
             }
