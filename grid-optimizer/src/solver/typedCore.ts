@@ -172,9 +172,10 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
                         if (IE[nb] < 0) ne += IE[nb];
                     }
                 }
-                absorbP = nf[a] * 0.25 * np;
-                absorbQ = nf[a] * 0.25 * nq;
-                absorbE = nf[a] * 0.25 * ne;
+                // Negative Feedback takes a quarter of its neighbours' negative stats as a whole number per slot, truncated toward zero, as the game does (ModuleEffectHelper NF effect)
+                absorbP = nf[a] * Math.trunc(np / 4);
+                absorbQ = nf[a] * Math.trunc(nq / 4);
+                absorbE = nf[a] * Math.trunc(ne / 4);
             }
 
             let bp = 0, bq = 0, be = 0;
@@ -274,7 +275,7 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         if (top[it] && y + o.minY === 0) { bp += roundStat(myP * 0.20); bq += roundStat(myQ * 0.20); be += roundStat(myE * 0.20); }
         if (recv[it]) { bp += roundStat(myP * 0.10 * adj); bq += roundStat(myQ * 0.10 * adj); be += roundStat(myE * 0.10 * adj); }
         myP += bp; myQ += bq; myE += be;
-        if (nfc > 0) { myP += nfc * 0.25 * np; myQ += nfc * 0.25 * nq; myE += nfc * 0.25 * ne; }
+        if (nfc > 0) { myP += nfc * Math.trunc(np / 4); myQ += nfc * Math.trunc(nq / 4); myE += nfc * Math.trunc(ne / 4); }
 
         dp += roundStat(myP); dq += roundStat(myQ); de += roundStat(myE);
         delta[0] = dp; delta[1] = dq; delta[2] = de;

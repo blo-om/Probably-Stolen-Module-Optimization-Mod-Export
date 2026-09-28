@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, desequencerCutoffs } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -246,6 +246,12 @@ const MachineInstance = React.memo(forwardRef(({
     useEffect(() => {
         try { localStorage.setItem(limitKey, JSON.stringify(limitStats)); } catch { /* per-viewer convenience only */ }
     }, [limitKey, limitStats]);
+
+    // A stat that does nothing on this machine has no card, so it must not be left on from an older setup either
+    useEffect(() => {
+        const stray = (['Performance', 'Quality', 'Efficiency'] as const).filter(k => statHasNoEffect(machineType, k) && !optimizer.ignoreStats[k]);
+        if (stray.length > 0) optimizer.setIgnoreStats((prev: any) => ({ ...prev, ...Object.fromEntries(stray.map(k => [k, true])) }));
+    }, [machineType, optimizer.ignoreStats]);
 
     // An enabled stat is maximized unless it has a target, or when its target is a limit it stays under
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
