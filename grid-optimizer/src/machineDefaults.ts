@@ -245,7 +245,6 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         toPercent: chance => Math.ceil(chance - 50),
         step: 1,
         hint: 'Chance to stop a theft: 50% plus Performance',
-        readout: chance => `${chance}% stop`,
     }],
     ['moisture farm', 'Performance', {
         unit: 'ml/d',
