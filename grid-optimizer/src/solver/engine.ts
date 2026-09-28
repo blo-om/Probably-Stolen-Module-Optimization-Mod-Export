@@ -131,6 +131,9 @@ type Scored = Totals & { tb: number; tbGen: number };
  *   swapOneIn        one iteration in so many is a same-shape swap instead of a rebuild (0: never; default 6)
  *   relayoutOneIn    one iteration in so many re-lays one board's own modules in a new order instead of a rebuild (0: never)
  *   lateAcceptance   history length of late-acceptance hill climbing (0: plain hill climbing; measured no better at 100 and worse at 500, so off)
+ *   ease             Auto stats with breakpoints may be eased when the search stalls (see StallOrder; 0: never). On by default: on
+ *                    all-Auto A/B scenarios (12 runs a side, 20 s, scored by the step each stat reaches in the game) the total rose 2-7%,
+ *                    the priority order held level, and targets elsewhere were met as often or more
  *   polish           near-target polish (see polishNearTargets; 0: off). On by default: on A/B scenarios with most machines on targets near
  *                    what they reach (28 runs a side, 8 s), the hardest near miss (AgeWell 250, reached ~245) was met 16 times against 7;
  *                    other targets and the overall score within noise; ~3% of the search time
@@ -144,9 +147,55 @@ export type EngineTuning = {
     relayoutOneIn?: number;
     lateAcceptance?: number;
     polish?: number;
+    ease?: number;
 };
 
+/* What a stalled search gives up, one at a time (see stallOrder):
+ *   ease   an Auto stat with breakpoints stops at the step it has reached (see stallOrders): it becomes a target at that step and is no longer maximized,
+ *          so the modules pushing it towards a next step it cannot reach go where they count (points between steps do nothing in the game)
+ *   relax  an unmet stepped target drops one step
+ */
+export type StallOrder = { mIdx: number; s: number; ease?: number };
+
 export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>;
+
+/* What a stalled search gives up next (see StallOrder); empty when nothing is left. Shared by the engine and the worker coordinator
+ * (solver/parallel.ts), so both pick the same
+ *   1. Auto stats with breakpoints at or past their lowest step (below it every point can still matter, e.g. Moisture Farm purity below 0):
+ *      all that are less than EASE_BATCH_SHARE of the way to their next step go at once; otherwise the one with the least progress
+ *      (lowest priority on a tie), so a stat close to its next step keeps its chance longest
+ *   2. then the unmet stepped target of the lowest priority, one step
+ */
+const EASE_BATCH_SHARE = 0.5;
+export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number): StallOrder[] => {
+    const eases: { mIdx: number; s: number; rank: number; step: number; progress: number }[] = [];
+    let relax: { mIdx: number; s: number; rank: number } | null = null;
+    machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
+        const steps = m.targetSteps?.[key];
+        if (!steps || steps.length === 0 || statIsIgnored(m, key) || (m.sumPQ && key === 'Quality')) return;
+        const rank = priorityOf(m, key);
+        const target = targets[mIdx][s];
+        const value = valueOf(mIdx, s);
+        if (target === null && maximize[mIdx][s]) {
+            const sorted = [...steps].sort((a, b) => a - b);
+            const reached = sorted.filter(v => v <= value);
+            if (reached.length === 0) return;
+            const step = reached[reached.length - 1];
+            const next = sorted.find(v => v > value);
+            eases.push({ mIdx, s, rank, step, progress: next === undefined ? 1 : (value - step) / (next - step) });
+        } else if (target !== null && value < target) {
+            if (relax === null || rank > relax.rank || (rank === relax.rank && mIdx > relax.mIdx)) relax = { mIdx, s, rank };
+        }
+    }));
+    const batch = eases.filter(e => e.progress < EASE_BATCH_SHARE);
+    if (batch.length > 0) return batch.map(e => ({ mIdx: e.mIdx, s: e.s, ease: e.step }));
+    if (eases.length > 0) {
+        eases.sort((a, b) => a.progress - b.progress || b.rank - a.rank || b.mIdx - a.mIdx);
+        return [{ mIdx: eases[0].mIdx, s: eases[0].s, ease: eases[0].step }];
+    }
+    const r = relax as { mIdx: number; s: number } | null;
+    return r !== null ? [{ mIdx: r.mIdx, s: r.s }] : [];
+};
 
 export const runOptimizationEngine = async (
     callerMachines: MachineConfig[],
@@ -159,7 +208,7 @@ export const runOptimizationEngine = async (
     tuning: EngineTuning = {},
     // Set when several searches run together (solver/parallel.ts): they must relax the same targets at the same time, or their reports
     // could not be ranked, so the coordinator decides and this hands over its orders (machine, stat index) instead of the own clock
-    relaxOrders?: () => { mIdx: number; s: number }[]
+    relaxOrders?: () => StallOrder[]
 ) => {
     const TOURNAMENT = tuning.tournament ?? DRAW_TOURNAMENT;
     const RUIN_MAX = tuning.ruinMax ?? 3;
@@ -170,6 +219,7 @@ export const runOptimizationEngine = async (
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
     const LAHC = tuning.lateAcceptance ?? 0;
     const POLISH = tuning.polish ?? 1;
+    const EASE = tuning.ease ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
     const machineCount = machines.length;
@@ -627,19 +677,19 @@ export const runOptimizationEngine = async (
 
     // The lowest-priority unmet stepped target drops one step (or is dropped below its lowest), and the record is re-scored against that
     const relaxLowestTarget = () => {
-        let pick: { mIdx: number; s: number; rank: number } | null = null;
-        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-            for (let s = 0; s < 3; s++) {
-                const target = params[mIdx].target[s];
-                if (params[mIdx].ignored[s] || target === null || !stepsOf[mIdx][s]) continue;
-                if (statOf(params[mIdx], bestStats[mIdx], s) >= target) continue;
-                const rank = priorityOf(machines[mIdx], STAT_KEYS[s]);
-                if (pick === null || rank > pick.rank || (rank === pick.rank && mIdx > pick.mIdx)) pick = { mIdx, s, rank };
-            }
+        const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s));
+        for (const order of orders) applyOrder(order);
+        return orders.length > 0;
+    };
+    const applyOrder = (order: StallOrder) => {
+        if (order.ease !== undefined) {
+            params[order.mIdx].target[order.s] = order.ease;
+            params[order.mIdx].maximize[order.s] = false;
+            tbGen++;
+            scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
+        } else {
+            lowerTarget(order.mIdx, order.s);
         }
-        if (pick === null) return false;
-        lowerTarget(pick.mIdx, pick.s);
-        return true;
     };
     const lowerTarget = (mIdx: number, s: number) => {
         const current = params[mIdx].target[s];
@@ -711,7 +761,7 @@ export const runOptimizationEngine = async (
         let relaxed = false;
         if (relaxOrders) {
             const orders = relaxOrders();
-            for (const { mIdx, s } of orders) lowerTarget(mIdx, s);
+            for (const order of orders) applyOrder(order);
             relaxed = orders.length > 0;
         } else if (significantlyImproved()) {
             progressAt = now();

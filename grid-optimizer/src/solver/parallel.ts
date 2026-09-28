@@ -3,6 +3,7 @@ import type { MachineConfig } from '../hooks/useOptimizer';
 import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
 import type { EngineTuning } from './engine';
+import { stallOrders } from './engine';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
 
@@ -101,9 +102,11 @@ const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, t
         offer: (updates: Updates, tiers: number[]) => {
             pending = { updates, tiers };
             if (shown === null) { show(); return; }
-            if (signature(updates) !== shown.sig && significant(tiers, shown.tiers, 0)) show();
+            if (signature(updates) !== shown.sig && (shown.tiers.length === 0 || significant(tiers, shown.tiers, 0))) show();
         },
         final: () => { if (shown === null) show(); },
+        // The score changed scale (a stat eased or a target relaxed): the next layout that looks different is shown, and compared from there
+        rebase: () => { if (shown !== null) shown.tiers = []; },
     };
 };
 
@@ -141,32 +144,36 @@ export const runParallelEngine = async (
     let bestUpdates: Updates | null = null;
     const workers: Worker[] = [];
     // Relaxing: the targets as they stand, the orders sent so far, and the record at the last significant improvement
-    const targets = machines.map(m => ({ ...m.targetStats }));
+    const targets = machines.map(m => STATS.map(k => m.targetStats[k] ?? null));
+    const maximize = machines.map(m => STATS.map(k => Boolean(m.maximizeStats?.[k]) && !(m.sumPQ && k === 'Quality')));
     let relaxGen = 0;
     let progressMark: number[] | null = null;
     const startedAt = Date.now();
     let progressAt = startedAt;
     const relaxLowestTarget = () => {
-        if (!bestUpdates) return;
-        let pick: { mIdx: number; s: number; rank: number } | null = null;
-        machines.forEach((m, mIdx) => STATS.forEach((stat, s) => {
-            const target = targets[mIdx][stat];
-            const steps = m.targetSteps?.[stat];
-            if (target === null || target === undefined || !steps || m.ignoreStats?.[stat] || (m.sumPQ && stat === 'Quality')) return;
-            const t = bestUpdates!.get(m.id)?.totals;
-            if (!t) return;
-            const value = m.sumPQ && stat === 'Performance' ? t.Performance + t.Quality : t[stat];
-            if (value >= target) return;
-            const rank = m.statPriority?.[stat] ?? 1;
-            if (pick === null || rank > pick.rank || (rank === pick.rank && mIdx > pick.mIdx)) pick = { mIdx, s, rank };
-        }));
-        if (pick === null) return;
-        const { mIdx, s } = pick as { mIdx: number; s: number };
-        const stat = STATS[s];
-        const lower = machines[mIdx].targetSteps![stat]!.filter(v => v < targets[mIdx][stat]!);
-        targets[mIdx][stat] = lower.length > 0 ? lower[lower.length - 1] : null;
-        relaxGen++;
-        workers.forEach(w => w.postMessage({ type: 'relax', mIdx, s, gen: relaxGen } satisfies WorkerMessage));
+        const record = bestUpdates;
+        if (!record) return;
+        const orders = stallOrders(machines, targets, maximize, (mIdx, s) => {
+            const m = machines[mIdx];
+            const t = record.get(m.id)?.totals;
+            if (!t) return 0;
+            return m.sumPQ && s === 0 ? t.Performance + t.Quality : t[STATS[s]];
+        });
+        if (orders.length === 0) return;
+        for (const order of orders) {
+            const { mIdx, s } = order;
+            if (order.ease !== undefined) {
+                targets[mIdx][s] = order.ease;
+                maximize[mIdx][s] = false;
+            } else {
+                const lower = machines[mIdx].targetSteps![STATS[s]]!.filter(v => v < targets[mIdx][s]!);
+                targets[mIdx][s] = lower.length > 0 ? lower[lower.length - 1] : null;
+            }
+            relaxGen++;
+            workers.forEach(w => w.postMessage({ type: 'relax', order, gen: relaxGen } satisfies WorkerMessage));
+        }
+        // An eased stat no longer counts towards the score, so the next record may score lower than what is on screen: it is compared afresh
+        display.rebase();
         // Reports on the old scale are ignored from here; the next one from any worker starts the new record
         best = null;
         progressMark = null;
