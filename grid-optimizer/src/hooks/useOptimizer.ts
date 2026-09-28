@@ -750,11 +750,9 @@ const RESTART_AFTER_STAGNATIONS = 8;
 
 /* A stepped target (see MachineConfig.targetSteps) that is missed by 1% gives exactly what missing it by 100% gives,
  * but the plain shortfall rates it as nearly met, so the search would spread a stat over several machines and leave each just under its step
- * Missing one costs this much on top of the distance, so reaching one fully always beats getting close on two,
- * and a little more per rank of priority, so when one has to be missed it is the lowest-priority one
+ * Missing one costs this much on top of the distance, so reaching one fully always beats getting close on two
  */
 const STEP_MISS_PENALTY = 50;
-const STEP_MISS_PER_RANK = 5;
 
 // How long the target tier may go without improving before the lowest-priority unmet stepped target is lowered one step
 // Restarts come many per second, so this is time, not a count: a reachable target can take a couple of seconds to be found
@@ -1027,18 +1025,23 @@ export const runOptimizationEngine = async (
     const tierOfRank = new Map<number, number>(rankOrder.map((r, i) => [r, i]));
     const tierOf = (m: MachineConfig, key: keyof Stats) => tierOfRank.get(priorityOf(m, key))!;
 
-    // Tier layout, most important first:
-    //   [0]              every machine's target shortfall - a target is a hard minimum, whatever the card order
-    //   [1 .. tierCount] maximized stats, one tier per priority rank (card order)
-    //   [tierCount + 1]  tiebreak: how much the boards hold (see boardTiebreak)
-    const TARGET_TIER = 0;
-    const RANK_OFFSET = 1;
-    const TIEBREAK_TIER = tierCount + 1;
-    const currentTiers = new Float64Array(tierCount + 2);
+    /* Tier layout, most important first:
+     *   [0 .. tierCount)              target shortfall, one tier per priority rank (card order): every target outranks every maximized stat,
+     *                                 and among targets the first card's come first, so it gets first claim on the modules that reach it
+     *   [tierCount .. 2 * tierCount)  maximized stats, one tier per priority rank
+     *   [2 * tierCount]               tiebreak: how much the boards hold (see boardTiebreak)
+     * One shared target tier used to let the first card's target be traded for any other card's, so the strongest module (a Neural Core, say)
+     * went wherever it closed the most total shortfall rather than to the card set first
+     */
+    const TARGET_OFFSET = 0;
+    const RANK_OFFSET = tierCount;
+    const TIEBREAK_TIER = 2 * tierCount;
+    const TIER_LENGTH = 2 * tierCount + 1;
+    const currentTiers = new Float64Array(TIER_LENGTH);
     // epochTiers is the best this attempt has reached, bestTiers the best ever reached
     // They are the same thing until the search restarts; (see RESTART_AFTER_STAGNATIONS)
-    const epochTiers = new Float64Array(tierCount + 2).fill(-Infinity);
-    const bestTiers = new Float64Array(tierCount + 2).fill(-Infinity);
+    const epochTiers = new Float64Array(TIER_LENGTH).fill(-Infinity);
+    const bestTiers = new Float64Array(TIER_LENGTH).fill(-Infinity);
 
     // A machine whose every enabled stat has a target only has to reach those targets. It should do that with the
     // least valuable modules that get there, so the strong ones stay free for machines that maximize.
@@ -1163,7 +1166,15 @@ export const runOptimizationEngine = async (
     let stagnationCounter = 0;
     let stagnationRuns = 0;
     let restarts = 0;
-    let targetScoreAtRestart = -Infinity;
+    // The record's target tiers at the last restart, to tell whether targets have made progress since
+    const targetScoreAtRestart = new Float64Array(tierCount).fill(-Infinity);
+    const targetTiersImproved = () => {
+        for (let i = 0; i < tierCount; i++) {
+            const now_ = bestTiers[TARGET_OFFSET + i];
+            if (now_ !== targetScoreAtRestart[i]) return now_ > targetScoreAtRestart[i];
+        }
+        return false;
+    };
     let targetProgressAt = now();
     const STAGNATION_LIMIT = 150;
     // Not scaled by the set size: the every-board ruin that makes coordinated swaps comes on each stagnation, and scaling made those too rare
@@ -1494,8 +1505,9 @@ export const runOptimizationEngine = async (
 
                     const target = m.targetStats[key];
                     if (target !== null && t[key] < target) {
-                        currentTiers[TARGET_TIER] -= (target - t[key]) * 10000;
-                        if (m.targetSteps?.[key]) currentTiers[TARGET_TIER] -= (STEP_MISS_PENALTY + STEP_MISS_PER_RANK * (tierCount - 1 - tierOf(m, key))) * 10000;
+                        const ti = tierOf(m, key) + TARGET_OFFSET;
+                        currentTiers[ti] -= (target - t[key]) * 10000;
+                        if (m.targetSteps?.[key]) currentTiers[ti] -= STEP_MISS_PENALTY * 10000;
                     }
                     if (m.maximizeStats[key]) currentTiers[tierOf(m, key) + RANK_OFFSET] += (t[key] * 10);
                 }
@@ -1540,7 +1552,7 @@ export const runOptimizationEngine = async (
 
     // A reported layout's score against the targets as set; see onUpdate
     const reportTiers = (statsFor: (mIdx: number) => BoardStats, boardFor: (mIdx: number) => (InventoryItem | 'Locked' | null)[][]) => {
-        const tiers = new Float64Array(tierCount + 2);
+        const tiers = new Float64Array(TIER_LENGTH);
         scoreInto(tiers, statsFor, boardFor, callerMachines);
         return Array.from(tiers);
     };
@@ -1984,12 +1996,12 @@ export const runOptimizationEngine = async (
                 if (++stagnationRuns >= RESTART_AFTER_STAGNATIONS) {
                     stagnationRuns = 0;
                     epochTiers.fill(-Infinity);
-                    if (bestTiers[TARGET_TIER] > targetScoreAtRestart) {
+                    if (targetTiersImproved()) {
                         targetProgressAt = now();
                     } else if (now() - targetProgressAt >= RELAX_AFTER_MS && relaxLowestTarget()) {
                         targetProgressAt = now();
                     }
-                    targetScoreAtRestart = bestTiers[TARGET_TIER];
+                    targetScoreAtRestart.set(bestTiers.subarray(TARGET_OFFSET, TARGET_OFFSET + tierCount));
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                         currentBoards[mIdx] = bestBoards[mIdx].map(row => [...row]);
                         currentStats[mIdx] = bestStats[mIdx];
