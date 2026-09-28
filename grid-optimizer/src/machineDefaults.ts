@@ -116,8 +116,19 @@ export const statBreakpoints = (machineType: string, stat: 'Performance' | 'Qual
 };
 
 // Some stats are linear in something players think in, so their target is entered in that unit instead of %
-//   Moisture Farm - 1000 ml/day base, every 1% Performance adds 10 ml
-export type StatUnit = { unit: string; fromPercent: (pct: number) => number; toPercent: (value: number) => number; step: number };
+//   Moisture Farm  - 1000 ml/day base, every 1% Performance adds 10 ml
+//   Water Purifier - every 1% Performance removes 0.02 ml/day more of each contaminant type. The base rate depends on the
+//                    water's concentrations, so only the extra can be targeted
+export type StatUnit = {
+    unit: string;
+    fromPercent: (pct: number) => number;
+    toPercent: (value: number) => number;
+    step: number;
+    // Shown on hover over the target box and the readout
+    hint?: string;
+    // Readout under the stat, when it needs more than "<value> <unit>"
+    readout?: (value: number) => string;
+};
 
 const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
     ['moisture farm', 'Performance', {
@@ -126,6 +137,15 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         // Rounded up, so the target always reaches the volume asked for
         toPercent: ml => Math.ceil((ml - 1000) / 10),
         step: 10,
+    }],
+    ['water purifier', 'Performance', {
+        unit: 'ml/d',
+        // Two decimals: 0.02 per % never needs more
+        fromPercent: pct => Math.round(pct * 2) / 100,
+        toPercent: ml => Math.ceil(ml * 50 - 1e-9),
+        step: 0.1,
+        hint: 'Extra ml/day removed of EACH contaminant type in the water, on top of the base rate (0.02 ml per 1% Performance). Basic sources have 6 types, pitcher-filtered water 2',
+        readout: ml => `+${ml} ml/d per type`,
     }],
 ];
 
