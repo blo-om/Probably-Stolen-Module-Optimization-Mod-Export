@@ -51,8 +51,15 @@ const STAGNATION_LIMIT = 150;
 
 // A missed stepped target costs this much on top of the distance, so reaching one fully always beats getting close on two
 const STEP_MISS_PENALTY = 50;
-// How long the target tiers may go without improving before the lowest-priority unmet stepped target is lowered one step
-const RELAX_AFTER_MS = 2500;
+// How long the record may go without a significant improvement before the lowest-priority unmet stepped target is lowered one step
+const RELAX_AFTER_MS = 2000;
+// A significant improvement, judged on the first tier that changed:
+//   a target tier closed at least this share of what it was missing (a stepped target's miss penalty included, so in practice
+//   meeting a target, or a big jump while still far off)
+const TARGET_PROGRESS_SHARE = 0.2;
+//   a maximized tier gained at least this share of the whole maximized score (the same rule as the live display)
+const MAX_PROGRESS_SHARE = 0.005;
+// Creeping closer 1% at a time near an equilibrium is not significant, so it can no longer hold the relax off forever
 
 // Every so many restarts one board goes back to its initial state instead of the record
 const FRESH_START_EVERY = 4;
@@ -666,12 +673,39 @@ export const runOptimizationEngine = async (
     let stagnationCounter = 0;
     let stagnationRuns = 0;
     let restarts = 0;
-    const targetScoreAtRestart = new Float64Array(tierCount).fill(-Infinity);
-    const targetTiersImproved = () => {
-        for (let i = 0; i < tierCount; i++) if (bestTiers[i] !== targetScoreAtRestart[i]) return bestTiers[i] > targetScoreAtRestart[i];
+    // The record's tiers at the last significant improvement (see TARGET_PROGRESS_SHARE / MAX_PROGRESS_SHARE)
+    const progressMark = new Float64Array(TIER_LENGTH).fill(-Infinity);
+    const significantlyImproved = () => {
+        for (let i = 0; i < TIEBREAK_TIER; i++) {
+            if (bestTiers[i] === progressMark[i]) continue;
+            if (bestTiers[i] < progressMark[i]) return false;
+            if (progressMark[i] === -Infinity) return true;
+            if (i < tierCount) return bestTiers[i] - progressMark[i] >= TARGET_PROGRESS_SHARE * Math.abs(progressMark[i]);
+            let whole = 0;
+            for (let k = RANK_OFFSET; k < TIEBREAK_TIER; k++) whole += Math.abs(progressMark[k]);
+            return bestTiers[i] - progressMark[i] >= MAX_PROGRESS_SHARE * Math.max(whole, 1);
+        }
         return false;
     };
-    let targetProgressAt = now();
+    let progressAt = now();
+    // Checked on the clock (every yield), not only at restarts, which can be far apart on big sets; the clock runs from the last
+    // significant improvement, so a search still making real gains is left alone however long it takes
+    const checkRelax = () => {
+        if (significantlyImproved()) {
+            progressAt = now();
+            progressMark.set(bestTiers);
+        } else if (now() - progressAt >= RELAX_AFTER_MS && relaxLowestTarget()) {
+            // The record was re-scored against the lowered target; progress is measured from there
+            progressAt = now();
+            progressMark.set(bestTiers);
+            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                currentBoards[mIdx].set(bestBoards[mIdx]);
+                currentStats[mIdx] = bestStats[mIdx];
+            }
+            epochTiers.fill(-Infinity);
+            acceptedTiers.fill(-Infinity);
+        }
+    };
 
     const cur = [0, 0, 0];
     const w = [0, 0, 0];
@@ -1041,12 +1075,6 @@ export const runOptimizationEngine = async (
                     acceptedTiers.fill(-Infinity);
                     lahcHistory.fill(-Infinity);
                     lahcFresh = true;
-                    if (targetTiersImproved()) {
-                        targetProgressAt = now();
-                    } else if (now() - targetProgressAt >= RELAX_AFTER_MS && relaxLowestTarget()) {
-                        targetProgressAt = now();
-                    }
-                    targetScoreAtRestart.set(bestTiers.subarray(0, tierCount));
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                         currentBoards[mIdx].set(bestBoards[mIdx]);
                         currentStats[mIdx] = bestStats[mIdx];
@@ -1070,6 +1098,7 @@ export const runOptimizationEngine = async (
             }
 
             if (now() - lastYield >= FRAME_BUDGET_MS) {
+                checkRelax();
                 flushUpdate();
                 if (now() - lastTimerYield >= TIMER_YIELD_INTERVAL_MS) {
                     await timerYield();

@@ -421,7 +421,6 @@ const MachineInstance = React.memo(forwardRef(({
             }}>
 
             <div
-                title="Drag to reorder. Machines are prioritised left to right, then top to bottom."
                 style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center' }}
             >
                 <div
