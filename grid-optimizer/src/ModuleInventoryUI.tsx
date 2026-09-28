@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, statUnit } from './machineDefaults';
+import type { StatUnit } from './machineDefaults';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
@@ -177,6 +178,27 @@ const MACHINE_ICONS: [string, string][] = [
     ['projector', 'mirage_projector'],
     ['furnace', 'furnace'],
 ];
+
+// Target typed in a machine's own unit (e.g. ml/day), stored as the % target the solver works with
+// Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
+const UnitTargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit; target: number | null; onChange: (pct: number | null) => void; disabled: boolean }) => {
+    const shown = target === null ? '' : String(unit.fromPercent(target));
+    const [draft, setDraft] = useState<string | null>(null);
+    const commit = (text: string) => onChange(text.trim() === '' ? null : unit.toPercent(Number(text)));
+    return (
+        <input
+            type="number"
+            step={unit.step}
+            value={draft ?? shown}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={(e) => { commit(e.target.value); setDraft(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            disabled={disabled}
+            placeholder="Max"
+            style={{ width: '55px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
+        />
+    );
+};
 
 const machineIcon = (machineType: string): string | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
@@ -512,6 +534,11 @@ const MachineInstance = React.memo(forwardRef(({
                         <div style={{ fontSize: '1.4em', fontWeight: 'bold', color: getStatColor(optimizer.bestTotals.Performance) }}>
                             {formatStatValue(optimizer.bestTotals.Performance)}
                         </div>
+                        {statUnit(machineType, 'Performance') && (
+                            <div style={{ fontSize: '0.7em', color: '#aaa' }}>
+                                {statUnit(machineType, 'Performance')!.fromPercent(optimizer.bestTotals.Performance)} {statUnit(machineType, 'Performance')!.unit}
+                            </div>
+                        )}
                     </div>
                     <div style={{ textAlign: 'center' }}>
                         <span style={{ color: '#aaa', fontSize: '0.7em', textTransform: 'uppercase' }}>Quality</span>
@@ -695,6 +722,7 @@ const MachineInstance = React.memo(forwardRef(({
                                         return (
                                             <select
                                                 onClick={(e) => e.stopPropagation()}
+                                                onKeyDown={(e) => e.stopPropagation()}
                                                 value={target ?? ''}
                                                 onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
                                                 disabled={currentSolving || !isOn}
@@ -707,8 +735,17 @@ const MachineInstance = React.memo(forwardRef(({
                                             </select>
                                         );
                                     })() : (
-                                    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+                                    <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
                                         <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
+                                        {statUnit(machineType, stat) ? (<>
+                                        <UnitTargetInput
+                                            unit={statUnit(machineType, stat)!}
+                                            target={optimizer.targetStats[stat]}
+                                            onChange={(pct) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: pct }))}
+                                            disabled={currentSolving || !isOn}
+                                        />
+                                        <span style={{ fontSize: '0.65em', color: '#888' }}>{statUnit(machineType, stat)!.unit}</span>
+                                        </>) : (<>
                                         <input
                                             type="number"
                                             value={optimizer.targetStats[stat] ?? ''}
@@ -717,6 +754,7 @@ const MachineInstance = React.memo(forwardRef(({
                                             style={{ width: '35px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
                                         />
                                         <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
+                                        </>)}
                                     </div>
                                     )}
                                 </div>

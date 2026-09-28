@@ -114,3 +114,23 @@ export const statBreakpoints = (machineType: string, stat: 'Performance' | 'Qual
     const hit = BREAKPOINTS_BY_STAT[stat]?.find(([keyword]) => name.includes(keyword));
     return hit ? hit[1](hasBlast) : null;
 };
+
+// Some stats are linear in something players think in, so their target is entered in that unit instead of %
+//   Moisture Farm - 1000 ml/day base, every 1% Performance adds 10 ml
+export type StatUnit = { unit: string; fromPercent: (pct: number) => number; toPercent: (value: number) => number; step: number };
+
+const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
+    ['moisture farm', 'Performance', {
+        unit: 'ml/d',
+        fromPercent: pct => 1000 + 10 * pct,
+        // Rounded up, so the target always reaches the volume asked for
+        toPercent: ml => Math.ceil((ml - 1000) / 10),
+        step: 10,
+    }],
+];
+
+export const statUnit = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): StatUnit | null => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    const hit = STAT_UNITS.find(([keyword, s]) => s === stat && name.includes(keyword));
+    return hit ? hit[2] : null;
+};
