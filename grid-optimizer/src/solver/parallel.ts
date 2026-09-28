@@ -43,22 +43,24 @@ const beats = (a: number[], b: number[]) => {
     return false;
 };
 
-/* What reaches the page. The search keeps finding better records to the very end, but late in a run most of them only reshuffle modules
- * for a tiebreak (one piece fewer, an Overclock moved) with every machine's stats unchanged, and drawing each one makes the boards flicker
- * So a record is only shown when some machine's Performance, Quality or Efficiency differs from what is on screen, always the latest,
- * and no sooner than an interval that starts at DISPLAY_EVERY_MS and doubles every DISPLAY_SLOWDOWN_MS of the solve up to DISPLAY_MAX_MS:
- * responsive while the big gains land, calm while the last small ones trickle in. The final record is always shown when the solve ends
+/* What reaches the page. The search keeps finding better records to the very end, but late in a run most of them change nothing you
+ * could see (modules reshuffled for a tiebreak) or next to nothing, and drawing each one makes the boards flicker
+ *
+ * A record is shown when it changes some machine's Performance, Quality or Efficiency AND is a significant step from what is on screen:
+ *   - any progress on a target is significant (target tiers come first in the score)
+ *   - otherwise the first score tier that changed must have gained at least MIN_GAIN of the whole maximized score on screen (every card's
+ *     maximized tiers together), so a point on a low-priority card does not count as much as the same point would on its own small tier
+ *   - for the first GRACE_MS every stat change counts, so the early climb shows as it happens
+ * A smaller gain is not dropped: the next record is compared with what is still on screen, so small gains add up until they count
+ * The final record is always shown when the solve ends
  */
-const DISPLAY_EVERY_MS = 350;
-const DISPLAY_SLOWDOWN_MS = 3000;
-const DISPLAY_MAX_MS = 2000;
+const GRACE_MS = 1000;
+const MIN_GAIN = 0.01;
 
 const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
     let pending: { updates: Updates; tiers: number[] } | null = null;
-    let shownSig: string | null = null;
-    let lastShown = 0;
+    let shown: { sig: string; tiers: number[] } | null = null;
     const started = performance.now();
-    const interval = () => Math.min(DISPLAY_MAX_MS, DISPLAY_EVERY_MS * Math.pow(2, (performance.now() - started) / DISPLAY_SLOWDOWN_MS));
     const signature = (updates: Updates) => machines.map(m => {
         const t = updates.get(m.id)?.totals;
         return t ? `${t.Performance},${t.Quality},${t.Efficiency}` : '-';
@@ -66,18 +68,28 @@ const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, t
     const show = () => {
         if (!pending) return;
         onUpdate(pending.updates, pending.tiers);
-        shownSig = signature(pending.updates);
-        lastShown = performance.now();
+        shown = { sig: signature(pending.updates), tiers: pending.tiers };
         pending = null;
     };
+    // Tier layout from the engine: target tiers per rank, then maximized tiers per rank, then the tiebreak
+    const significant = (tiers: number[], onScreen: number[]) => {
+        const targetTiers = (tiers.length - 1) / 2;
+        for (let i = 0; i < tiers.length; i++) {
+            if (tiers[i] === onScreen[i]) continue;
+            if (i === tiers.length - 1) return false;
+            if (i < targetTiers) return true;
+            if (performance.now() - started < GRACE_MS) return true;
+            let whole = 0;
+            for (let k = targetTiers; k < tiers.length - 1; k++) whole += Math.abs(onScreen[k]);
+            return (tiers[i] - onScreen[i]) >= MIN_GAIN * Math.max(whole, 1);
+        }
+        return false;
+    };
     return {
-        // A new record; the first one of a solve shows straight away
         offer: (updates: Updates, tiers: number[]) => {
             pending = { updates, tiers };
-            if (shownSig === null) show();
-        },
-        tick: () => {
-            if (pending && performance.now() - lastShown >= interval() && signature(pending.updates) !== shownSig) show();
+            if (shown === null) { show(); return; }
+            if (signature(updates) !== shown.sig && significant(tiers, shown.tiers)) show();
         },
         final: show,
     };
@@ -93,11 +105,9 @@ export const runParallelEngine = async (
 ): Promise<void> => {
     const display = createDisplay(machines, onUpdate);
     const solveOnPage = async () => {
-        const timer = setInterval(display.tick, 50);
         try {
             await runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, display.offer);
         } finally {
-            clearInterval(timer);
             display.final();
         }
     };
@@ -150,7 +160,6 @@ export const runParallelEngine = async (
     // The caller stops a solve by clearing its ref; every worker is told, and each flushes its last record before it reports done
     let stopSent = false;
     const watch = setInterval(() => {
-        display.tick();
         if (!stopSent && !isSolvingRef.current) {
             stopSent = true;
             workers.forEach(w => w.postMessage({ type: 'stop' } satisfies WorkerMessage));
