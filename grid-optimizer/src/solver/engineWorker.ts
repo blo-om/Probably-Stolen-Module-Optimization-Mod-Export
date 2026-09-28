@@ -1,7 +1,7 @@
 // One independent search, run off the page's thread. See parallel.ts
 import { runOptimizationEngine } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
-import type { EngineTuning } from './engine';
+import type { EngineTuning, StallOrder } from './engine';
 import type { InventoryItem } from '../types';
 
 export type WorkerStart = {
@@ -12,8 +12,8 @@ export type WorkerStart = {
     fullInventory: InventoryItem[];
     tuning?: EngineTuning;
 };
-// Lower one stepped target a step (see runParallelEngine); `gen` counts the relax orders sent so far
-export type WorkerRelax = { type: 'relax'; mIdx: number; s: number; gen: number };
+// Ease an Auto stat or lower a stepped target (StallOrder, see runParallelEngine); `gen` counts the orders sent so far
+export type WorkerRelax = { type: 'relax'; order: StallOrder; gen: number };
 export type WorkerMessage = WorkerStart | WorkerRelax | { type: 'stop' };
 // `gen`: how many relax orders the search had applied when it scored this report
 export type WorkerReply =
@@ -22,7 +22,7 @@ export type WorkerReply =
 
 const running = { current: false };
 // Orders arrive while the search yields and are applied at its next check, always before its next report
-let orders: { mIdx: number; s: number }[] = [];
+let orders: StallOrder[] = [];
 let received = 0;
 let applied = 0;
 
@@ -33,7 +33,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         return;
     }
     if (message.type === 'relax') {
-        orders.push({ mIdx: message.mIdx, s: message.s });
+        orders.push(message.order);
         received = message.gen;
         return;
     }
