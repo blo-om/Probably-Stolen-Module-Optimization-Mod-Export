@@ -172,10 +172,13 @@ export const statHasNoEffect = (machineType: string, stat: 'Performance' | 'Qual
 //   Moisture Farm  - 1000 ml/day base, every 1% Performance adds 10 ml
 //   Water Purifier - every 1% Performance removes 0.02 ml/day more of each contaminant type. The base rate depends on the
 //                    water's concentrations, so only the extra can be targeted
+// `totals` is there for units that depend on another stat too (AgeWell's energy also moves with Performance)
 export type StatUnit = {
     unit: string;
-    fromPercent: (pct: number) => number;
-    toPercent: (value: number) => number;
+    fromPercent: (pct: number, totals?: Totals) => number;
+    toPercent: (value: number, totals?: Totals) => number;
+    // For energy: a smaller number is the better one, so a target is a ceiling
+    lowerIsBetter?: boolean;
     step: number;
     // Shown on hover over the target box and the readout
     hint?: string;
@@ -183,7 +186,36 @@ export type StatUnit = {
     readout?: (value: number) => string;
 };
 
+type Totals = { Performance: number; Quality: number; Efficiency: number };
+
+/* Energy per day from Efficiency, from the machine guides. Every `step`% saves one energy; only whole steps count,
+ * except on the AgeWell, where entering the next step is enough (1% already saves one) and Performance costs one per step too
+ */
+const energyUnit = (base: number, step: number, ageWell = false): StatUnit => {
+    const energy = (eff: number, totals?: Totals) => {
+        const saved = ageWell ? Math.sign(eff) * Math.ceil(Math.abs(eff) / step - 1e-9) : Math.trunc(eff / step + (eff >= 0 ? 1e-9 : -1e-9));
+        const spent = ageWell && totals ? Math.max(0, Math.floor(totals.Performance / step + 1e-9)) : 0;
+        return Math.max(0, base - saved + spent);
+    };
+    return {
+        unit: 'energy/d',
+        fromPercent: energy,
+        // The least Efficiency that gets energy down to the value asked for
+        toPercent: (value, totals) => {
+            for (let eff = -500; eff <= 1000; eff++) if (energy(eff, totals) <= value) return eff;
+            return 1000;
+        },
+        step: 1,
+        lowerIsBetter: true,
+    };
+};
+
 const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
+    ['moisture farm', 'Efficiency', energyUnit(4, 25)],
+    ['water purifier', 'Efficiency', energyUnit(5, 20)],
+    ['furnace', 'Efficiency', energyUnit(8, 12.5)],
+    ['desequencer', 'Efficiency', energyUnit(10, 10)],
+    ['agewell', 'Efficiency', energyUnit(24, 100 / 12, true)],
     ['moisture farm', 'Performance', {
         unit: 'ml/d',
         fromPercent: pct => 1000 + 10 * pct,

@@ -652,6 +652,7 @@ const MachineInstance = React.memo(forwardRef(({
                         setTargetStats={optimizer.setTargetStats}
                         disabled={currentSolving}
                         hasBlast={hasBlast}
+                        width={(7 * cellSize + 22) / 0.8}
                     />
 
                     <div style={{ display: 'flex', gap: '5px', width: '100%' }}>
