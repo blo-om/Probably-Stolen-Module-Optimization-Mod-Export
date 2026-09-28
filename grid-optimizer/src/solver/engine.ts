@@ -147,9 +147,12 @@ export const runOptimizationEngine = async (
     searchPoolInventory: InventoryItem[],
     fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
-    // `tiers` is the reported layout's score against the targets as set (not this run's relaxed copy), so reports from separate runs can be ranked
+    // `tiers` is the reported layout's score against the targets as they stand (relaxed ones lowered), so a relaxed layout can win
     onUpdate: (updates: EngineUpdates, tiers: number[]) => void,
-    tuning: EngineTuning = {}
+    tuning: EngineTuning = {},
+    // Set when several searches run together (solver/parallel.ts): they must relax the same targets at the same time, or their reports
+    // could not be ranked, so the coordinator decides and this hands over its orders (machine, stat index) instead of the own clock
+    relaxOrders?: () => { mIdx: number; s: number }[]
 ) => {
     const TOURNAMENT = tuning.tournament ?? DRAW_TOURNAMENT;
     const RUIN_MAX = tuning.ruinMax ?? 3;
@@ -345,7 +348,7 @@ export const runOptimizationEngine = async (
     };
     const reportTiers = (statsFor: (mIdx: number) => Scored, boardFor: (mIdx: number) => Board) => {
         const tiers = new Float64Array(TIER_LENGTH);
-        scoreInto(tiers, statsFor, boardFor, callerParams);
+        scoreInto(tiers, statsFor, boardFor);
         return Array.from(tiers);
     };
 
@@ -627,12 +630,17 @@ export const runOptimizationEngine = async (
             }
         }
         if (pick === null) return false;
-        const current = params[pick.mIdx].target[pick.s]!;
-        const lower = stepsOf[pick.mIdx][pick.s]!.filter(v => v < current);
-        params[pick.mIdx].target[pick.s] = lower.length > 0 ? lower[lower.length - 1] : null;
-        tbGen++;
-        scoreInto(bestTiers, (mIdx) => bestStats[mIdx], (mIdx) => bestBoards[mIdx]);
+        lowerTarget(pick.mIdx, pick.s);
         return true;
+    };
+    const lowerTarget = (mIdx: number, s: number) => {
+        const current = params[mIdx].target[s];
+        const steps = stepsOf[mIdx][s];
+        if (current === null || !steps) return;
+        const lower = steps.filter(v => v < current);
+        params[mIdx].target[s] = lower.length > 0 ? lower[lower.length - 1] : null;
+        tbGen++;
+        scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
     };
 
     // ---- reporting
@@ -691,11 +699,20 @@ export const runOptimizationEngine = async (
     // Checked on the clock (every yield), not only at restarts, which can be far apart on big sets; the clock runs from the last
     // significant improvement, so a search still making real gains is left alone however long it takes
     const checkRelax = () => {
-        if (significantlyImproved()) {
+        let relaxed = false;
+        if (relaxOrders) {
+            const orders = relaxOrders();
+            for (const { mIdx, s } of orders) lowerTarget(mIdx, s);
+            relaxed = orders.length > 0;
+        } else if (significantlyImproved()) {
             progressAt = now();
             progressMark.set(bestTiers);
-        } else if (now() - progressAt >= RELAX_AFTER_MS && relaxLowestTarget()) {
-            // The record was re-scored against the lowered target; progress is measured from there
+        } else if (now() - progressAt >= RELAX_AFTER_MS) {
+            relaxed = relaxLowestTarget();
+        }
+        if (relaxed) {
+            // The record was re-scored against the lowered target; progress is measured from there, and it is reported on the new scale
+            pendingUpdate = true;
             progressAt = now();
             progressMark.set(bestTiers);
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
@@ -1111,6 +1128,7 @@ export const runOptimizationEngine = async (
         }
     } finally {
         // Final clean-up of the reported layout: target-only machines give up any module a weaker one can replace
+        if (relaxOrders) checkRelax();
         if (downgradeTargetMachines(bestBoards)) {
             for (let mIdx = 0; mIdx < machineCount; mIdx++) bestStats[mIdx] = score(bestBoards[mIdx]);
             codeIsStale.fill(true);

@@ -56,6 +56,31 @@ const beats = (a: number[], b: number[]) => {
  */
 const MIN_GAIN = 0.005;
 
+// The first score tier that changed moved up by enough: `targetShare` of what a target tier was missing (0: any progress on a target),
+// or MIN_GAIN of the whole maximized score. Tier layout from the engine: target tiers per rank, maximized tiers per rank, the tiebreak
+const significant = (tiers: number[], reference: number[], targetShare: number) => {
+    const targetTiers = (tiers.length - 1) / 2;
+    for (let i = 0; i < tiers.length; i++) {
+        if (tiers[i] === reference[i]) continue;
+        if (i === tiers.length - 1 || tiers[i] < reference[i]) return false;
+        if (i < targetTiers) return tiers[i] - reference[i] >= targetShare * Math.abs(reference[i]);
+        let whole = 0;
+        for (let k = targetTiers; k < tiers.length - 1; k++) whole += Math.abs(reference[k]);
+        return (tiers[i] - reference[i]) >= MIN_GAIN * Math.max(whole, 1);
+    }
+    return false;
+};
+
+/* Stepped targets that cannot be met are lowered one step at a time, so the modules chasing them go where they count
+ * The search decides for itself when it runs alone; with workers the coordinator decides for all of them together (their reports are
+ * ranked on one scale): once the record has gone RELAX_AFTER_MS without a significant improvement, the unmet stepped target of the
+ * lowest priority (last card) drops a step. Creeping towards a target counts only as a fifth of what it was missing (in practice
+ * meeting it), so a search stuck just short of one no longer holds the relax off
+ */
+const RELAX_AFTER_MS = 2000;
+const RELAX_TARGET_SHARE = 0.2;
+const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
+
 const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
     let pending: { updates: Updates; tiers: number[] } | null = null;
     let shown: { sig: string; tiers: number[] } | null = null;
@@ -69,24 +94,11 @@ const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, t
         shown = { sig: signature(pending.updates), tiers: pending.tiers };
         pending = null;
     };
-    // Tier layout from the engine: target tiers per rank, then maximized tiers per rank, then the tiebreak
-    const significant = (tiers: number[], onScreen: number[]) => {
-        const targetTiers = (tiers.length - 1) / 2;
-        for (let i = 0; i < tiers.length; i++) {
-            if (tiers[i] === onScreen[i]) continue;
-            if (i === tiers.length - 1) return false;
-            if (i < targetTiers) return true;
-            let whole = 0;
-            for (let k = targetTiers; k < tiers.length - 1; k++) whole += Math.abs(onScreen[k]);
-            return (tiers[i] - onScreen[i]) >= MIN_GAIN * Math.max(whole, 1);
-        }
-        return false;
-    };
     return {
         offer: (updates: Updates, tiers: number[]) => {
             pending = { updates, tiers };
             if (shown === null) { show(); return; }
-            if (signature(updates) !== shown.sig && significant(tiers, shown.tiers)) show();
+            if (signature(updates) !== shown.sig && significant(tiers, shown.tiers, 0)) show();
         },
         final: () => { if (shown === null) show(); },
     };
@@ -123,7 +135,39 @@ export const runParallelEngine = async (
     activeSolves++;
     const count = workerCount();
     let best: number[] | null = null;
+    let bestUpdates: Updates | null = null;
     const workers: Worker[] = [];
+    // Relaxing: the targets as they stand, the orders sent so far, and the record at the last significant improvement
+    const targets = machines.map(m => ({ ...m.targetStats }));
+    let relaxGen = 0;
+    let progressMark: number[] | null = null;
+    let progressAt = Date.now();
+    const relaxLowestTarget = () => {
+        if (!bestUpdates) return;
+        let pick: { mIdx: number; s: number; rank: number } | null = null;
+        machines.forEach((m, mIdx) => STATS.forEach((stat, s) => {
+            const target = targets[mIdx][stat];
+            const steps = m.targetSteps?.[stat];
+            if (target === null || target === undefined || !steps || m.ignoreStats?.[stat] || (m.sumPQ && stat === 'Quality')) return;
+            const t = bestUpdates!.get(m.id)?.totals;
+            if (!t) return;
+            const value = m.sumPQ && stat === 'Performance' ? t.Performance + t.Quality : t[stat];
+            if (value >= target) return;
+            const rank = m.statPriority?.[stat] ?? 1;
+            if (pick === null || rank > pick.rank || (rank === pick.rank && mIdx > pick.mIdx)) pick = { mIdx, s, rank };
+        }));
+        if (pick === null) return;
+        const { mIdx, s } = pick as { mIdx: number; s: number };
+        const stat = STATS[s];
+        const lower = machines[mIdx].targetSteps![stat]!.filter(v => v < targets[mIdx][stat]!);
+        targets[mIdx][stat] = lower.length > 0 ? lower[lower.length - 1] : null;
+        relaxGen++;
+        workers.forEach(w => w.postMessage({ type: 'relax', mIdx, s, gen: relaxGen } satisfies WorkerMessage));
+        // Reports on the old scale are ignored from here; the next one from any worker starts the new record
+        best = null;
+        progressMark = null;
+        progressAt = Date.now();
+    };
     try {
         for (let i = 0; i < count; i++) workers.push(new Worker(new URL('./engineWorker.ts', import.meta.url), { type: 'module' }));
     } catch (error) {
@@ -142,8 +186,14 @@ export const runParallelEngine = async (
                 resolve();
                 return;
             }
+            if (reply.gen !== relaxGen) return;
             if (best !== null && !beats(reply.tiers, best)) return;
             best = reply.tiers;
+            bestUpdates = reply.updates;
+            if (progressMark === null || significant(reply.tiers, progressMark, RELAX_TARGET_SHARE)) {
+                progressMark = reply.tiers;
+                progressAt = Date.now();
+            }
             display.offer(rehydrate(reply.updates), reply.tiers);
         };
         worker.onerror = (event) => {
@@ -161,6 +211,7 @@ export const runParallelEngine = async (
             stopSent = true;
             workers.forEach(w => w.postMessage({ type: 'stop' } satisfies WorkerMessage));
         }
+        if (!stopSent && Date.now() - progressAt >= RELAX_AFTER_MS) relaxLowestTarget();
     }, 50);
     try {
         await Promise.all(finished);
