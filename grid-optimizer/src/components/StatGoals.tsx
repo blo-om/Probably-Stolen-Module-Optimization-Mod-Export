@@ -4,27 +4,32 @@ import {
     statBreakpoints, statUnit, statName, statHasNoEffect,
     isDesequencer, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerDaysAt,
 } from '../machineDefaults';
-import type { StatUnit } from '../machineDefaults';
+import type { StatBreakpoint, StatUnit } from '../machineDefaults';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
+type Mode = 'auto' | 'target' | 'off';
 
 const STATS: StatKey[] = ['Performance', 'Quality', 'Efficiency'];
 
 const C = {
-    text: '#ddd',
+    card: '#1a1a1a',
+    cardBorder: '#2c2c2c',
+    text: '#eee',
     sub: '#8a8a8a',
-    muted: '#5f5f5f',
-    goalBg: '#1d3323',
-    goalBorder: '#3f7a4c',
-    goalText: '#9fd8a9',
-    ok: '#4caf50',
+    muted: '#555',
+    accentBg: '#1d3323',
+    accentBorder: '#3f7a4c',
+    accentText: '#9fd8a9',
+    met: '#4caf50',
     short: '#e0a13a',
     field: '#111',
     fieldBorder: '#444',
 };
 
-const fmtPct = (v: number) => `${Math.trunc(v)}%`;
+const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${Math.trunc(v)}%`;
 const round2 = (v: number) => Math.round(v * 100) / 100;
+// Long step names (e.g. "+1 purity, flux free") use their short form in the big readout
+const stepName = (b: StatBreakpoint) => (b.label.length > 12 && b.short ? b.short : b.label);
 
 // Target typed in a machine's own unit (e.g. ml/day), stored as the % target the solver works with
 // Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
@@ -36,7 +41,7 @@ const TargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit | nu
         onChange(unit ? unit.toPercent(Number(text)) : Math.round(Number(text)));
     };
     return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
             <input
                 type="number"
                 step={unit ? unit.step : 1}
@@ -46,31 +51,31 @@ const TargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit | nu
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 disabled={disabled}
                 title={unit?.hint}
-                style={{ width: '64px', padding: '2px 4px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px', textAlign: 'center' }}
+                style={{ width: '80px', padding: '3px 6px', fontSize: '0.85em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px', textAlign: 'center' }}
             />
-            <span style={{ fontSize: '0.75em', color: C.sub }}>{unit ? unit.unit : '%'}</span>
+            <span style={{ fontSize: '0.8em', color: C.sub }}>{unit ? unit.unit : '%'}</span>
         </span>
     );
 };
 
-const Option = ({ label, selected, title, onClick, disabled, dim }: { label: string; selected: boolean; title?: string; onClick: () => void; disabled: boolean; dim?: boolean }) => (
+const Choice = ({ label, selected, title, onClick, disabled }: { label: string; selected: boolean; title?: string; onClick: () => void; disabled: boolean }) => (
     <button
         type="button"
         onClick={onClick}
         disabled={disabled}
         title={title}
         style={{
-            padding: '2px 9px', fontSize: '0.75em', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer',
-            backgroundColor: selected ? C.goalBg : 'transparent',
-            color: selected ? C.goalText : dim ? C.muted : C.sub,
-            border: `1px solid ${selected ? C.goalBorder : '#3a3a3a'}`,
+            padding: '3px 10px', fontSize: '0.78em', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer',
+            backgroundColor: selected ? C.accentBg : 'transparent',
+            color: selected ? C.accentText : '#bbb',
+            border: `1px solid ${selected ? C.accentBorder : '#3a3a3a'}`,
         }}
     >
         {label}
     </button>
 );
 
-const selectStyle: React.CSSProperties = { padding: '2px', fontSize: '0.75em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' };
+const selectStyle: React.CSSProperties = { padding: '3px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' };
 
 type Props = {
     machineType: string;
@@ -84,12 +89,13 @@ type Props = {
     hasBlast: boolean;
 };
 
-// One line per stat: name, where it is now, and a pill with its goal. Clicking the pill opens that stat's options
+// Three cards side by side, one per stat: its name, the result it gives this machine, and Auto / Target / Off
+// Target's options open in a panel under the cards
 export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, disabled, hasBlast }: Props) => {
     const [open, setOpen] = useState<StatKey | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
 
-    // Clicking anywhere else closes the open row
+    // Clicking anywhere else closes the panel
     useEffect(() => {
         if (!open) return;
         const close = (e: MouseEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(null); };
@@ -109,132 +115,150 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));
     const setOff = (stat: StatKey, off: boolean) => setIgnoreStats((prev: any) => ({ ...prev, [stat]: off }));
 
+    // Everything each card and the panel need, per stat
+    const info = STATS.map((stat) => {
+        const off = Boolean(ignoreStats[stat]);
+        const target = targetStats[stat];
+        const total = totals[stat];
+        const mode: Mode = off ? 'off' : target === null ? 'auto' : 'target';
+        const unit = statUnit(machineType, stat);
+        const deseq = stat === 'Performance' && isDesequencer(machineType);
+        const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
+
+        // Chipset in use: the saved pick (Command until one is made) if the goal is one of its steps, else the first chipset the goal belongs to
+        const work = (() => {
+            const preferred = chipset ?? 150;
+            if (!deseq || target === null) return preferred;
+            const fits = (w: number) => desequencerDayOptions(w).some(o => o.value === target);
+            if (fits(preferred)) return preferred;
+            return DESEQUENCER_CHIPSETS.find(c => fits(c.work))?.work ?? preferred;
+        })();
+        const chip = DESEQUENCER_CHIPSETS.find(c => c.work === work)!;
+
+        // The result, in the machine's terms
+        const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
+        const result = unit
+            ? (unit.readout ? unit.readout(unit.fromPercent(total)) : `${unit.fromPercent(total)} ${unit.unit}`)
+            : deseq ? `${desequencerDaysAt(work, total)} days`
+            : breakpoints ? (reached ? stepName(reached) : `< ${stepName(breakpoints[0])}`)
+            : fmtPct(total);
+        const detail = deseq ? `${chip.short} · ${fmtPct(total)}` : (unit || breakpoints) ? fmtPct(total) : '';
+
+        // The goal, in the same terms
+        const goal = target === null ? null
+            : deseq ? (desequencerDayOptions(work).find(o => o.value === target)?.days ?? null) !== null ? `${chip.short} ${desequencerDayOptions(work).find(o => o.value === target)!.days}d` : `${target}%`
+            : breakpoints?.find(b => b.value === target) ? stepName(breakpoints.find(b => b.value === target)!)
+            : unit ? `${unit.fromPercent(target)} ${unit.unit}`
+            : `${target}%`;
+        const met = target !== null && total >= target;
+        const gap = target === null || met ? null
+            : unit ? `${round2(unit.fromPercent(target) - unit.fromPercent(total))} ${unit.unit} short`
+            : `${Math.ceil(target - total)}% short`;
+
+        const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
+        const defaultTarget = deseq ? nextStepAbove(desequencerDayOptions(work))
+            : breakpoints ? nextStepAbove(breakpoints)
+            : Math.max(0, Math.ceil(total));
+
+        return { stat, off, target, total, mode, unit, deseq, breakpoints, work, result, detail, goal, met, gap, defaultTarget, nextStepAbove };
+    });
+
+    const choose = (stat: StatKey, mode: Mode, current: typeof info[number]) => {
+        if (mode === 'off') { setOff(stat, true); if (open === stat) setOpen(null); return; }
+        setOff(stat, false);
+        if (mode === 'auto') { setTarget(stat, null); if (open === stat) setOpen(null); return; }
+        if (current.target === null) setTarget(stat, current.defaultTarget);
+        setOpen(open === stat && current.mode === 'target' ? null : stat);
+    };
+
+    const panel = open ? info.find(i => i.stat === open)! : null;
+
     return (
-        <div ref={rootRef} style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {STATS.map((stat) => {
-                const off = Boolean(ignoreStats[stat]);
-                const target = targetStats[stat];
-                const total = totals[stat];
+        <div ref={rootRef} style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '5px' }}>
+                {info.map((i) => {
+                    const noEffect = statHasNoEffect(machineType, i.stat) && i.off;
+                    const color = i.off ? C.muted : i.mode === 'target' ? (i.met ? C.met : C.short) : C.text;
+                    const isOpen = open === i.stat;
+                    return (
+                        <div key={i.stat} style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '4px',
+                            backgroundColor: C.card, borderRadius: '6px', padding: '6px 5px 5px',
+                            border: `1px solid ${isOpen ? C.accentBorder : C.cardBorder}`,
+                        }}>
+                            <span style={{ fontSize: '0.66em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center' }}>
+                                {statName(machineType, i.stat)}
+                            </span>
+                            {noEffect ? (
+                                <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75em', color: C.muted, minHeight: '42px' }}>No effect</span>
+                            ) : (
+                                <>
+                                    <div style={{ textAlign: 'center', minHeight: '42px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                        <div style={{ fontSize: '1.05em', fontWeight: 'bold', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.result}>
+                                            {i.result}
+                                        </div>
+                                        <div style={{ fontSize: '0.65em', color: i.mode === 'target' && !i.met ? C.short : C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {i.off ? 'off' : i.mode === 'target' ? (i.met ? `✓ ${i.goal}` : `→ ${i.goal}`) : i.detail}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '2px' }}>
+                                        {(['auto', 'target', 'off'] as Mode[]).map((m) => {
+                                            const on = i.mode === m;
+                                            return (
+                                                <button
+                                                    key={m}
+                                                    type="button"
+                                                    onClick={() => choose(i.stat, m, i)}
+                                                    disabled={disabled}
+                                                    style={{
+                                                        padding: '3px 0', fontSize: '0.68em', borderRadius: '3px', cursor: disabled ? 'not-allowed' : 'pointer',
+                                                        backgroundColor: on ? (m === 'off' ? '#2e2e2e' : C.accentBg) : 'transparent',
+                                                        color: on ? (m === 'off' ? '#ccc' : C.accentText) : C.sub,
+                                                        border: `1px solid ${on ? (m === 'off' ? '#444' : C.accentBorder) : '#333'}`,
+                                                    }}
+                                                >
+                                                    {m === 'auto' ? 'Auto' : m === 'target' ? `Target${isOpen ? ' ▴' : ' ▾'}` : 'Off'}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
 
-                // A stat that does nothing here is not shown while it is off
-                if (off && statHasNoEffect(machineType, stat)) return null;
-
-                const name = statName(machineType, stat);
-                const unit = statUnit(machineType, stat);
-                const deseq = stat === 'Performance' && isDesequencer(machineType);
-                const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
-                const isOpen = open === stat;
-
-                // Chipset in use: the saved pick (Command until one is made) if the goal is one of its steps, else the first chipset the goal belongs to
-                const work = (() => {
-                    const preferred = chipset ?? 150;
-                    if (!deseq || target === null) return preferred;
-                    const fits = (w: number) => desequencerDayOptions(w).some(o => o.value === target);
-                    if (fits(preferred)) return preferred;
-                    return DESEQUENCER_CHIPSETS.find(c => fits(c.work))?.work ?? preferred;
-                })();
-                const chip = DESEQUENCER_CHIPSETS.find(c => c.work === work)!;
-                const daysFor = (value: number) => desequencerDayOptions(work).find(o => o.value === value)?.days;
-
-                // Where the machine is now, in the stat's own terms
-                const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
-                const now = unit
-                    ? (unit.readout ? unit.readout(unit.fromPercent(total)) : `${unit.fromPercent(total)} ${unit.unit}`)
-                    : deseq ? `${chip.short} ${desequencerDaysAt(work, total)}d`
-                    : breakpoints ? `${reached ? (reached.short ?? reached.label) : '–'} · ${fmtPct(total)}`
-                    : fmtPct(total);
-
-                // The goal pill
-                const pick = breakpoints?.find(b => b.value === target);
-                const pill = off ? 'Off'
-                    : target === null ? 'Max'
-                    : deseq && daysFor(target) !== undefined ? `${chip.short} ${daysFor(target)}d`
-                    : pick ? (pick.short ?? pick.label)
-                    : unit ? `${unit.fromPercent(target)} ${unit.unit}`
-                    : `${target}%`;
-
-                // Met, or how far off. In Max, a stepped stat shows its next step
-                let status: React.ReactNode = null;
-                const isShort = !off && target !== null && total < target;
-                if (!off && target !== null) {
-                    status = isShort
-                        ? <span style={{ color: C.short }}>{unit ? round2(unit.fromPercent(target) - unit.fromPercent(total)) : `${Math.ceil(target - total)}%`} short</span>
-                        : <span style={{ color: C.ok }}>✓</span>;
-                } else if (!off && breakpoints) {
-                    const next = breakpoints.find(b => b.value > total);
-                    if (next) status = <span style={{ color: C.muted }}>{next.short ?? next.label} at {next.value}%</span>;
-                }
-
-                const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
-                const chooseMax = () => { setOff(stat, false); setTarget(stat, null); };
-                const chooseGoal = (value: number) => { setOff(stat, false); setTarget(stat, value); };
-
-                let goalOptions: React.ReactNode;
-                if (deseq) {
-                    const options = desequencerDayOptions(work);
-                    goalOptions = (
+            {panel && (
+                <div onKeyDown={(e) => e.stopPropagation()} style={{
+                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px',
+                    backgroundColor: C.card, border: `1px solid ${C.accentBorder}`, borderRadius: '6px', padding: '7px 8px',
+                }}>
+                    <span style={{ fontSize: '0.7em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em', marginRight: '2px' }}>
+                        {statName(machineType, panel.stat)} target
+                    </span>
+                    {panel.deseq ? (
                         <>
-                            <select value={work} disabled={disabled} style={selectStyle}
-                                onChange={(e) => { const w = Number(e.target.value); setChipset(w); chooseGoal(nextStepAbove(desequencerDayOptions(w))); }}>
+                            <select value={panel.work} disabled={disabled} style={selectStyle}
+                                onChange={(e) => { const w = Number(e.target.value); setChipset(w); setTarget(panel.stat, panel.nextStepAbove(desequencerDayOptions(w))); }}>
                                 {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name}</option>)}
                             </select>
-                            <select value={!off && target !== null ? target : ''} disabled={disabled} style={selectStyle}
-                                onChange={(e) => chooseGoal(Number(e.target.value))}>
-                                {(off || target === null) && <option value="">days</option>}
-                                {options.map(o => <option key={o.value} value={o.value}>{o.days}d</option>)}
-                                {!off && target !== null && !options.some(o => o.value === target) && <option value={target}>{target}%</option>}
-                            </select>
+                            {desequencerDayOptions(panel.work).map(o => (
+                                <Choice key={o.value} label={`${o.days}d`} selected={panel.target === o.value}
+                                    title={`${o.value}%`} onClick={() => setTarget(panel.stat, o.value)} disabled={disabled} />
+                            ))}
                         </>
-                    );
-                } else if (breakpoints) {
-                    goalOptions = breakpoints.map(b => (
-                        <Option key={b.value} label={b.short ?? b.label} selected={!off && target === b.value}
-                            title={`${b.label}: ${b.hint} (${b.value}%)`} onClick={() => chooseGoal(b.value)} disabled={disabled} />
-                    ));
-                } else {
-                    goalOptions = <TargetInput unit={unit} target={off ? null : target} onChange={(pct) => chooseGoal(pct)} disabled={disabled} />;
-                }
-
-                return (
-                    <div key={stat} style={{ padding: '4px 2px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '24px' }}>
-                            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: '6px', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                                <span style={{ fontSize: '0.82em', color: off ? C.muted : C.text }}>{name}</span>
-                                {!off && <span style={{ fontSize: '0.75em', color: C.sub }}>{now}</span>}
-                            </div>
-                            {status && <span style={{ fontSize: '0.72em', whiteSpace: 'nowrap' }}>{status}</span>}
-                            <button
-                                type="button"
-                                onClick={() => setOpen(isOpen ? null : stat)}
-                                disabled={disabled}
-                                style={{
-                                    padding: '1px 10px', fontSize: '0.75em', borderRadius: '999px', whiteSpace: 'nowrap',
-                                    cursor: disabled ? 'not-allowed' : 'pointer',
-                                    backgroundColor: !off && target !== null ? C.goalBg : 'transparent',
-                                    color: off ? C.muted : target !== null ? C.goalText : C.text,
-                                    border: `1px ${off ? 'dashed' : 'solid'} ${off ? '#444' : target !== null ? C.goalBorder : '#555'}`,
-                                    outline: isOpen ? `1px solid ${C.goalBorder}` : 'none', outlineOffset: '1px',
-                                }}
-                            >
-                                {pill}
-                            </button>
-                        </div>
-                        {isShort && target! > 0 && (
-                            <div style={{ height: '2px', background: '#262626', borderRadius: '1px', overflow: 'hidden', marginTop: '3px' }}>
-                                <div style={{ width: `${Math.max(0, Math.min(1, total / target!)) * 100}%`, height: '100%', background: C.short }} />
-                            </div>
-                        )}
-                        {isOpen && (
-                            <div onKeyDown={(e) => e.stopPropagation()} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '5px', padding: '6px 0 2px' }}>
-                                <Option label="Off" dim selected={off} onClick={() => setOff(stat, true)} disabled={disabled} />
-                                <Option label="Max" selected={!off && target === null} onClick={chooseMax} disabled={disabled} />
-                                <span style={{ width: '1px', alignSelf: 'stretch', background: '#3a3a3a', margin: '0 2px' }} />
-                                {goalOptions}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
+                    ) : panel.breakpoints ? (
+                        panel.breakpoints.map(b => (
+                            <Choice key={b.value} label={b.label} selected={panel.target === b.value}
+                                title={`${b.hint} (${b.value}%)`} onClick={() => setTarget(panel.stat, b.value)} disabled={disabled} />
+                        ))
+                    ) : (
+                        <TargetInput unit={panel.unit} target={panel.target} onChange={(pct) => setTarget(panel.stat, pct)} disabled={disabled} />
+                    )}
+                    {panel.gap && <span style={{ marginLeft: 'auto', fontSize: '0.75em', color: C.short }}>{panel.gap}</span>}
+                </div>
+            )}
         </div>
     );
 };
