@@ -7,7 +7,7 @@ import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleCol
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
 import { createPortal } from 'react-dom';
-import { useOptimizer } from './hooks/useOptimizer';
+import { useOptimizer, calculateBoardStats, indexInventoryById } from './hooks/useOptimizer';
 import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
 
@@ -302,7 +302,8 @@ const MachineInstance = React.memo(forwardRef(({
             ignoreStats: optimizer.ignoreStats,
             statPriority: optimizer.statPriority,
             targetSteps: targetSteps(),
-            sumPQ: isMirage(machineType)
+            sumPQ: isMirage(machineType),
+            machineType
         }),
         isValidPlacement: optimizer.isValidPlacement,
         getBoard: () => optimizer.boardRef.current,
@@ -1190,6 +1191,62 @@ export default function ModuleInventoryUI() {
             .filter(item => !used.has(item.id) && !(item.isInfinite && [...used].some(id => id.startsWith(item.id + '_clone_'))))
             .sort((a, b) => (groupOrder[a.color] ?? 9) - (groupOrder[b.color] ?? 9) || size(b) - size(a) || a.displayName.localeCompare(b.displayName));
     }, [inventory, boardVersion, machines, getUsedItems]);
+    /* Store / Retrieve: bank the unused modules in the machines' empty cells (the game keeps them there like any storage), and take
+     * them back out. A module is only stored where it lowers none of that machine's stats that do something, largest first, machines in card
+     * order, locked machines skipped. The stored ids are remembered so Retrieve takes out exactly those; a new solve forgets them
+     */
+    const [storedIds, setStoredIds] = useState<string[]>(() => {
+        try { return JSON.parse(localStorage.getItem('optimizer_stored_ids') || '[]'); } catch { return []; }
+    });
+    useEffect(() => {
+        try { localStorage.setItem('optimizer_stored_ids', JSON.stringify(storedIds)); } catch { /* storage unavailable */ }
+    }, [storedIds]);
+    useEffect(() => { if (isAnySolving) setStoredIds([]); }, [isAnySolving]);
+    const [storeNote, setStoreNote] = useState<string | null>(null);
+    const handleStore = () => {
+        const byId = indexInventoryById(expandedInventory);
+        const statsOf = (board: any[][]) => calculateBoardStats(board, expandedInventory, byId).totals;
+        const cards = machines.map(({ id }) => machinesRef.current[id]).filter(m => m && !m.isLocked());
+        const stored: string[] = [];
+        const candidates = unusedModules.filter(item => !item.isInfinite);
+        for (const item of candidates) {
+            const orientations = PRECOMPUTED_OFFSETS.get(item.shape);
+            if (!orientations) continue;
+            let placed = false;
+            for (const card of cards) {
+                const board: any[][] = card.getBoard();
+                // Every stat that does something on this machine counts, Off or not: an Off Efficiency still costs energy in the game
+                const type = card.getState().machineType;
+                const before = statsOf(board);
+                for (let y = 0; y < 5 && !placed; y++) {
+                    for (let x = 0; x < 7 && !placed; x++) {
+                        for (const offsets of orientations) {
+                            if (!card.isValidPlacement(item, x, y, offsets)) continue;
+                            const next = board.map(row => [...row]);
+                            for (const pt of offsets) next[y + pt.y][x + pt.x] = item;
+                            const after = statsOf(next);
+                            const harmless = (['Performance', 'Quality', 'Efficiency'] as const).every(k => statHasNoEffect(type, k) || after[k] >= before[k]);
+                            if (!harmless) continue;
+                            card.place(item, x, y, offsets);
+                            placed = true;
+                            break;
+                        }
+                    }
+                }
+                if (placed) break;
+            }
+            if (placed) stored.push(item.id);
+        }
+        setStoredIds(stored);
+        const left = candidates.length - stored.length;
+        setStoreNote(stored.length === 0 ? 'No free spot takes a module without lowering a machine\'s stats'
+            : left > 0 ? `${left} module${left === 1 ? '' : 's'} had no free spot that leaves the machine's stats as they are` : null);
+    };
+    const handleRetrieve = () => {
+        for (const id of storedIds) Object.values(machinesRef.current).forEach((m: any) => m?.remove(id));
+        setStoredIds([]);
+        setStoreNote(null);
+    };
     const filteredInventory = inventory.filter(item => {
         if (invFilterGroup === 'Placed') {
             const isPlaced = allUsedItems.has(item.id) || (item.isInfinite && Array.from(allUsedItems).some(usedId => usedId.startsWith(item.id + '_clone_')));
@@ -1877,10 +1934,26 @@ export default function ModuleInventoryUI() {
                 <div style={{ flex: '2', backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '8px', border: '1px solid #2c2c2e', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '15px', paddingBottom: '12px', borderBottom: '1px solid #333' }}>
                         <span style={{ color: '#eee', fontWeight: 'bold', fontSize: '1em' }}>Unused Module Storage</span>
-                        <span style={{ color: '#888', fontSize: '0.85em' }}>
-                            {unusedModules.length} of {inventory.length} module{inventory.length === 1 ? '' : 's'}
+                        <span style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
+                            <span style={{ color: '#888', fontSize: '0.85em' }}>
+                                {unusedModules.length} of {inventory.length} module{inventory.length === 1 ? '' : 's'}
+                            </span>
+                            <button
+                                onClick={storedIds.length > 0 ? handleRetrieve : handleStore}
+                                disabled={isAnySolving || (storedIds.length === 0 && unusedModules.every(item => item.isInfinite))}
+                                title={storedIds.length > 0
+                                    ? `Take the ${storedIds.length} stored module${storedIds.length === 1 ? '' : 's'} back out of the machines`
+                                    : 'Put unused modules into free machine cells, only where they lower none of that machine\'s stats (energy included)'}
+                                style={{
+                                    background: storedIds.length > 0 ? '#333' : 'transparent', border: '1px solid #555', borderRadius: '6px',
+                                    color: '#aaa', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.75em', padding: '4px 10px', fontWeight: 'bold'
+                                }}
+                            >
+                                {storedIds.length > 0 ? 'Retrieve' : 'Store'}
+                            </button>
                         </span>
                     </div>
+                    {storeNote && <div style={{ color: '#888', fontSize: '0.8em', marginTop: '-8px', marginBottom: '10px' }}>{storeNote}</div>}
 
                     {unusedModules.length === 0 ? (
                         <div style={{ color: '#777', fontSize: '0.85em', textAlign: 'center', padding: '30px 10px' }}>
