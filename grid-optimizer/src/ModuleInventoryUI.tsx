@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, statUnit } from './machineDefaults';
-import type { StatUnit } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats } from './machineDefaults';
+import { StatGoals } from './components/StatGoals';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
@@ -179,28 +179,6 @@ const MACHINE_ICONS: [string, string][] = [
     ['furnace', 'furnace'],
 ];
 
-// Target typed in a machine's own unit (e.g. ml/day), stored as the % target the solver works with
-// Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
-const UnitTargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit; target: number | null; onChange: (pct: number | null) => void; disabled: boolean }) => {
-    const shown = target === null ? '' : String(unit.fromPercent(target));
-    const [draft, setDraft] = useState<string | null>(null);
-    const commit = (text: string) => onChange(text.trim() === '' ? null : unit.toPercent(Number(text)));
-    return (
-        <input
-            type="number"
-            step={unit.step}
-            value={draft ?? shown}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={(e) => { commit(e.target.value); setDraft(null); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-            disabled={disabled}
-            title={unit.hint}
-            placeholder="Max"
-            style={{ width: '55px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
-        />
-    );
-};
-
 const machineIcon = (machineType: string): string | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     const hit = MACHINE_ICONS.find(([keyword]) => name.includes(keyword));
@@ -249,7 +227,6 @@ const MachineInstance = React.memo(forwardRef(({
     const machineIconUrl = machineIcon(machineType);
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
-    const breakpointsFor = (stat: 'Performance' | 'Quality' | 'Efficiency') => statBreakpoints(machineType, stat, hasBlast);
 
     // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
@@ -487,6 +464,8 @@ const MachineInstance = React.memo(forwardRef(({
                                     });
                                     setMachineType(`${selected} ${max + 1}`);
                                     optimizer.setIgnoreStats(defaultIgnoreStats(selected));
+                                    // Goals are in the old machine's terms, so a new type starts from Max
+                                    optimizer.setTargetStats({ Performance: null, Quality: null, Efficiency: null });
                                 }}
                                 disabled={currentSolving}
                                 style={{
@@ -529,36 +508,6 @@ const MachineInstance = React.memo(forwardRef(({
             </div>
 
             <div style={{ visibility: showPaths ? 'hidden' : 'visible', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <div className="stats-header" style={{ width: '100%', boxSizing: 'border-box', marginBottom: '10px', padding: '10px 15px', gap: '10px', justifyContent: 'space-around' }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '0.7em', textTransform: 'uppercase' }}>Performance</span>
-                        <div style={{ fontSize: '1.4em', fontWeight: 'bold', color: getStatColor(optimizer.bestTotals.Performance) }}>
-                            {formatStatValue(optimizer.bestTotals.Performance)}
-                        </div>
-                        {statUnit(machineType, 'Performance') && (
-                            <div title={statUnit(machineType, 'Performance')!.hint} style={{ fontSize: '0.7em', color: '#aaa' }}>
-                                {(() => {
-                                    const u = statUnit(machineType, 'Performance')!;
-                                    const v = u.fromPercent(optimizer.bestTotals.Performance);
-                                    return u.readout ? u.readout(v) : `${v} ${u.unit}`;
-                                })()}
-                            </div>
-                        )}
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '0.7em', textTransform: 'uppercase' }}>Quality</span>
-                        <div style={{ fontSize: '1.4em', fontWeight: 'bold', color: getStatColor(optimizer.bestTotals.Quality) }}>
-                            {formatStatValue(optimizer.bestTotals.Quality)}
-                        </div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '0.7em', textTransform: 'uppercase' }}>Efficiency</span>
-                        <div style={{ fontSize: '1.4em', fontWeight: 'bold', color: getStatColor(optimizer.bestTotals.Efficiency) }}>
-                            {formatStatValue(optimizer.bestTotals.Efficiency)}
-                        </div>
-                    </div>
-                </div>
-
                 <div
                     className="grid-wrapper"
                     onMouseLeave={() => {
@@ -693,79 +642,17 @@ const MachineInstance = React.memo(forwardRef(({
                     </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: '5px', width: '100%', boxSizing: 'border-box' }}>
-                        {(['Performance', 'Quality', 'Efficiency'] as const).map((stat) => {
-                            const isOn = !optimizer.ignoreStats[stat];
-                            const hasTarget = optimizer.targetStats[stat] !== null;
-                            const toggle = () => {
-                                if (currentSolving) return;
-                                optimizer.setIgnoreStats((prev: any) => ({ ...prev, [stat]: !prev[stat] }));
-                            };
-                            return (
-                                <div
-                                    key={stat}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={toggle}
-                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
-                                    title={isOn
-                                        ? `${stat} is on (${hasTarget ? 'held to the target' : 'maximized'}). Click to ignore it.`
-                                        : `${stat} is ignored. Click to turn it on.`}
-                                    style={{
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1,
-                                        backgroundColor: isOn ? '#1d3323' : '#222', padding: '6px 4px', borderRadius: '6px',
-                                        border: `1px solid ${isOn ? '#3f7a4c' : '#2a2a2a'}`,
-                                        opacity: isOn ? 1 : 0.35, cursor: currentSolving ? 'not-allowed' : 'pointer',
-                                        userSelect: 'none', transition: 'opacity 0.15s ease-in-out'
-                                    }}
-                                >
-                                    <span style={{ fontSize: '0.6em', color: '#ddd', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
-                                    {breakpointsFor(stat) ? (() => {
-                                        const breakpoints = breakpointsFor(stat)!;
-                                        const target = optimizer.targetStats[stat];
-                                        const picked = breakpoints.find(b => b.value === target);
-                                        return (
-                                            <select
-                                                onClick={(e) => e.stopPropagation()}
-                                                onKeyDown={(e) => e.stopPropagation()}
-                                                value={target ?? ''}
-                                                onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
-                                                disabled={currentSolving || !isOn}
-                                                title={picked ? `${picked.hint} (needs ${picked.value}% ${stat})` : `Pick the outcome you want; ${stat} only counts at these breakpoints`}
-                                                style={{ width: '100%', maxWidth: '130px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
-                                            >
-                                                <option value="">Max</option>
-                                                {breakpoints.map(b => <option key={b.value} value={b.value} title={b.hint}>{b.label} ({b.value}%)</option>)}
-                                                {target !== null && !picked && <option value={target}>{target}%</option>}
-                                            </select>
-                                        );
-                                    })() : (
-                                    <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
-                                        <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
-                                        {statUnit(machineType, stat) ? (<>
-                                        <UnitTargetInput
-                                            unit={statUnit(machineType, stat)!}
-                                            target={optimizer.targetStats[stat]}
-                                            onChange={(pct) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: pct }))}
-                                            disabled={currentSolving || !isOn}
-                                        />
-                                        <span style={{ fontSize: '0.65em', color: '#888' }}>{statUnit(machineType, stat)!.unit}</span>
-                                        </>) : (<>
-                                        <input
-                                            type="number"
-                                            value={optimizer.targetStats[stat] ?? ''}
-                                            onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
-                                            disabled={currentSolving || !isOn}
-                                            style={{ width: '35px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
-                                        />
-                                        <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
-                                        </>)}
-                                    </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
+                    <StatGoals
+                        machineType={machineType}
+                        machineId={machineId}
+                        totals={optimizer.bestTotals}
+                        ignoreStats={optimizer.ignoreStats}
+                        targetStats={optimizer.targetStats}
+                        setIgnoreStats={optimizer.setIgnoreStats}
+                        setTargetStats={optimizer.setTargetStats}
+                        disabled={currentSolving}
+                        hasBlast={hasBlast}
+                    />
 
                     <div style={{ display: 'flex', gap: '5px', width: '100%' }}>
                         <button
