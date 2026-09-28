@@ -229,6 +229,9 @@ const energyUnit = (rule: EnergyRule): StatUnit => ({
     lowerIsBetter: true,
 });
 
+// What the Purifier removes a day with no modules, summed over the six contaminants of basic-source water (Liquid.InitLiquid)
+const PURIFIER_BASE_ML = 25;
+
 const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
     // Base energy and ratios from each machine's constructor in the game code
     ['moisture farm', 'Efficiency', energyUnit({ base: 4 })],
@@ -258,13 +261,13 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
      * (water-dependent factor + Performance / 100). The factor is 1 for water above 96% and up to 20 for very dirty water
      * (MachinePurifier.PurifyContainer), so Performance reads as the removal speed on clean-ish water
      */
+    // Shown as the total a day across the six contaminants of basic-source water (2 + 5 + 5 + 3 + 5 + 5 = 25 ml at x1), on water above 96%
     ['water purifier', 'Performance', {
-        unit: '×',
-        fromPercent: pct => Math.round((1 + pct / 100) * 100) / 100,
-        toPercent: mult => Math.ceil((mult - 1) * 100 - 1e-9),
-        step: 0.05,
-        hint: 'Removal speed of every contaminant, x1 with no modules (on water above 96%; dirtier water is sped up further by the game)',
-        readout: mult => `×${mult.toFixed(2)}`,
+        unit: 'ml/d',
+        fromPercent: pct => Math.round(PURIFIER_BASE_ML * (1 + pct / 100) * 10) / 10,
+        toPercent: ml => Math.ceil((ml / PURIFIER_BASE_ML - 1) * 100 - 1e-9),
+        step: 1,
+        hint: 'Contaminants removed a day, all six together (heavy metals 2 ml, chemicals 3 ml, organic waste, microbes, physical and minerals 5 ml each, times 1 + Performance). For water above 96% purity; dirtier water is cleaned faster',
     }],
 ];
 
