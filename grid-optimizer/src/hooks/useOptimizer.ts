@@ -479,7 +479,9 @@ export const evaluatePlacementDelta = (
     precomputedInternal: Map<string, Stats>,
     dynWp: number, dynWq: number, dynWe: number,
     currentP: number, currentQ: number, currentE: number,
-    config: MachineConfig
+    config: MachineConfig,
+    // A placement that earns nothing is normally refused outright; this lets it through at zero instead (see OVERCLOCK_PLACEMENT_NUDGE)
+    zeroScoreOk = false
 ) => {
     if (x + orientation.minX < 0 || x + orientation.maxX > 6 ||
         y + orientation.minY < 0 || y + orientation.maxY > 4) {
@@ -635,7 +637,7 @@ export const evaluatePlacementDelta = (
     statScore += scoreStat('Efficiency', eDelta, currentE, dynWe);
 
     const tiebreakers = (adjNodes * 0.05) - (negativeContactCount * 1000);
-    if (statScore <= 0) return -10000 + tiebreakers;
+    if (statScore < 0 || (statScore === 0 && !zeroScoreOk)) return -10000 + tiebreakers;
     return statScore + tiebreakers;
 };
 
@@ -667,6 +669,16 @@ const isBlastModule = (item: InventoryItem) => item.displayName.includes('(Blast
 
 export const isSpecialModule = (item: InventoryItem) =>
     isAlarmModule(item) || isJunkModule(item) || isBlastModule(item);
+
+// Overclocks are worth placing even where their Performance is not needed (a Learning Algorithm one only grows while it
+// sits in a machine), so each placed one earns a little more in the tiebreak than the "fewer pieces" nudge costs
+const isOverclock = (item: InventoryItem) => item.displayName.includes('Overclock');
+const OVERCLOCK_BONUS = 8;
+// A Learning Algorithm one only grows while placed, so it gets first claim on the spare room
+const overclockBonus = (item: InventoryItem) => item.effects.includes('Learning Algorithm') ? OVERCLOCK_BONUS * 2 : OVERCLOCK_BONUS;
+// The fill only commits a placement that scores above zero, and one whose stats this machine does not score comes to exactly zero
+// A nudge this small lifts it over that bar without outranking any placement that earns something
+const OVERCLOCK_PLACEMENT_NUDGE = 0.001;
 
 // An ignored stat is worth nothing to this machine in either direction
 const statIsIgnored = (m: MachineConfig, key: keyof Stats) => Boolean(m.ignoreStats?.[key]);
@@ -754,7 +766,7 @@ const dominates = (a: number[], b: number[]) => {
  * Three things keep this from throwing away real options: modules are only compared within the same shape and the same placement-dependent effects,
  * stats no machine scores on are left out of the comparison entirely, and enough candidates are kept per group to fill every board,
  * so pruning can never make a layout unreachable for lack of copies
- * Nodes are never dropped, and the special modules are left out of the pool entirely
+ * Nodes and Overclocks are never dropped, and the special modules are left out of the pool entirely
  * The pool is what the fill draws NEW modules from, and those are never the solver's to add
  */
 export const buildSearchPool = (
@@ -774,7 +786,8 @@ export const buildSearchPool = (
         if (isSpecialModule(item)) continue;
         if (item.isLocked) continue;
 
-        if (item.color === 'White') {
+        // Overclocks earn a tiebreak bonus of their own, so a stronger module of the same shape does not make them redundant
+        if (item.color === 'White' || isOverclock(item)) {
             kept.push(item);
             continue;
         }
@@ -958,7 +971,7 @@ export const runOptimizationEngine = async (
     const valueKeys = maximizedKeys.length > 0 ? maximizedKeys : STAT_KEYS;
     const NODE_VALUE = 3;
     const moduleValue = (item: InventoryItem) => {
-        if (isSpecialModule(item)) return 0;
+        if (isSpecialModule(item) || isOverclock(item)) return 0;
         if (item.color === 'White') return NODE_VALUE;
         const stats = precomputedInternal.get(item.id);
         if (stats === undefined) return 0;
@@ -978,17 +991,19 @@ export const runOptimizationEngine = async (
             if (statIsIgnored(m, key) || target === null || m.maximizeStats[key]) continue;
             if (totals[key] > target) overshoot += totals[key] - target;
         }
-        if (!isTargetOnly[mIdx]) return placedPieces * 5 + overshoot;
         const seen = new Set<string>();
         let held = 0;
+        let bonus = 0;
         for (const row of board) {
             for (const cell of row) {
                 if (!cell || cell === 'Locked' || seen.has(cell.id)) continue;
                 seen.add(cell.id);
                 held += moduleValue(cell);
+                if (isOverclock(cell)) bonus += overclockBonus(cell);
             }
         }
-        return held + overshoot;
+        if (!isTargetOnly[mIdx]) return placedPieces * 5 + overshoot - bonus;
+        return held + overshoot - bonus;
     };
 
     // Swaps modules on target-only machines for weaker unused ones of the same shape (so the same cells), as long as
@@ -1202,14 +1217,15 @@ export const runOptimizationEngine = async (
         let bestX = -1, bestY = -1;
         let bestOrientation: Orientation | null = null;
         let highestHeuristic = incumbent !== null ? -Infinity : 0.0001;
+        const nudge = isOverclock(piece) ? OVERCLOCK_PLACEMENT_NUDGE : 0;
 
         if (incumbent !== null) {
             const incumbentScore = evaluatePlacementDelta(
                 ctx, incumbent.x, incumbent.y, incumbent.orientation, fillBoard, fillBoardEmpty,
-                precomputedInternal, dynWp, dynWq, dynWe, currentP, currentQ, currentE, config
+                precomputedInternal, dynWp, dynWq, dynWe, currentP, currentQ, currentE, config, nudge > 0
             );
             if (incumbentScore !== -Infinity) {
-                highestHeuristic = incumbentScore;
+                highestHeuristic = incumbentScore + nudge;
                 bestX = incumbent.x; bestY = incumbent.y;
                 bestOrientation = incumbent.orientation;
             }
@@ -1229,8 +1245,8 @@ export const runOptimizationEngine = async (
 
                 const deltaScore = evaluatePlacementDelta(
                     ctx, x, y, orientation, fillBoard, fillBoardEmpty,
-                    precomputedInternal, dynWp, dynWq, dynWe, currentP, currentQ, currentE, config
-                );
+                    precomputedInternal, dynWp, dynWq, dynWe, currentP, currentQ, currentE, config, nudge > 0
+                ) + nudge;
                 if (deltaScore > highestHeuristic && deltaScore !== -Infinity) {
                     highestHeuristic = deltaScore;
                     bestX = x; bestY = y;

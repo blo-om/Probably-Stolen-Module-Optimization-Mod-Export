@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, qualityBreakpoints } from './machineDefaults';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
@@ -224,6 +224,7 @@ const MachineInstance = React.memo(forwardRef(({
     // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
     const isImportedMachine = machineType.startsWith('Inv.');
     const machineIconUrl = machineIcon(machineType);
+    const breakpoints = qualityBreakpoints(machineType);
 
     // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
@@ -685,6 +686,24 @@ const MachineInstance = React.memo(forwardRef(({
                                     }}
                                 >
                                     <span style={{ fontSize: '0.6em', color: '#ddd', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
+                                    {stat === 'Quality' && breakpoints ? (() => {
+                                        const target = optimizer.targetStats.Quality;
+                                        const picked = breakpoints.find(b => b.value === target);
+                                        return (
+                                            <select
+                                                onClick={(e) => e.stopPropagation()}
+                                                value={target ?? ''}
+                                                onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, Quality: e.target.value === '' ? null : Number(e.target.value) }))}
+                                                disabled={currentSolving || !isOn}
+                                                title={picked ? `${picked.hint} (needs ${picked.value}% Quality)` : 'Pick the water you want; Quality only counts at these breakpoints'}
+                                                style={{ width: '100%', maxWidth: '130px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
+                                            >
+                                                <option value="">Max</option>
+                                                {breakpoints.map(b => <option key={b.value} value={b.value} title={b.hint}>{b.label} ({b.value}%)</option>)}
+                                                {target !== null && !picked && <option value={target}>{target}%</option>}
+                                            </select>
+                                        );
+                                    })() : (
                                     <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
                                         <span style={{ fontSize: '0.65em', color: '#888' }}>Tar:</span>
                                         <input
@@ -696,6 +715,7 @@ const MachineInstance = React.memo(forwardRef(({
                                         />
                                         <span style={{ fontSize: '0.65em', color: '#888' }}>%</span>
                                     </div>
+                                    )}
                                 </div>
                             );
                         })}
