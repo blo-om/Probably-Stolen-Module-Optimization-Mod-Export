@@ -229,9 +229,6 @@ const energyUnit = (rule: EnergyRule): StatUnit => ({
     lowerIsBetter: true,
 });
 
-// What the Purifier removes a day with no modules, summed over the six contaminants of basic-source water (Liquid.InitLiquid)
-const PURIFIER_BASE_ML = 25;
-
 const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
     // Base energy and ratios from each machine's constructor in the game code
     ['moisture farm', 'Efficiency', energyUnit({ base: 4 })],
@@ -261,17 +258,18 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
      * (water-dependent factor + Performance / 100). The factor is 1 for water above 96% and up to 20 for very dirty water
      * (MachinePurifier.PurifyContainer), so Performance reads as the removal speed on clean-ish water
      */
-    /* Each contaminant is removed at its own capacity a day (heavy metals 2 ml, chemicals 3, the other four 5, times 1 + Performance on water
-     * above 96%), but never below its floor, so what actually goes (the "removed" line on the game's tooltip) is capped by how much is left
-     * above the floors and is small once the water is high-quality. Shown as the average capacity per contaminant: 25 / 6 = 4.2 ml at x1
+    /* Shown as the guide had it: the extra a day that Performance adds to a contaminant's removal, 0.02 ml per 1%
+     * (the game's rate for heavy metals; chemicals get 0.03 and the rest 0.05, MachinePurifier.PurifyContainer). Each contaminant is
+     * handled on its own, but never below its purity floor, so what actually goes (the tooltip's "removed") is capped by how much of each
+     * is left above its floor, and shrinks as the water gets cleaner
      */
     ['water purifier', 'Performance', {
         unit: 'ml/d',
-        fromPercent: pct => Math.round(PURIFIER_BASE_ML / 6 * (1 + pct / 100) * 10) / 10,
-        toPercent: ml => Math.ceil((ml / (PURIFIER_BASE_ML / 6) - 1) * 100 - 1e-9),
+        fromPercent: pct => Math.round(pct * 2) / 100,
+        toPercent: ml => Math.ceil(ml * 50 - 1e-9),
         step: 0.1,
-        hint: 'Most removed a day per contaminant, on average (heavy metals 2 ml, chemicals 3 ml, the rest 5 ml each, times 1 + Performance). The real amount is capped by what is left above the purity floor, so it drops as the water gets cleaner',
-        readout: ml => `${ml} ml/d each`,
+        hint: 'Extra removed a day per contaminant from Performance: 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05). The real amount is capped by what is left above the purity floor',
+        readout: ml => `+${ml} ml/d`,
     }],
 ];
 
