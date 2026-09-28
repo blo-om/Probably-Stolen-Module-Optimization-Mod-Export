@@ -261,13 +261,17 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
      * (water-dependent factor + Performance / 100). The factor is 1 for water above 96% and up to 20 for very dirty water
      * (MachinePurifier.PurifyContainer), so Performance reads as the removal speed on clean-ish water
      */
-    // Shown as the total a day across the six contaminants of basic-source water (2 + 5 + 5 + 3 + 5 + 5 = 25 ml at x1), on water above 96%
+    /* Each contaminant is removed at its own capacity a day (heavy metals 2 ml, chemicals 3, the other four 5, times 1 + Performance on water
+     * above 96%), but never below its floor, so what actually goes (the "removed" line on the game's tooltip) is capped by how much is left
+     * above the floors and is small once the water is high-quality. Shown as the average capacity per contaminant: 25 / 6 = 4.2 ml at x1
+     */
     ['water purifier', 'Performance', {
         unit: 'ml/d',
-        fromPercent: pct => Math.round(PURIFIER_BASE_ML * (1 + pct / 100) * 10) / 10,
-        toPercent: ml => Math.ceil((ml / PURIFIER_BASE_ML - 1) * 100 - 1e-9),
-        step: 1,
-        hint: 'Contaminants removed a day, all six together (heavy metals 2 ml, chemicals 3 ml, organic waste, microbes, physical and minerals 5 ml each, times 1 + Performance). For water above 96% purity; dirtier water is cleaned faster',
+        fromPercent: pct => Math.round(PURIFIER_BASE_ML / 6 * (1 + pct / 100) * 10) / 10,
+        toPercent: ml => Math.ceil((ml / (PURIFIER_BASE_ML / 6) - 1) * 100 - 1e-9),
+        step: 0.1,
+        hint: 'Most removed a day per contaminant, on average (heavy metals 2 ml, chemicals 3 ml, the rest 5 ml each, times 1 + Performance). The real amount is capped by what is left above the purity floor, so it drops as the water gets cleaner',
+        readout: ml => `${ml} ml/d each`,
     }],
 ];
 
