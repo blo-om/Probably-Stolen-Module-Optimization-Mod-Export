@@ -42,7 +42,8 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 //   AgeWell        - every 125% ages the wine one more day per night (only multiples of 125 matter)
 //   Desequencer    - Performance: 33 work/d base, +1 per 3.03%; a keycard takes whole days, so only the cut-offs
 //                    where some chipset's card finishes a day sooner matter
-export type StatBreakpoint = { value: number; label: string; hint: string };
+// `short` is the chip label where space is tight
+export type StatBreakpoint = { value: number; label: string; hint: string; short?: string };
 
 const PURITIES = ['Low', 'Fair', 'High', 'Very high', 'Perfect'];
 
@@ -55,6 +56,7 @@ const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
     return [1, 2, 3, 4].map(stages => ({
         value: stages * 100 + offset,
         label: `+${stages} purity${stages === 1 ? ', flux free' : ''}`,
+        short: `+${stages}`,
         hint: recipes.map(([recipe, base]) => `${recipe} → ${PURITIES[Math.min(base + stages, 4)]}`).join(' · ')
             + (hasBlast ? ' (Blast: first 100% ignored)' : ''),
     }));
@@ -62,22 +64,23 @@ const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
 
 const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] = [
     ['moisture farm', () => [
-        { value: 0, label: 'Ghostwater', hint: '96-98% water. Pitcher: 75% high-quality, 25% basewater' },
-        { value: 50, label: 'Basewater', hint: '98-99% water. Pitcher: always high-quality' },
-        { value: 100, label: 'High-quality', hint: '99-99.9% water. Pitcher: 26% pure' },
+        { value: 0, label: 'Ghostwater', short: 'Ghost', hint: '96-98% water. Pitcher: 75% high-quality, 25% basewater' },
+        { value: 50, label: 'Basewater', short: 'Base', hint: '98-99% water. Pitcher: always high-quality' },
+        { value: 100, label: 'High-quality', short: 'HQ', hint: '99-99.9% water. Pitcher: 26% pure' },
         { value: 150, label: 'Pure', hint: '99.9%+ water, no filtering needed' },
     ]],
     ['water purifier', () => [
-        { value: 0, label: 'Basewater', hint: 'Any basic source already comes out basewater or better' },
-        { value: 50, label: 'High-quality', hint: 'High-quality from any basic source (pitcher-filtered water is already high-quality at 0%)' },
-        { value: 75, label: 'Pure (pre-filtered)', hint: 'Pure from a basic source filtered in a pitcher first' },
+        { value: 0, label: 'Basewater', short: 'Base', hint: 'Any basic source already comes out basewater or better' },
+        { value: 50, label: 'High-quality', short: 'HQ', hint: 'High-quality from any basic source (pitcher-filtered water is already high-quality at 0%)' },
+        { value: 75, label: 'Pure (pre-filtered)', short: 'Pure (pitcher)', hint: 'Pure from a basic source filtered in a pitcher first' },
         { value: 100, label: 'Pure', hint: 'Pure from any basic source: traders, tap, moisture farm' },
-        { value: 200, label: '100% water', hint: 'Contaminant floor 0%: converts everything' },
+        { value: 200, label: '100% water', short: '100%', hint: 'Contaminant floor 0%: converts everything' },
     ]],
     ['furnace', furnaceBreakpoints],
     ['agewell', () => [1, 2, 3, 4].map(extra => ({
         value: extra * 125,
         label: `+${extra} day${extra > 1 ? 's' : ''}`,
+        short: `+${extra}d`,
         hint: `Wine ages ${extra + 1} days per night instead of 1`,
     }))],
 ];
@@ -113,6 +116,56 @@ export const statBreakpoints = (machineType: string, stat: 'Performance' | 'Qual
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     const hit = BREAKPOINTS_BY_STAT[stat]?.find(([keyword]) => name.includes(keyword));
     return hit ? hit[1](hasBlast) : null;
+};
+
+// The Desequencer's goal is picked as chipset + days, which is how players think about it
+export const DESEQUENCER_CHIPSETS: { work: number; name: string }[] = [75, 100, 125, 150].map(work => ({ work, name: CHIPSETS[work] }));
+
+// Every (days, Performance needed) a chipset's card can be done in, slowest first. The slowest is the 33 work/d base
+export const desequencerDayOptions = (work: number): { days: number; value: number }[] => {
+    const cut = DESEQUENCER_CUTOFFS.flatMap(([value, cards]) => cards.filter(([w]) => w === work).map(([, days]) => ({ days, value })));
+    return [{ days: cut[0].days + 1, value: 0 }, ...cut];
+};
+
+// Days a chipset's card takes at this Performance
+export const desequencerDaysAt = (work: number, performance: number): number => {
+    const options = desequencerDayOptions(work);
+    let days = options[0].days;
+    for (const o of options) if (performance >= o.value) days = o.days;
+    return days;
+};
+
+export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');
+
+// What each stat does on a machine, in the machine's own words. Falls back to the stat's name
+const STAT_NAMES: [string, 'Performance' | 'Quality' | 'Efficiency', string][] = [
+    ['moisture farm', 'Performance', 'Water volume'],
+    ['moisture farm', 'Quality', 'Water grade'],
+    ['water purifier', 'Performance', 'Removal speed'],
+    ['water purifier', 'Quality', 'Best water grade'],
+    ['furnace', 'Quality', 'Ingot purity'],
+    ['agewell', 'Quality', 'Extra aging'],
+    ['agewell', 'Performance', 'Energy (Performance)'],
+    ['desequencer', 'Performance', 'Work speed'],
+    ['alarm', 'Performance', 'Theft prevention'],
+];
+
+export const statName = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    const hit = STAT_NAMES.find(([keyword, s]) => s === stat && name.includes(keyword));
+    return hit ? hit[2] : stat === 'Efficiency' ? 'Energy (Efficiency)' : stat;
+};
+
+// Stats that change nothing on a machine, per the machine guide
+const NO_EFFECT: [string, 'Performance' | 'Quality' | 'Efficiency'][] = [
+    ['furnace', 'Performance'],
+    ['desequencer', 'Quality'],
+    ['alarm', 'Quality'],
+];
+
+export const statHasNoEffect = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): boolean => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    return NO_EFFECT.some(([keyword, s]) => s === stat && name.includes(keyword));
 };
 
 // Some stats are linear in something players think in, so their target is entered in that unit instead of %
