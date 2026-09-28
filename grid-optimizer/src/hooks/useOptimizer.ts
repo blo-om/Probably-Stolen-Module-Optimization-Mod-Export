@@ -652,6 +652,9 @@ export type MachineConfig = {
     // A lower rank is only ever consulted once every higher one is tied, so a met high-priority target can never be dropped to meet a lower-priority one
     // Absent or all-equal means the single combined objective as before
     statPriority?: Partial<Record<keyof Stats, number>>;
+    // The values where a stat actually changes something (water grades, ingot purity steps...), ascending
+    // A target on such a stat is either reached or worth nothing, and can be relaxed one step when the set cannot reach it
+    targetSteps?: Partial<Record<keyof Stats, number[]>>;
 };
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
@@ -707,6 +710,18 @@ const TARGET_MET_DRAW_SCALE = 0.25;
 // How many big ruins may come back empty-handed before the search abandons the board it is on and starts a fresh one
 // The best board found is kept and reported throughout, so this only decides how the remaining iterations are spent
 const RESTART_AFTER_STAGNATIONS = 8;
+
+/* A stepped target (see MachineConfig.targetSteps) that is missed by 1% gives exactly what missing it by 100% gives,
+ * but the plain shortfall rates it as nearly met, so the search would spread a stat over several machines and leave each just under its step
+ * Missing one costs this much on top of the distance, so reaching one fully always beats getting close on two,
+ * and a little more per rank of priority, so when one has to be missed it is the lowest-priority one
+ */
+const STEP_MISS_PENALTY = 50;
+const STEP_MISS_PER_RANK = 5;
+
+// How long the target tier may go without improving before the lowest-priority unmet stepped target is lowered one step
+// Restarts come many per second, so this is time, not a count: a reachable target can take a couple of seconds to be found
+const RELAX_AFTER_MS = 2500;
 
 // Every so many restarts one board goes back to its initial state instead of the record, handing its modules back to the pool for the others
 const FRESH_START_EVERY = 4;
@@ -888,13 +903,16 @@ const FRAME_BUDGET_MS = 12;
 const TIMER_YIELD_INTERVAL_MS = 32;
 
 export const runOptimizationEngine = async (
-    machines: MachineConfig[],
+    callerMachines: MachineConfig[],
     initialBoards: any[][][],
     searchPoolInventory: InventoryItem[],
     fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
     onUpdate: (updates: Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>) => void
 ) => {
+    // Targets can be relaxed during the run (see RELAX_AFTER_RESTARTS), so the engine works on copies
+    // Codes are always written with the targets as they were set
+    const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
     const machineCount = machines.length;
     const precomputedInternal = new Map<string, Stats>();
     fullInventory.forEach(item => precomputedInternal.set(item.id, applyInternalEffects(item)));
@@ -1065,6 +1083,8 @@ export const runOptimizationEngine = async (
     let stagnationCounter = 0;
     let stagnationRuns = 0;
     let restarts = 0;
+    let targetScoreAtRestart = -Infinity;
+    let targetProgressAt = now();
     const STAGNATION_LIMIT = 150;
     // Not scaled by the set size: the every-board ruin that makes coordinated swaps comes on each stagnation, and scaling made those too rare
     // to find them (measured on two machines trading a strong module for weak ones)
@@ -1320,6 +1340,83 @@ export const runOptimizationEngine = async (
         return out ? { boards: out, changed } : null;
     };
 
+    // Scores a set of boards into `tiers` (see the tier layout above)
+    const scoreInto = (tiers: Float64Array, statsFor: (mIdx: number) => BoardStats, boardFor: (mIdx: number) => (InventoryItem | 'Locked' | null)[][]) => {
+            tiers.fill(0);
+            const currentTiers = tiers;
+
+            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                const stats = statsFor(mIdx);
+                const m = machines[mIdx];
+                const t = stats.totals;
+
+                for (const key of STAT_KEYS) {
+                    if (statIsIgnored(m, key)) continue;
+
+                    const target = m.targetStats[key];
+                    if (target !== null && t[key] < target) {
+                        currentTiers[TARGET_TIER] -= (target - t[key]) * 10000;
+                        if (m.targetSteps?.[key]) currentTiers[TARGET_TIER] -= (STEP_MISS_PENALTY + STEP_MISS_PER_RANK * (tierCount - 1 - tierOf(m, key))) * 10000;
+                    }
+                    if (m.maximizeStats[key]) currentTiers[tierOf(m, key) + RANK_OFFSET] += (t[key] * 10);
+                }
+
+                // Tiebreak: the least important tier, so it can never take a ranked stat or a target out of its own tier
+                currentTiers[TIEBREAK_TIER] -= boardTiebreak(mIdx, boardFor(mIdx), stats.placedPiecesCount, t);
+            }
+
+            // Machines are only pulled towards each other within the same priority rank. Balancing across ranks
+            // would drag a higher-priority machine down to lift a lower one, which is the opposite of what the
+            // ranking asks for.
+            if (machineCount > 1) {
+                for (const statKey of STAT_KEYS) {
+                    const byTier = new Map<number, number[]>();
+                    for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                        const m = machines[mIdx];
+                        if (statIsIgnored(m, statKey) || !m.maximizeStats[statKey] || m.targetStats[statKey] !== null) continue;
+                        const ti = tierOf(m, statKey);
+                        let members = byTier.get(ti);
+                        if (members === undefined) { members = []; byTier.set(ti, members); }
+                        members.push(mIdx);
+                    }
+                    byTier.forEach((members, ti) => {
+                        if (members.length < 2) return;
+                        let sum = 0;
+                        for (const mIdx of members) sum += statsFor(mIdx).totals[statKey];
+                        const avg = sum / members.length;
+                        let mad = 0;
+                        for (const mIdx of members) mad += Math.abs(statsFor(mIdx).totals[statKey] - avg);
+                        currentTiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
+                    });
+                }
+            }
+
+    };
+
+    /* When the set cannot reach every stepped target, keeping the missed ones in the top tier makes every other machine pay for points that change nothing
+     * So the lowest-priority one that the record misses drops one step (or is dropped, below its lowest step), and the record is re-scored against that
+     * Repeated until what is left can be met. Only this run's copy changes; the card keeps the target as set
+     */
+    const relaxLowestTarget = () => {
+        let pick: { mIdx: number; key: keyof Stats; rank: number } | null = null;
+        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+            const m = machines[mIdx];
+            for (const key of STAT_KEYS) {
+                const target = m.targetStats[key];
+                if (statIsIgnored(m, key) || target === null || !m.targetSteps?.[key]) continue;
+                if (bestStats[mIdx].totals[key] >= target) continue;
+                const rank = priorityOf(m, key);
+                if (pick === null || rank > pick.rank || (rank === pick.rank && mIdx > pick.mIdx)) pick = { mIdx, key, rank };
+            }
+        }
+        if (pick === null) return false;
+        const m = machines[pick.mIdx];
+        const lower = m.targetSteps![pick.key]!.filter(v => v < m.targetStats[pick!.key]!);
+        m.targetStats[pick.key] = lower.length > 0 ? lower[lower.length - 1] : null;
+        scoreInto(bestTiers, (mIdx) => bestStats[mIdx], (mIdx) => bestBoards[mIdx]);
+        return true;
+    };
+
     let pendingUpdate = false;
     const flushUpdate = () => {
         if (!pendingUpdate) return;
@@ -1342,7 +1439,7 @@ export const runOptimizationEngine = async (
                     board: board.map(row => [...row]),
                     totals: stats.totals,
                     pieceStats: stats.pieceStats,
-                    code: generateCodeFromState(m.tier, m.maximizeStats, m.targetStats, inventoryForCode, board),
+                    code: generateCodeFromState(m.tier, m.maximizeStats, callerMachines[mIdx].targetStats, inventoryForCode, board),
                 });
             }
             onUpdate(updates);
@@ -1360,7 +1457,7 @@ export const runOptimizationEngine = async (
                 }));
                 const inventoryForCode = fullInventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
 
-                currentCodes[mIdx] = generateCodeFromState(m.tier, m.maximizeStats, m.targetStats, inventoryForCode, bestBoards[mIdx]);
+                currentCodes[mIdx] = generateCodeFromState(m.tier, m.maximizeStats, callerMachines[mIdx].targetStats, inventoryForCode, bestBoards[mIdx]);
                 codeIsStale[mIdx] = false;
             }
             updates.set(m.id, {
@@ -1668,50 +1765,7 @@ export const runOptimizationEngine = async (
             const statsFor = (mIdx: number) =>
                 isRebuilt[mIdx] ? rebuiltStats[mIdx]! : currentStats[mIdx];
 
-            currentTiers.fill(0);
-
-            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                const stats = statsFor(mIdx);
-                const m = machines[mIdx];
-                const t = stats.totals;
-
-                for (const key of STAT_KEYS) {
-                    if (statIsIgnored(m, key)) continue;
-
-                    const target = m.targetStats[key];
-                    if (target !== null && t[key] < target) currentTiers[TARGET_TIER] -= (target - t[key]) * 10000;
-                    if (m.maximizeStats[key]) currentTiers[tierOf(m, key) + RANK_OFFSET] += (t[key] * 10);
-                }
-
-                // Tiebreak: the least important tier, so it can never take a ranked stat or a target out of its own tier
-                currentTiers[TIEBREAK_TIER] -= boardTiebreak(mIdx, isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx], stats.placedPiecesCount, t);
-            }
-
-            // Machines are only pulled towards each other within the same priority rank. Balancing across ranks
-            // would drag a higher-priority machine down to lift a lower one, which is the opposite of what the
-            // ranking asks for.
-            if (machineCount > 1) {
-                for (const statKey of STAT_KEYS) {
-                    const byTier = new Map<number, number[]>();
-                    for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        const m = machines[mIdx];
-                        if (statIsIgnored(m, statKey) || !m.maximizeStats[statKey] || m.targetStats[statKey] !== null) continue;
-                        const ti = tierOf(m, statKey);
-                        let members = byTier.get(ti);
-                        if (members === undefined) { members = []; byTier.set(ti, members); }
-                        members.push(mIdx);
-                    }
-                    byTier.forEach((members, ti) => {
-                        if (members.length < 2) return;
-                        let sum = 0;
-                        for (const mIdx of members) sum += statsFor(mIdx).totals[statKey];
-                        const avg = sum / members.length;
-                        let mad = 0;
-                        for (const mIdx of members) mad += Math.abs(statsFor(mIdx).totals[statKey] - avg);
-                        currentTiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
-                    });
-                }
-            }
+            scoreInto(currentTiers, statsFor, (mIdx) => isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx]);
 
             if (!isSolvingRef.current) break;
 
@@ -1763,6 +1817,12 @@ export const runOptimizationEngine = async (
                 if (++stagnationRuns >= RESTART_AFTER_STAGNATIONS) {
                     stagnationRuns = 0;
                     epochTiers.fill(-Infinity);
+                    if (bestTiers[TARGET_TIER] > targetScoreAtRestart) {
+                        targetProgressAt = now();
+                    } else if (now() - targetProgressAt >= RELAX_AFTER_MS && relaxLowestTarget()) {
+                        targetProgressAt = now();
+                    }
+                    targetScoreAtRestart = bestTiers[TARGET_TIER];
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                         currentBoards[mIdx] = bestBoards[mIdx].map(row => [...row]);
                         currentStats[mIdx] = bestStats[mIdx];
@@ -2096,7 +2156,7 @@ export function useOptimizer(
         }
     }, [inventory, tier, maximizeStats, targetStats, ignoreStats, statPriority, machineId, getUsedItems, board, isSolving, isExternallySolving]);
 
-    const runOptimization = async () => {
+    const runOptimization = async (targetSteps?: MachineConfig['targetSteps']) => {
         if (isSolving) {
             isSolvingRef.current = false;
             return;
@@ -2126,7 +2186,7 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats };
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps };
 
         await runOptimizationEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
