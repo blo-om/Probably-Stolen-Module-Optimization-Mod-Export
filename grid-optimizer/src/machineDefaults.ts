@@ -269,7 +269,6 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         toPercent: ml => Math.ceil(ml * 50 - 1e-9),
         step: 0.1,
         hint: 'Extra removed a day per contaminant from Performance: 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05). The real amount is capped by what is left above the purity floor',
-        readout: ml => `+${ml} ml/d`,
     }],
 ];
 
