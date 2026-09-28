@@ -92,6 +92,7 @@ const Choice = ({ label, selected, title, onClick, disabled }: { label: string; 
     </button>
 );
 
+const CHIPSET_PAD = Math.max(...DESEQUENCER_CHIPSETS.map(c => c.name.length)) + 2;
 const selectStyle: React.CSSProperties = { padding: '3px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' };
 
 type Props = {
@@ -228,9 +229,10 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             } else if (deseq) {
                 panel = (
                     <>
-                        <select value={work} disabled={disabled} style={selectStyle}
+                        <select value={work} disabled={disabled} style={{ ...selectStyle, fontFamily: 'ui-monospace, Consolas, monospace' }}
                             onChange={(e) => { const wk = Number(e.target.value); setChipset(wk); setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); }}>
-                            {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name}</option>)}
+                            {/* The work each card type needs, lined up on the right; a monospace font is the only way to align inside a native select */}
+                            {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name.padEnd(CHIPSET_PAD, ' ')}{String(c.work).padStart(4, ' ')}</option>)}
                         </select>
                         {desequencerDayOptions(work).map(o => (
                             <Choice key={o.value} label={`${o.days}d`} selected={target === o.value} title={`${o.value}%`} onClick={() => setTarget(stat, o.value)} disabled={disabled} />

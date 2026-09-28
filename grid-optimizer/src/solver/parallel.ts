@@ -43,6 +43,46 @@ const beats = (a: number[], b: number[]) => {
     return false;
 };
 
+/* What reaches the page. The search keeps finding better records to the very end, but late in a run most of them only reshuffle modules
+ * for a tiebreak (one piece fewer, an Overclock moved) with every machine's stats unchanged, and drawing each one makes the boards flicker
+ * So a record is only shown when some machine's Performance, Quality or Efficiency differs from what is on screen, always the latest,
+ * and no sooner than an interval that starts at DISPLAY_EVERY_MS and doubles every DISPLAY_SLOWDOWN_MS of the solve up to DISPLAY_MAX_MS:
+ * responsive while the big gains land, calm while the last small ones trickle in. The final record is always shown when the solve ends
+ */
+const DISPLAY_EVERY_MS = 350;
+const DISPLAY_SLOWDOWN_MS = 3000;
+const DISPLAY_MAX_MS = 2000;
+
+const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
+    let pending: { updates: Updates; tiers: number[] } | null = null;
+    let shownSig: string | null = null;
+    let lastShown = 0;
+    const started = performance.now();
+    const interval = () => Math.min(DISPLAY_MAX_MS, DISPLAY_EVERY_MS * Math.pow(2, (performance.now() - started) / DISPLAY_SLOWDOWN_MS));
+    const signature = (updates: Updates) => machines.map(m => {
+        const t = updates.get(m.id)?.totals;
+        return t ? `${t.Performance},${t.Quality},${t.Efficiency}` : '-';
+    }).join('|');
+    const show = () => {
+        if (!pending) return;
+        onUpdate(pending.updates, pending.tiers);
+        shownSig = signature(pending.updates);
+        lastShown = performance.now();
+        pending = null;
+    };
+    return {
+        // A new record; the first one of a solve shows straight away
+        offer: (updates: Updates, tiers: number[]) => {
+            pending = { updates, tiers };
+            if (shownSig === null) show();
+        },
+        tick: () => {
+            if (pending && performance.now() - lastShown >= interval() && signature(pending.updates) !== shownSig) show();
+        },
+        final: show,
+    };
+};
+
 export const runParallelEngine = async (
     machines: MachineConfig[],
     initialBoards: any[][][],
@@ -51,9 +91,17 @@ export const runParallelEngine = async (
     isSolvingRef: { current: boolean },
     onUpdate: (updates: Updates, tiers: number[]) => void
 ): Promise<void> => {
-    if (typeof Worker === 'undefined') {
-        return runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
-    }
+    const display = createDisplay(machines, onUpdate);
+    const solveOnPage = async () => {
+        const timer = setInterval(display.tick, 50);
+        try {
+            await runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, display.offer);
+        } finally {
+            clearInterval(timer);
+            display.final();
+        }
+    };
+    if (typeof Worker === 'undefined') return solveOnPage();
 
     // Boards come back from a worker as copies; cells are swapped back to the page's own item objects so nothing downstream sees strangers
     const itemById = new Map<string, InventoryItem>();
@@ -75,7 +123,7 @@ export const runParallelEngine = async (
         workers.forEach(w => w.terminate());
         activeSolves--;
         console.warn('Workers unavailable, solving on the page', error);
-        return runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
+        return solveOnPage();
     }
 
     const startFor = (i: number): WorkerMessage => ({ type: 'start', machines, boards: initialBoards, searchPoolInventory, fullInventory, tuning: PRESETS[i % PRESETS.length] });
@@ -89,7 +137,7 @@ export const runParallelEngine = async (
             }
             if (best !== null && !beats(reply.tiers, best)) return;
             best = reply.tiers;
-            onUpdate(rehydrate(reply.updates), reply.tiers);
+            display.offer(rehydrate(reply.updates), reply.tiers);
         };
         worker.onerror = (event) => {
             console.warn('Solver worker failed', event.message);
@@ -100,9 +148,11 @@ export const runParallelEngine = async (
     }));
 
     // The caller stops a solve by clearing its ref; every worker is told, and each flushes its last record before it reports done
+    let stopSent = false;
     const watch = setInterval(() => {
-        if (!isSolvingRef.current) {
-            clearInterval(watch);
+        display.tick();
+        if (!stopSent && !isSolvingRef.current) {
+            stopSent = true;
             workers.forEach(w => w.postMessage({ type: 'stop' } satisfies WorkerMessage));
         }
     }, 50);
@@ -110,6 +160,7 @@ export const runParallelEngine = async (
         await Promise.all(finished);
     } finally {
         clearInterval(watch);
+        display.final();
         activeSolves--;
     }
 };
