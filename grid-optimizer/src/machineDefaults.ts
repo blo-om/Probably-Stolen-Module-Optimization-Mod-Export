@@ -139,6 +139,11 @@ export const desequencerDaysAt = (work: number, performance: number): number => 
 // Every Performance value where some chipset's card gets a day faster
 export const desequencerCutoffs = (): number[] => DESEQUENCER_CUTOFFS.map(([value]) => value);
 
+// The Mirage Projector's Performance and Quality both add 1 attractiveness point per 1% on top of its base 100,
+// so its card shows one stat, attractiveness, and the solver treats the two as their sum (MachineConfig.sumPQ)
+export const isMirage = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('mirage');
+export const MIRAGE_BASE_POINTS = 100;
+
 export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');
 
 // What each stat does on a machine, in the machine's own words. Falls back to the stat's name
@@ -201,7 +206,7 @@ const energyUnit = (base: number, step: number, ageWell = false): StatUnit => {
         return Math.max(0, base - saved + spent);
     };
     return {
-        unit: 'energy/d',
+        unit: '/day',
         fromPercent: energy,
         // The least Efficiency that gets energy down to the value asked for
         toPercent: (value, totals) => {
@@ -219,6 +224,7 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
     ['furnace', 'Efficiency', energyUnit(8, 12.5)],
     ['desequencer', 'Efficiency', energyUnit(10, 10)],
     ['agewell', 'Efficiency', energyUnit(24, 100 / 12, true)],
+    ['mirage', 'Efficiency', energyUnit(16, 6.25)],
     ['moisture farm', 'Performance', {
         unit: 'ml/d',
         fromPercent: pct => 1000 + 10 * pct,

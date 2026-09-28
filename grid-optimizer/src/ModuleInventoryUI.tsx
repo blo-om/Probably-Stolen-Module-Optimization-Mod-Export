@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, desequencerCutoffs } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, desequencerCutoffs } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -237,17 +237,27 @@ const MachineInstance = React.memo(forwardRef(({
         return steps;
     };
 
-    // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
+    // Stats in Limit mode (energy): the target is a ceiling and the stat is still optimized under it. Per machine, kept across reloads
+    const limitKey = `optimizer_limit_${machineId}`;
+    const [limitStats, setLimitStats] = useState<Record<'Performance' | 'Quality' | 'Efficiency', boolean>>(() => {
+        try { return { Performance: false, Quality: false, Efficiency: false, ...JSON.parse(localStorage.getItem(limitKey) || '{}') }; }
+        catch { return { Performance: false, Quality: false, Efficiency: false }; }
+    });
+    useEffect(() => {
+        try { localStorage.setItem(limitKey, JSON.stringify(limitStats)); } catch { /* per-viewer convenience only */ }
+    }, [limitKey, limitStats]);
+
+    // An enabled stat is maximized unless it has a target, or when its target is a limit it stays under
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
     useEffect(() => {
         const next = { Performance: false, Quality: false, Efficiency: false };
         let changed = false;
         for (const key of ['Performance', 'Quality', 'Efficiency'] as const) {
-            next[key] = !optimizer.ignoreStats[key] && optimizer.targetStats[key] === null;
+            next[key] = !optimizer.ignoreStats[key] && (optimizer.targetStats[key] === null || limitStats[key]);
             if (Boolean(optimizer.maximizeStats[key]) !== next[key]) changed = true;
         }
         if (changed) optimizer.setMaximizeStats(next);
-    }, [optimizer.ignoreStats, optimizer.targetStats, optimizer.maximizeStats]);
+    }, [optimizer.ignoreStats, optimizer.targetStats, optimizer.maximizeStats, limitStats]);
 
     useEffect(() => {
         if (machineType !== 'Select Machine...') {
@@ -282,7 +292,8 @@ const MachineInstance = React.memo(forwardRef(({
             targetStats: optimizer.targetStats,
             ignoreStats: optimizer.ignoreStats,
             statPriority: optimizer.statPriority,
-            targetSteps: targetSteps()
+            targetSteps: targetSteps(),
+            sumPQ: isMirage(machineType)
         }),
         isValidPlacement: optimizer.isValidPlacement,
         getBoard: () => optimizer.boardRef.current,
@@ -476,6 +487,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     optimizer.setIgnoreStats(defaultIgnoreStats(selected));
                                     // Goals are in the old machine's terms, so a new type starts from Max
                                     optimizer.setTargetStats({ Performance: null, Quality: null, Efficiency: null });
+                                    setLimitStats({ Performance: false, Quality: false, Efficiency: false });
                                 }}
                                 disabled={currentSolving}
                                 style={{
@@ -662,6 +674,8 @@ const MachineInstance = React.memo(forwardRef(({
                         setTargetStats={optimizer.setTargetStats}
                         disabled={currentSolving}
                         hasBlast={hasBlast}
+                        limitStats={limitStats}
+                        setLimitStats={setLimitStats}
                         width={(7 * cellSize + 22) / 0.8}
                     />
 
@@ -673,7 +687,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization(targetSteps());
+                                    optimizer.runOptimization(targetSteps(), isMirage(machineType));
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1249,7 +1263,8 @@ export default function ModuleInventoryUI() {
                 maximizeStats: state.maximizeStats,
                 ignoreStats: state.ignoreStats,
                 statPriority: { Performance: priority, Quality: priority, Efficiency: priority },
-                targetSteps: state.targetSteps
+                targetSteps: state.targetSteps,
+                sumPQ: state.sumPQ
             };
         });
         const boards = active.map(m => machinesRef.current[m.id].getBoard());
@@ -1748,7 +1763,7 @@ export default function ModuleInventoryUI() {
                     title="Copy every machine's code with its name, for the Module Optimizer Import mod"
                     style={{ padding: '10px 24px', backgroundColor: '#2e4a35', color: '#eee', border: '1px solid #4caf50', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
-                    {copiedAllForMod ? 'Copied!' : 'Copy All for Mod'}
+                    {copiedAllForMod ? 'Copied!' : 'Export All'}
                 </button>
                 <SaveFileImporter onImport={handleImportSave} />
                 <button

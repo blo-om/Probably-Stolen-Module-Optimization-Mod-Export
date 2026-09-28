@@ -2,18 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Stats } from '../types';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect,
-    isDesequencer, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerDaysAt,
+    isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerDaysAt,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
-type Mode = 'auto' | 'target' | 'off';
-
-const STATS: StatKey[] = ['Performance', 'Quality', 'Efficiency'];
+// limit: keep optimizing, but never past the value set (energy); auto: optimize; target: reach it and stop
+type Mode = 'auto' | 'limit' | 'target' | 'off';
 
 const C = {
     card: '#1a1a1a',
     cardBorder: '#2c2c2c',
+    divider: '#2c2c2c',
     text: '#eee',
     sub: '#8a8a8a',
     muted: '#555',
@@ -29,16 +29,31 @@ const C = {
 
 const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${Math.trunc(v)}%`;
 const round2 = (v: number) => Math.round(v * 100) / 100;
+// "/day" sits right against its number, "ml/d" after a space
+const withUnit = (v: number, unit: string) => (unit.startsWith('/') ? `${v}${unit}` : `${v} ${unit}`);
 // Long step names (e.g. "+1 purity, flux free") use their short form in the big readout
 const stepName = (b: StatBreakpoint) => (b.label.length > 12 && b.short ? b.short : b.label);
+// Below the first step: a counted step ("+1", "+1d") reads as zero of it; a named one (a water grade) as "below" it
+const belowFirst = (first: StatBreakpoint) => (first.short && /^\+\d/.test(first.short) ? first.short.replace(/\d+/, '0') : `< ${stepName(first)}`);
 
-// Target typed in a machine's own unit (e.g. ml/day), stored as the % target the solver works with
+// Mirage attractiveness, as points: the base plus Performance plus Quality
+const POINTS: StatUnit = {
+    unit: 'pts',
+    fromPercent: (pct) => pct + MIRAGE_BASE_POINTS,
+    toPercent: (pts) => Math.ceil(pts - MIRAGE_BASE_POINTS),
+    step: 1,
+};
+
+// Target typed in a machine's own unit (e.g. ml/day), stored as the % the solver works with
 // Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
-const TargetInput = ({ unit, target, onChange, disabled, totals }: { unit: StatUnit | null; target: number | null; onChange: (pct: number) => void; disabled: boolean; totals: Stats }) => {
+const TargetInput = ({ unit, target, onChange, disabled, totals, placeholder }: {
+    unit: StatUnit | null; target: number | null; onChange: (pct: number | null) => void; disabled: boolean; totals: Stats; placeholder?: string;
+}) => {
     const shown = target === null ? '' : String(unit ? unit.fromPercent(target, totals) : target);
     const [draft, setDraft] = useState<string | null>(null);
     const commit = (text: string) => {
-        if (text.trim() === '' || isNaN(Number(text))) return;
+        if (text.trim() === '') { if (placeholder) onChange(null); return; }
+        if (isNaN(Number(text))) return;
         onChange(unit ? unit.toPercent(Number(text), totals) : Math.round(Number(text)));
     };
     return (
@@ -47,6 +62,7 @@ const TargetInput = ({ unit, target, onChange, disabled, totals }: { unit: StatU
                 type="number"
                 step={unit ? unit.step : 1}
                 value={draft ?? shown}
+                placeholder={placeholder}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={(e) => { commit(e.target.value); setDraft(null); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
@@ -86,19 +102,39 @@ type Props = {
     targetStats: Record<StatKey, number | null>;
     setIgnoreStats: (fn: (prev: any) => any) => void;
     setTargetStats: (fn: (prev: any) => any) => void;
+    // Stats in limit mode (see Mode): their target is a ceiling on energy and they are still optimized under it
+    limitStats: Record<StatKey, boolean>;
+    setLimitStats: (fn: (prev: Record<StatKey, boolean>) => Record<StatKey, boolean>) => void;
     disabled: boolean;
     hasBlast: boolean;
     // Row width in px; the module grid is meant to be 0.8 of it
     width?: number;
 };
 
-// Three cards side by side, one per stat: its name, the result it gives this machine, and Auto / Target / Off
-// Target's options open in a panel under the cards
-export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, disabled, hasBlast, width }: Props) => {
-    const [open, setOpen] = useState<StatKey | null>(null);
+type Card = {
+    key: string;
+    name: string;
+    result: string;
+    color: string;
+    progress: number | null;
+    tooltip?: string;
+    noEffect: boolean;
+    modes: Mode[];
+    mode: Mode;
+    choose: (m: Mode) => void;
+    // What opens under the cards for the mode that takes a value (target or limit); null when this card has nothing open
+    panel: React.ReactNode;
+    gap: string | null;
+};
+
+const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', limit: 'Limit', target: 'Target', off: 'Off' };
+
+// One card per stat (the Mirage Projector's Performance and Quality share one): the stat's name, the result it gives this machine,
+// and its modes in a strip along the bottom. A mode that takes a value opens its choices under the cards
+export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width }: Props) => {
+    const [open, setOpen] = useState<string | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
 
-    // Clicking anywhere else closes the panel
     useEffect(() => {
         if (!open) return;
         const close = (e: MouseEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(null); };
@@ -117,157 +153,196 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
 
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));
     const setOff = (stat: StatKey, off: boolean) => setIgnoreStats((prev: any) => ({ ...prev, [stat]: off }));
+    const setLimit = (stat: StatKey, on: boolean) => setLimitStats(prev => ({ ...prev, [stat]: on }));
 
-    // Everything each card and the panel need, per stat
-    const info = STATS.map((stat) => {
+    // How close an unmet goal is (0..1), and the colour that goes with it
+    const closeness = (value: number, goal: number) =>
+        Math.max(0, Math.min(0.99, goal > 0 ? value / goal : 1 + (value - goal) / 100));
+    const colorFor = (progress: number) => (progress >= 0.75 ? C.short : C.far);
+
+    const statCard = (stat: StatKey): Card => {
         const off = Boolean(ignoreStats[stat]);
         const target = targetStats[stat];
         const total = totals[stat];
-        const mode: Mode = off ? 'off' : target === null ? 'auto' : 'target';
         const unit = statUnit(machineType, stat);
+        const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);
         const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
+        const limited = energy && (limitStats[stat] || target === null);
+        const mode: Mode = off ? 'off' : energy ? (limited ? 'limit' : 'target') : (target === null ? 'auto' : 'target');
 
         // Chipset in use: the saved pick (Command until one is made) if the goal is one of its steps, else the first chipset the goal belongs to
         const work = (() => {
             const preferred = chipset ?? 150;
             if (!deseq || target === null) return preferred;
-            const fits = (w: number) => desequencerDayOptions(w).some(o => o.value === target);
-            if (fits(preferred)) return preferred;
-            return DESEQUENCER_CHIPSETS.find(c => fits(c.work))?.work ?? preferred;
+            const fitsGoal = (wk: number) => desequencerDayOptions(wk).some(o => o.value === target);
+            if (fitsGoal(preferred)) return preferred;
+            return DESEQUENCER_CHIPSETS.find(c => fitsGoal(c.work))?.work ?? preferred;
         })();
         const chip = DESEQUENCER_CHIPSETS.find(c => c.work === work)!;
 
-        // The result, in the machine's terms
         const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
         const result = unit
-            ? (unit.readout ? unit.readout(unit.fromPercent(total, totals)) : `${unit.fromPercent(total, totals)} ${unit.unit}`)
+            ? (unit.readout ? unit.readout(unit.fromPercent(total, totals)) : withUnit(unit.fromPercent(total, totals), unit.unit))
             : deseq ? `${chip.short} ${desequencerDaysAt(work, total)}d`
-            : breakpoints ? (reached ? stepName(reached) : `< ${stepName(breakpoints[0])}`)
+            : breakpoints ? (reached ? stepName(reached) : belowFirst(breakpoints[0]))
             : fmtPct(total);
 
-        // The goal, in the same terms
         const goal = target === null ? null
-            : deseq ? (desequencerDayOptions(work).find(o => o.value === target)?.days ?? null) !== null ? `${chip.short} ${desequencerDayOptions(work).find(o => o.value === target)!.days}d` : `${target}%`
+            : deseq ? (() => { const d = desequencerDayOptions(work).find(o => o.value === target)?.days; return d !== undefined ? `${chip.short} ${d}d` : `${target}%`; })()
             : breakpoints?.find(b => b.value === target) ? stepName(breakpoints.find(b => b.value === target)!)
-            : unit ? `${unit.fromPercent(target, totals)} ${unit.unit}`
+            : unit ? withUnit(unit.fromPercent(target, totals), unit.unit)
             : `${target}%`;
         const met = target !== null && total >= target;
+        const progress = target === null || met ? null : closeness(total, target);
         const gap = target === null || met ? null
-            : unit?.lowerIsBetter ? `${round2(unit.fromPercent(total, totals) - unit.fromPercent(target, totals))} ${unit.unit} over`
-            : unit ? `${round2(unit.fromPercent(target, totals) - unit.fromPercent(total, totals))} ${unit.unit} short`
+            : unit?.lowerIsBetter ? `${withUnit(round2(unit.fromPercent(total, totals) - unit.fromPercent(target, totals)), unit.unit)} over`
+            : unit ? `${withUnit(round2(unit.fromPercent(target, totals) - unit.fromPercent(total, totals)), unit.unit)} short`
             : `${Math.ceil(target - total)}% short`;
-        // How close an unmet target is, 0..1. A target at or below 0 counts from 100 points under it
-        const progress = target === null || met ? null
-            : Math.max(0, Math.min(0.99, target > 0 ? total / target : 1 + (total - target) / 100));
-        const stateColor = off ? C.muted : target === null ? C.text : met ? C.met : progress! >= 0.75 ? C.short : C.far;
+        const color = off ? C.muted : progress !== null ? colorFor(progress) : (mode === 'target' ? C.met : C.text);
 
         const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
         const defaultTarget = deseq ? nextStepAbove(desequencerDayOptions(work))
             : breakpoints ? nextStepAbove(breakpoints)
             : Math.max(0, Math.ceil(total));
 
-        return { stat, off, target, total, mode, unit, deseq, breakpoints, work, result, goal, met, gap, progress, stateColor, defaultTarget, nextStepAbove };
-    });
+        const choose = (m: Mode) => {
+            if (m === 'off') { setOff(stat, true); setOpen(null); return; }
+            setOff(stat, false);
+            if (m === 'auto') { setTarget(stat, null); setOpen(null); return; }
+            if (m === 'limit') { setLimit(stat, true); setOpen(open === stat && mode === 'limit' ? null : stat); return; }
+            if (energy) setLimit(stat, false);
+            if (target === null) setTarget(stat, defaultTarget);
+            setOpen(open === stat && mode === 'target' ? null : stat);
+        };
 
-    const choose = (stat: StatKey, mode: Mode, current: typeof info[number]) => {
-        if (mode === 'off') { setOff(stat, true); if (open === stat) setOpen(null); return; }
-        setOff(stat, false);
-        if (mode === 'auto') { setTarget(stat, null); if (open === stat) setOpen(null); return; }
-        if (current.target === null) setTarget(stat, current.defaultTarget);
-        setOpen(open === stat && current.mode === 'target' ? null : stat);
+        let panel: React.ReactNode = null;
+        if (mode === 'limit') {
+            panel = <TargetInput unit={unit} target={target} totals={totals} placeholder="no limit" onChange={(pct) => setTarget(stat, pct)} disabled={disabled} />;
+        } else if (mode === 'target') {
+            if (deseq) {
+                panel = (
+                    <>
+                        <select value={work} disabled={disabled} style={selectStyle}
+                            onChange={(e) => { const wk = Number(e.target.value); setChipset(wk); setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); }}>
+                            {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name}</option>)}
+                        </select>
+                        {desequencerDayOptions(work).map(o => (
+                            <Choice key={o.value} label={`${o.days}d`} selected={target === o.value} title={`${o.value}%`} onClick={() => setTarget(stat, o.value)} disabled={disabled} />
+                        ))}
+                    </>
+                );
+            } else if (breakpoints) {
+                panel = breakpoints.map(b => (
+                    <Choice key={b.value} label={b.label} selected={target === b.value} title={`${b.hint} (${b.value}%)`} onClick={() => setTarget(stat, b.value)} disabled={disabled} />
+                ));
+            } else {
+                panel = <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />;
+            }
+        }
+
+        return {
+            key: stat, name: statName(machineType, stat), result, color, progress, gap, panel, mode, choose,
+            tooltip: goal ? `${goal}${met ? ' ✓' : progress !== null ? ` · ${Math.floor(progress * 100)}%` : ''}` : undefined,
+            noEffect: off && statHasNoEffect(machineType, stat),
+            modes: energy ? ['limit', 'target', 'off'] : ['auto', 'target', 'off'],
+        };
     };
 
-    const panel = open ? info.find(i => i.stat === open)! : null;
+    // Mirage Projector: Performance and Quality as one card of attractiveness points (the solver takes their sum, see MachineConfig.sumPQ)
+    const attractivenessCard = (): Card => {
+        const off = Boolean(ignoreStats.Performance);
+        const target = targetStats.Performance;
+        const total = totals.Performance + totals.Quality;
+        const mode: Mode = off ? 'off' : target === null ? 'auto' : 'target';
+        const met = target !== null && total >= target;
+        const progress = target === null || met ? null : closeness(total, target);
+        const color = off ? C.muted : progress !== null ? colorFor(progress) : (mode === 'target' ? C.met : C.text);
+        const setBoth = (ignored: boolean) => setIgnoreStats((prev: any) => ({ ...prev, Performance: ignored, Quality: ignored }));
+        const choose = (m: Mode) => {
+            if (m === 'off') { setBoth(true); setOpen(null); return; }
+            setBoth(false);
+            setTargetStats((prev: any) => ({ ...prev, Quality: null, Performance: m === 'auto' ? null : (prev.Performance ?? Math.max(0, Math.ceil(total))) }));
+            setOpen(m === 'target' && !(open === 'attract' && mode === 'target') ? 'attract' : null);
+        };
+        return {
+            key: 'attract', name: 'Attractiveness', result: `${total + MIRAGE_BASE_POINTS} pts`, color, progress, mode, choose,
+            gap: target === null || met ? null : `${Math.ceil(target - total)} pts short`,
+            tooltip: target !== null ? `${target + MIRAGE_BASE_POINTS} pts${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
+            noEffect: false,
+            modes: ['auto', 'target', 'off'],
+            panel: mode === 'target'
+                ? <TargetInput unit={POINTS} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget('Performance', pct)} disabled={disabled} />
+                : null,
+        };
+    };
+
+    const cards: Card[] = isMirage(machineType)
+        ? [attractivenessCard(), statCard('Efficiency')]
+        : (['Performance', 'Quality', 'Efficiency'] as StatKey[]).map(statCard);
+    const openCard = cards.find(c => c.key === open && c.panel);
 
     return (
-        <div ref={rootRef} style={{ width: width ? `${width}px` : '100%', maxWidth: '100%', alignSelf: 'center', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '4px' }}>
-                {info.map((i) => {
-                    const noEffect = statHasNoEffect(machineType, i.stat) && i.off;
-                    const color = i.stateColor;
-                    const isOpen = open === i.stat;
-                    // Border follows the state too, faintly: green met, amber/red short, accent while its options are open
-                    const border = isOpen ? C.accentBorder : i.mode !== 'target' ? C.cardBorder : i.met ? '#2f5e37' : i.progress! >= 0.75 ? '#6b5320' : '#6e3326';
+        <div ref={rootRef} style={{ width: width ? `${width}px` : '100%', maxWidth: '100%', alignSelf: 'center', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))`, gap: '4px' }}>
+                {cards.map((card) => {
+                    const isOpen = openCard?.key === card.key;
                     return (
-                        <div key={i.stat} style={{
-                            display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '3px', minWidth: 0,
-                            backgroundColor: C.card, borderRadius: '6px', padding: '5px 3px 3px',
-                            border: `1px solid ${border}`,
+                        <div key={card.key} style={{
+                            display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden',
+                            backgroundColor: C.card, borderRadius: '6px',
+                            border: `1px solid ${isOpen ? C.accentBorder : C.cardBorder}`,
                         }}>
-                            <span style={{ fontSize: '0.66em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center' }}>
-                                {statName(machineType, i.stat)}
-                            </span>
-                            {noEffect ? (
-                                <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75em', color: C.muted, minHeight: '38px' }}>No effect</span>
-                            ) : (
-                                <>
-                                    <div style={{ textAlign: 'center', minHeight: '38px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
-                                        <div style={{ fontSize: '1.05em', fontWeight: 'bold', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.mode === 'target' ? `${i.goal}${i.met ? ' ✓' : ` · ${Math.floor(i.progress! * 100)}%`}` : undefined}>
-                                            {i.result}
+                            <div style={{ flex: 1, padding: '5px 4px 4px', display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'center' }}>
+                                <span style={{ fontSize: '0.66em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.name}</span>
+                                {card.noEffect ? (
+                                    <span style={{ fontSize: '0.75em', color: C.muted, padding: '8px 0' }}>No effect</span>
+                                ) : (
+                                    <>
+                                        <div title={card.tooltip} style={{ fontSize: '1.05em', fontWeight: 'bold', color: card.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {card.result}
                                         </div>
-                                        {i.progress !== null && (
+                                        {card.progress !== null && (
                                             <div style={{ height: '3px', margin: '2px 4px 0', background: '#2a2a2a', borderRadius: '2px', overflow: 'hidden' }}>
-                                                <div style={{ width: `${i.progress * 100}%`, height: '100%', background: color }} />
+                                                <div style={{ width: `${card.progress * 100}%`, height: '100%', background: card.color }} />
                                             </div>
                                         )}
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1px' }}>
-                                        {(['auto', 'target', 'off'] as Mode[]).map((m) => {
-                                            const on = i.mode === m;
-                                            return (
-                                                <button
-                                                    key={m}
-                                                    type="button"
-                                                    onClick={() => choose(i.stat, m, i)}
-                                                    disabled={disabled}
-                                                    style={{
-                                                        padding: '2px 0', fontSize: '0.62em', borderRadius: '3px', cursor: disabled ? 'not-allowed' : 'pointer', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap',
-                                                        backgroundColor: on ? (m === 'off' ? '#2e2e2e' : C.accentBg) : 'transparent',
-                                                        color: on ? (m === 'off' ? '#ccc' : C.accentText) : C.sub,
-                                                        border: `1px solid ${on ? (m === 'off' ? '#444' : C.accentBorder) : '#333'}`,
-                                                    }}
-                                                >
-                                                    {m === 'auto' ? 'Auto' : m === 'target' ? 'Target' : 'Off'}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </>
+                                    </>
+                                )}
+                            </div>
+                            {!card.noEffect && (
+                                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${card.modes.length}, minmax(0, 1fr))`, borderTop: `1px solid ${C.divider}` }}>
+                                    {card.modes.map((m, i) => {
+                                        const on = card.mode === m;
+                                        return (
+                                            <button
+                                                key={m}
+                                                type="button"
+                                                onClick={() => card.choose(m)}
+                                                disabled={disabled}
+                                                style={{
+                                                    padding: '3px 0', fontSize: '0.64em', border: 'none', borderRadius: 0, minWidth: 0,
+                                                    borderLeft: i > 0 ? `1px solid ${C.divider}` : 'none',
+                                                    cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', overflow: 'hidden',
+                                                    backgroundColor: on ? (m === 'off' ? '#262626' : C.accentBg) : 'transparent',
+                                                    color: on ? (m === 'off' ? '#ccc' : C.accentText) : C.sub,
+                                                }}
+                                            >
+                                                {MODE_LABEL[m]}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             )}
                         </div>
                     );
                 })}
             </div>
 
-            {panel && (
-                <div onKeyDown={(e) => e.stopPropagation()} style={{
-                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px',
-                    backgroundColor: C.card, border: `1px solid ${C.accentBorder}`, borderRadius: '6px', padding: '7px 8px',
-                }}>
-                    <span style={{ fontSize: '0.7em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em', marginRight: '2px' }}>
-                        {statName(machineType, panel.stat)} target
-                    </span>
-                    {panel.deseq ? (
-                        <>
-                            <select value={panel.work} disabled={disabled} style={selectStyle}
-                                onChange={(e) => { const w = Number(e.target.value); setChipset(w); setTarget(panel.stat, panel.nextStepAbove(desequencerDayOptions(w))); }}>
-                                {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name}</option>)}
-                            </select>
-                            {desequencerDayOptions(panel.work).map(o => (
-                                <Choice key={o.value} label={`${o.days}d`} selected={panel.target === o.value}
-                                    title={`${o.value}%`} onClick={() => setTarget(panel.stat, o.value)} disabled={disabled} />
-                            ))}
-                        </>
-                    ) : panel.breakpoints ? (
-                        panel.breakpoints.map(b => (
-                            <Choice key={b.value} label={b.label} selected={panel.target === b.value}
-                                title={`${b.hint} (${b.value}%)`} onClick={() => setTarget(panel.stat, b.value)} disabled={disabled} />
-                        ))
-                    ) : (
-                        <TargetInput unit={panel.unit} target={panel.target} totals={totals} onChange={(pct) => setTarget(panel.stat, pct)} disabled={disabled} />
-                    )}
-                    {panel.gap && <span style={{ marginLeft: 'auto', fontSize: '0.75em', color: C.short }}>{panel.gap}</span>}
+            {openCard && (
+                <div onKeyDown={(e) => e.stopPropagation()} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    {openCard.panel}
+                    {openCard.gap && <span style={{ fontSize: '0.75em', color: openCard.color }}>{openCard.gap}</span>}
                 </div>
             )}
         </div>

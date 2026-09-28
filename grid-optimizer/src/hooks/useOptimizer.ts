@@ -663,6 +663,8 @@ export type MachineConfig = {
     // The values where a stat actually changes something (water grades, ingot purity steps...), ascending
     // A target on such a stat is either reached or worth nothing, and can be relaxed one step when the set cannot reach it
     targetSteps?: Partial<Record<keyof Stats, number[]>>;
+    // Performance and Quality count as one stat, their sum, and Performance's target and priority are that sum's (Mirage Projector attractiveness)
+    sumPQ?: boolean;
 };
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
@@ -1096,7 +1098,7 @@ export function useOptimizer(
         }
     }, [inventory, tier, maximizeStats, targetStats, ignoreStats, statPriority, machineId, getUsedItems, board, isSolving, isExternallySolving]);
 
-    const runOptimization = async (targetSteps?: MachineConfig['targetSteps']) => {
+    const runOptimization = async (targetSteps?: MachineConfig['targetSteps'], sumPQ?: boolean) => {
         if (isSolving) {
             isSolvingRef.current = false;
             return;
@@ -1126,7 +1128,7 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps };
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ };
 
         await runParallelEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
