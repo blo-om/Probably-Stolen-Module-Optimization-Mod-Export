@@ -142,10 +142,9 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
         const result = unit
             ? (unit.readout ? unit.readout(unit.fromPercent(total, totals)) : `${unit.fromPercent(total, totals)} ${unit.unit}`)
-            : deseq ? `${desequencerDaysAt(work, total)} days`
+            : deseq ? `${chip.short} ${desequencerDaysAt(work, total)}d`
             : breakpoints ? (reached ? stepName(reached) : `< ${stepName(breakpoints[0])}`)
             : fmtPct(total);
-        const detail = deseq ? `${chip.short} · ${fmtPct(total)}` : (unit || breakpoints) ? fmtPct(total) : '';
 
         // The goal, in the same terms
         const goal = target === null ? null
@@ -168,7 +167,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             : breakpoints ? nextStepAbove(breakpoints)
             : Math.max(0, Math.ceil(total));
 
-        return { stat, off, target, total, mode, unit, deseq, breakpoints, work, result, detail, goal, met, gap, progress, stateColor, defaultTarget, nextStepAbove };
+        return { stat, off, target, total, mode, unit, deseq, breakpoints, work, result, goal, met, gap, progress, stateColor, defaultTarget, nextStepAbove };
     });
 
     const choose = (stat: StatKey, mode: Mode, current: typeof info[number]) => {
@@ -204,12 +203,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                             ) : (
                                 <>
                                     <div style={{ textAlign: 'center', minHeight: '38px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
-                                        <div style={{ fontSize: '1.05em', fontWeight: 'bold', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.result}>
+                                        <div style={{ fontSize: '1.05em', fontWeight: 'bold', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.mode === 'target' ? `${i.goal}${i.met ? ' ✓' : ` · ${Math.floor(i.progress! * 100)}%`}` : undefined}>
                                             {i.result}
-                                        </div>
-                                        <div style={{ fontSize: '0.65em', color: i.mode === 'target' ? color : C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                            title={i.gap ?? undefined}>
-                                            {i.off ? 'off' : i.mode === 'target' ? (i.met ? `✓ ${i.goal}` : `→ ${i.goal} · ${Math.floor(i.progress! * 100)}%`) : i.detail}
                                         </div>
                                         {i.progress !== null && (
                                             <div style={{ height: '3px', margin: '2px 4px 0', background: '#2a2a2a', borderRadius: '2px', overflow: 'hidden' }}>

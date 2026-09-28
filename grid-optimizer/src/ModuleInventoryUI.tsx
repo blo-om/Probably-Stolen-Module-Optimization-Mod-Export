@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, desequencerCutoffs } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -227,6 +227,15 @@ const MachineInstance = React.memo(forwardRef(({
     const machineIconUrl = machineIcon(machineType);
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
+    // The values where each stat changes something on this machine, for the solver (see MachineConfig.targetSteps)
+    const targetSteps = () => {
+        const steps: Partial<Record<'Performance' | 'Quality' | 'Efficiency', number[]>> = {};
+        for (const stat of ['Performance', 'Quality', 'Efficiency'] as const) {
+            const list = stat === 'Performance' && isDesequencer(machineType) ? desequencerCutoffs() : statBreakpoints(machineType, stat, hasBlast)?.map(b => b.value);
+            if (list && list.length > 0) steps[stat] = [...list].sort((a, b) => a - b);
+        }
+        return steps;
+    };
 
     // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
@@ -272,7 +281,8 @@ const MachineInstance = React.memo(forwardRef(({
             maximizeStats: optimizer.maximizeStats,
             targetStats: optimizer.targetStats,
             ignoreStats: optimizer.ignoreStats,
-            statPriority: optimizer.statPriority
+            statPriority: optimizer.statPriority,
+            targetSteps: targetSteps()
         }),
         isValidPlacement: optimizer.isValidPlacement,
         getBoard: () => optimizer.boardRef.current,
@@ -663,7 +673,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization();
+                                    optimizer.runOptimization(targetSteps());
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1238,7 +1248,8 @@ export default function ModuleInventoryUI() {
                 targetStats: state.targetStats,
                 maximizeStats: state.maximizeStats,
                 ignoreStats: state.ignoreStats,
-                statPriority: { Performance: priority, Quality: priority, Efficiency: priority }
+                statPriority: { Performance: priority, Quality: priority, Efficiency: priority },
+                targetSteps: state.targetSteps
             };
         });
         const boards = active.map(m => machinesRef.current[m.id].getBoard());

@@ -136,6 +136,9 @@ export const desequencerDaysAt = (work: number, performance: number): number => 
     return days;
 };
 
+// Every Performance value where some chipset's card gets a day faster
+export const desequencerCutoffs = (): number[] => DESEQUENCER_CUTOFFS.map(([value]) => value);
+
 export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');
 
 // What each stat does on a machine, in the machine's own words. Falls back to the stat's name
