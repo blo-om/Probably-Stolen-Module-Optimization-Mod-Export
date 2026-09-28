@@ -3,6 +3,7 @@ import type {GridTier, InventoryItem, Stats, TargetStats, Point, ModuleShape, Mo
 import type { Orientation } from '../utils';
 import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS, roundStat } from '../utils';
 import { MODULE_TEMPLATES } from '../constants';
+import { runParallelEngine } from '../solver/parallel';
 
 
 const SHAPE_MAP: ModuleShape[] = ['Node1x2', 'L3', 'L4_Base', 'T4_Base', 'Square4_Base', 'L4_High', 'T4_High', 'Square4_High', 'P5', 'C5', 'Line4'];
@@ -223,7 +224,9 @@ export const indexInventoryById = (inventory: InventoryItem[]) => {
 export const calculateBoardStats = (
     currentBoard: (InventoryItem | 'Locked' | null)[][],
     currentInventory: InventoryItem[],
-    inventoryById?: Map<string, InventoryItem>
+    inventoryById?: Map<string, InventoryItem>,
+    // Each item's own stats after its effects, when the caller already has them (the solver does, for every item)
+    precomputed?: Map<string, Stats>
 ) => {
     const totals: Stats = { Performance: 0, Quality: 0, Efficiency: 0 };
     const pieceStats = new Map<string, Stats>();
@@ -239,7 +242,7 @@ export const calculateBoardStats = (
     // applyInternalEffects is pure per item but was recomputed for every adjacency test; memoise it for the duration of the call
     const internalCache = new Map<string, Stats>();
     const internalOf = (item: InventoryItem): Stats => {
-        let cached = internalCache.get(item.id);
+        let cached = precomputed?.get(item.id) ?? internalCache.get(item.id);
         if (cached === undefined) {
             cached = applyInternalEffects(item);
             internalCache.set(item.id, cached);
@@ -470,6 +473,11 @@ export const buildPlacementContext = (piece: InventoryItem, precomputedInternal:
 // reusing one array keeps this function allocation-free, which matters because it is the solver's innermost loop
 const NEIGHBOR_SCRATCH: InventoryItem[] = [];
 
+// The stat change of the last placement evaluatePlacementDelta scored, and of the last one placeBestFit committed
+// Only read right after the call that wrote it
+const PLACEMENT_DELTA = { p: 0, q: 0, e: 0 };
+const COMMITTED_DELTA = { p: 0, q: 0, e: 0 };
+
 export const evaluatePlacementDelta = (
     ctx: PlacementContext,
     x: number, y: number,
@@ -598,6 +606,7 @@ export const evaluatePlacementDelta = (
     pDelta += roundStat(myP);
     qDelta += roundStat(myQ);
     eDelta += roundStat(myE);
+    PLACEMENT_DELTA.p = pDelta; PLACEMENT_DELTA.q = qDelta; PLACEMENT_DELTA.e = eDelta;
 
     let statScore = 0;
     const scoreStat = (key: keyof Stats, delta: number, current: number, dynW: number) => {
@@ -666,16 +675,32 @@ const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 // The in-game names are "Alarm Transmitter Module", "Furnace Module (Junk Processing)" and "Furnace Module (Blast)".
 // (Matching on "Alarm Module" / "Blast Module" never hit the real names, so the solver stripped those two out of
 // their machines for their Efficiency cost.)
-const isAlarmModule = (item: InventoryItem) => item.displayName.includes('Alarm Transmitter');
-const isJunkModule = (item: InventoryItem) => item.displayName.includes('Junk Processing');
-const isBlastModule = (item: InventoryItem) => item.displayName.includes('(Blast)');
+// What kind of module an item is never changes, but the checks are string searches and the solver asks millions of times
+// So each item object is classified once
+const KIND_ALARM = 1, KIND_JUNK = 2, KIND_BLAST = 4, KIND_OVERCLOCK = 8;
+const kindCache = new WeakMap<InventoryItem, number>();
+const kindOf = (item: InventoryItem) => {
+    let kind = kindCache.get(item);
+    if (kind === undefined) {
+        const name = item.displayName;
+        kind = (name.includes('Alarm Transmitter') ? KIND_ALARM : 0)
+            | (name.includes('Junk Processing') ? KIND_JUNK : 0)
+            | (name.includes('(Blast)') ? KIND_BLAST : 0)
+            | (name.includes('Overclock') ? KIND_OVERCLOCK : 0);
+        kindCache.set(item, kind);
+    }
+    return kind;
+};
+const isAlarmModule = (item: InventoryItem) => (kindOf(item) & KIND_ALARM) !== 0;
+const isJunkModule = (item: InventoryItem) => (kindOf(item) & KIND_JUNK) !== 0;
+const isBlastModule = (item: InventoryItem) => (kindOf(item) & KIND_BLAST) !== 0;
 
 export const isSpecialModule = (item: InventoryItem) =>
     isAlarmModule(item) || isJunkModule(item) || isBlastModule(item);
 
 // Overclocks are worth placing even where their Performance is not needed (a Learning Algorithm one only grows while it
 // sits in a machine), so each placed one earns a little more in the tiebreak than the "fewer pieces" nudge costs
-const isOverclock = (item: InventoryItem) => item.displayName.includes('Overclock');
+const isOverclock = (item: InventoryItem) => (kindOf(item) & KIND_OVERCLOCK) !== 0;
 const OVERCLOCK_BONUS = 8;
 // A Learning Algorithm one only grows while placed, so it gets first claim on the spare room
 const overclockBonus = (item: InventoryItem) => item.effects.includes('Learning Algorithm') ? OVERCLOCK_BONUS * 2 : OVERCLOCK_BONUS;
@@ -702,6 +727,18 @@ const PRIORITY_WEIGHT_STEP = 4;
  * Small on purpose. A large tournament, or a straight sort by value, would propose the same board every iteration and stop exploring entirely
  */
 const DRAW_TOURNAMENT = 4;
+
+// Most draws a fill makes. A board holds at most MAX_PIECES_PER_BOARD pieces, so past this the draw is only turning up modules that are already placed
+const MAX_DRAWS = 192;
+
+/* Specials normally move one at a time, each to its best cell with the others standing still (see the fill)
+ * That can never make two of them trade places or move together, e.g. an Alarm board's two transmitters shifting from a column pair to the top row
+ * So one rebuild in REPACK_ONE_IN, and every stagnant one, lifts all of a board's specials and puts them back down together in a random arrangement
+ * that fits the ruined space, found by a short backtracking search. The layout they came from is always a valid answer, and if the search runs out
+ * of steps they go back there. What the arrangement is worth is left to the acceptance test, like any other move
+ */
+const REPACK_ONE_IN = 4;
+const REPACK_STEP_LIMIT = 1024;
 
 // How much of a target's pull on the draw survives once the board already meets it
 // The score pays nothing for overshooting, so it should fall; it cannot fall to zero, or the modules that hold the target stop being offered and the target cannot be defended
@@ -908,7 +945,8 @@ export const runOptimizationEngine = async (
     searchPoolInventory: InventoryItem[],
     fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
-    onUpdate: (updates: Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>) => void
+    // `tiers` is the reported layout's score against the targets as set (not this run's relaxed copy), so reports from separate runs can be ranked against each other
+    onUpdate: (updates: Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>, tiers: number[]) => void
 ) => {
     // Targets can be relaxed during the run (see RELAX_AFTER_RESTARTS), so the engine works on copies
     // Codes are always written with the targets as they were set
@@ -939,6 +977,40 @@ export const runOptimizationEngine = async (
     const poolOrder = new Int32Array(searchPool.length);
     for (let i = 0; i < poolOrder.length; i++) poolOrder[i] = i;
     const poolShapeCount = new Set(searchPool.map(item => item.shape)).size;
+    const poolShapes = [...new Set(searchPool.map(item => item.shape))];
+
+    // Board cells are looked up in the pool on every iteration. Keyed by the item object that is a pointer lookup instead of hashing its id;
+    // a cell whose object is not the pool's own (a board loaded from elsewhere) falls back to the id once and is remembered
+    const poolIndexByItem = new Map<InventoryItem, number>();
+    searchPool.forEach((item, i) => poolIndexByItem.set(item, i));
+    const poolIndexOfCell = (cell: InventoryItem): number | undefined => {
+        let idx = poolIndexByItem.get(cell);
+        if (idx === undefined) {
+            idx = poolIndexOf.get(cell.id) ?? -1;
+            poolIndexByItem.set(cell, idx);
+        }
+        return idx < 0 ? undefined : idx;
+    };
+
+    // Whether any orientation of a shape still fits the board's free cells. Filling only removes free cells, so once false it stays false for the fill
+    const shapeFitsAnywhere = (shape: ModuleShape, board: (InventoryItem | 'Locked' | null)[][]) => {
+        const orientations = PRECOMPUTED_ORIENTATIONS.get(shape);
+        if (!orientations) return false;
+        for (let c = 0; c < freeCells.length; c++) {
+            const idx = freeCells[c];
+            const x = idx % 7;
+            const y = (idx - x) / 7;
+            for (const o of orientations) {
+                if (x + o.minX < 0 || x + o.maxX > 6 || y + o.minY < 0 || y + o.maxY > 4) continue;
+                let fits = true;
+                for (let i = 0; i < o.count; i++) {
+                    if (board[y + o.ys[i]][x + o.xs[i]] !== null) { fits = false; break; }
+                }
+                if (fits) return true;
+            }
+        }
+        return false;
+    };
     const inventoryById = indexInventoryById(fullInventory);
 
     // One tier per distinct rank in play, most important first
@@ -988,7 +1060,15 @@ export const runOptimizationEngine = async (
     const maximizedKeys = STAT_KEYS.filter(key => machines.some(m => !statIsIgnored(m, key) && m.maximizeStats[key]));
     const valueKeys = maximizedKeys.length > 0 ? maximizedKeys : STAT_KEYS;
     const NODE_VALUE = 3;
+    const moduleValueCache = new Map<string, number>();
     const moduleValue = (item: InventoryItem) => {
+        const cached = moduleValueCache.get(item.id);
+        if (cached !== undefined) return cached;
+        const value = computeModuleValue(item);
+        moduleValueCache.set(item.id, value);
+        return value;
+    };
+    const computeModuleValue = (item: InventoryItem) => {
         if (isSpecialModule(item) || isOverclock(item)) return 0;
         if (item.color === 'White') return NODE_VALUE;
         const stats = precomputedInternal.get(item.id);
@@ -1050,7 +1130,7 @@ export const runOptimizationEngine = async (
                 };
                 for (const candidate of candidates) {
                     swapCells(piece, candidate);
-                    if (meetsTargets(machines[mIdx], calculateBoardStats(board, fullInventory, inventoryById).totals)) {
+                    if (meetsTargets(machines[mIdx], calculateBoardStats(board, fullInventory, inventoryById, precomputedInternal).totals)) {
                         spare.splice(spare.indexOf(candidate), 1);
                         spare.push(piece);
                         changed = true;
@@ -1066,7 +1146,7 @@ export const runOptimizationEngine = async (
 
     // Only the machine picked for this iteration can change, so the stats and the solution code of every other machine stay valid:
     // cache them instead of recomputing all of them (and re-running the BigInt encoder) on every improvement
-    const currentStats: BoardStats[] = currentBoards.map(b => calculateBoardStats(b, fullInventory, inventoryById));
+    const currentStats: BoardStats[] = currentBoards.map(b => calculateBoardStats(b, fullInventory, inventoryById, precomputedInternal));
     const currentCodes: string[] = new Array(machineCount).fill('');
     const codeIsStale: boolean[] = new Array(machineCount).fill(true);
 
@@ -1202,6 +1282,57 @@ export const runOptimizationEngine = async (
         return open;
     });
 
+    /* Lifts every special on the board and puts them all back down in one random arrangement (see REPACK_ONE_IN)
+     * Depth-first over the specials in random order; each tries the placements that fit the space left, in random order
+     * Returns false, with the board as it was, if no arrangement turns up within REPACK_STEP_LIMIT placements
+     */
+    const repackSpecials = (board: (InventoryItem | 'Locked' | null)[][], specials: { piece: InventoryItem; cells: number[] }[]) => {
+        for (const special of specials) for (const idx of special.cells) board[(idx - idx % 7) / 7][idx % 7] = null;
+        const order = specials.slice();
+        for (let i = order.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [order[i], order[j]] = [order[j], order[i]];
+        }
+        let steps = 0;
+        const placeFrom = (k: number): boolean => {
+            if (k === order.length) return true;
+            const piece = order[k].piece;
+            const orientations = PRECOMPUTED_ORIENTATIONS.get(piece.shape);
+            if (!orientations) return false;
+            const options: [number, number, Orientation][] = [];
+            for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) {
+                if (board[y][x] !== null) continue;
+                for (const o of orientations) {
+                    if (x + o.minX < 0 || x + o.maxX > 6 || y + o.minY < 0 || y + o.maxY > 4) continue;
+                    let fits = true;
+                    for (let i = 0; i < o.count; i++) if (board[y + o.ys[i]][x + o.xs[i]] !== null) { fits = false; break; }
+                    if (fits) options.push([x, y, o]);
+                }
+            }
+            for (let i = options.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [options[i], options[j]] = [options[j], options[i]];
+            }
+            for (const [x, y, o] of options) {
+                if (++steps > REPACK_STEP_LIMIT) return false;
+                for (let i = 0; i < o.count; i++) board[y + o.ys[i]][x + o.xs[i]] = piece;
+                if (placeFrom(k + 1)) return true;
+                for (let i = 0; i < o.count; i++) board[y + o.ys[i]][x + o.xs[i]] = null;
+            }
+            return false;
+        };
+        if (placeFrom(0)) {
+            // The cells they left are free now and the ones they took are not, so the free list is rebuilt rather than compacted
+            freeCells.length = 0;
+            for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) if (board[y][x] === null) freeCells.push(y * 7 + x);
+            shuffleInPlace(freeCells);
+            return true;
+        }
+        // Out of steps: every special goes back where it stood (anything placed on the way was already undone)
+        for (const special of specials) for (const idx of special.cells) board[(idx - idx % 7) / 7][idx % 7] = special.piece;
+        return false;
+    };
+
     // Drops the cells that are no longer free, keeping the rest in scan order
     const compactFreeCells = (fillBoard: (InventoryItem | 'Locked' | null)[][]) => {
         let write = 0;
@@ -1237,6 +1368,7 @@ export const runOptimizationEngine = async (
         let bestX = -1, bestY = -1;
         let bestOrientation: Orientation | null = null;
         let highestHeuristic = incumbent !== null ? -Infinity : 0.0001;
+        let bestDp = 0, bestDq = 0, bestDe = 0;
         const nudge = isOverclock(piece) ? OVERCLOCK_PLACEMENT_NUDGE : 0;
 
         if (incumbent !== null) {
@@ -1246,6 +1378,7 @@ export const runOptimizationEngine = async (
             );
             if (incumbentScore !== -Infinity) {
                 highestHeuristic = incumbentScore + nudge;
+                bestDp = PLACEMENT_DELTA.p; bestDq = PLACEMENT_DELTA.q; bestDe = PLACEMENT_DELTA.e;
                 bestX = incumbent.x; bestY = incumbent.y;
                 bestOrientation = incumbent.orientation;
             }
@@ -1269,6 +1402,7 @@ export const runOptimizationEngine = async (
                 ) + nudge;
                 if (deltaScore > highestHeuristic && deltaScore !== -Infinity) {
                     highestHeuristic = deltaScore;
+                    bestDp = PLACEMENT_DELTA.p; bestDq = PLACEMENT_DELTA.q; bestDe = PLACEMENT_DELTA.e;
                     bestX = x; bestY = y;
                     bestOrientation = orientation;
                 }
@@ -1282,6 +1416,7 @@ export const runOptimizationEngine = async (
             fillBoard[bestY + ys[i]][bestX + xs[i]] = piece;
         }
         compactFreeCells(fillBoard);
+        COMMITTED_DELTA.p = bestDp; COMMITTED_DELTA.q = bestDq; COMMITTED_DELTA.e = bestDe;
         return true;
     };
 
@@ -1340,14 +1475,18 @@ export const runOptimizationEngine = async (
         return out ? { boards: out, changed } : null;
     };
 
+    // Keyed by the stats object of a scored board, which is created with the board and replaced whenever it changes (see scoreInto)
+    // Relaxing a target changes what a board's overshoot is, so a relax starts it over
+    let tiebreakCache = new WeakMap<BoardStats, number>();
+
     // Scores a set of boards into `tiers` (see the tier layout above)
-    const scoreInto = (tiers: Float64Array, statsFor: (mIdx: number) => BoardStats, boardFor: (mIdx: number) => (InventoryItem | 'Locked' | null)[][]) => {
+    const scoreInto = (tiers: Float64Array, statsFor: (mIdx: number) => BoardStats, boardFor: (mIdx: number) => (InventoryItem | 'Locked' | null)[][], ms: MachineConfig[] = machines) => {
             tiers.fill(0);
             const currentTiers = tiers;
 
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                 const stats = statsFor(mIdx);
-                const m = machines[mIdx];
+                const m = ms[mIdx];
                 const t = stats.totals;
 
                 for (const key of STAT_KEYS) {
@@ -1362,7 +1501,13 @@ export const runOptimizationEngine = async (
                 }
 
                 // Tiebreak: the least important tier, so it can never take a ranked stat or a target out of its own tier
-                currentTiers[TIEBREAK_TIER] -= boardTiebreak(mIdx, boardFor(mIdx), stats.placedPiecesCount, t);
+                // A board's tiebreak only changes with the board, and each scored board has its own stats object, so it is worked out once per board
+                let tiebreak = ms === machines ? tiebreakCache.get(stats) : undefined;
+                if (tiebreak === undefined) {
+                    tiebreak = boardTiebreak(mIdx, boardFor(mIdx), stats.placedPiecesCount, t);
+                    if (ms === machines) tiebreakCache.set(stats, tiebreak);
+                }
+                currentTiers[TIEBREAK_TIER] -= tiebreak;
             }
 
             // Machines are only pulled towards each other within the same priority rank. Balancing across ranks
@@ -1372,7 +1517,7 @@ export const runOptimizationEngine = async (
                 for (const statKey of STAT_KEYS) {
                     const byTier = new Map<number, number[]>();
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        const m = machines[mIdx];
+                        const m = ms[mIdx];
                         if (statIsIgnored(m, statKey) || !m.maximizeStats[statKey] || m.targetStats[statKey] !== null) continue;
                         const ti = tierOf(m, statKey);
                         let members = byTier.get(ti);
@@ -1391,6 +1536,13 @@ export const runOptimizationEngine = async (
                 }
             }
 
+    };
+
+    // A reported layout's score against the targets as set; see onUpdate
+    const reportTiers = (statsFor: (mIdx: number) => BoardStats, boardFor: (mIdx: number) => (InventoryItem | 'Locked' | null)[][]) => {
+        const tiers = new Float64Array(tierCount + 2);
+        scoreInto(tiers, statsFor, boardFor, callerMachines);
+        return Array.from(tiers);
     };
 
     /* When the set cannot reach every stepped target, keeping the missed ones in the top tier makes every other machine pay for points that change nothing
@@ -1413,6 +1565,7 @@ export const runOptimizationEngine = async (
         const m = machines[pick.mIdx];
         const lower = m.targetSteps![pick.key]!.filter(v => v < m.targetStats[pick!.key]!);
         m.targetStats[pick.key] = lower.length > 0 ? lower[lower.length - 1] : null;
+        tiebreakCache = new WeakMap();
         scoreInto(bestTiers, (mIdx) => bestStats[mIdx], (mIdx) => bestBoards[mIdx]);
         return true;
     };
@@ -1426,12 +1579,14 @@ export const runOptimizationEngine = async (
 
         const spare = withSpareLearningAlgorithms(bestBoards);
         if (spare) {
+            const spareStats: BoardStats[] = [];
             // Every code lists the modules the other machines are not using, so all of them are rebuilt for this report
             // The cached codes stay those of the search's own boards
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                 const m = machines[mIdx];
                 const board = spare.boards[mIdx];
-                const stats = spare.changed.has(mIdx) ? calculateBoardStats(board, fullInventory, inventoryById) : bestStats[mIdx];
+                const stats = spare.changed.has(mIdx) ? calculateBoardStats(board, fullInventory, inventoryById, precomputedInternal) : bestStats[mIdx];
+                spareStats.push(stats);
                 const usedCloneIds = new Set<string>();
                 board.forEach(row => row.forEach(cell => { if (cell && cell !== 'Locked' && cell.id.includes('_clone_')) usedCloneIds.add(cell.id); }));
                 const inventoryForCode = fullInventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
@@ -1442,7 +1597,7 @@ export const runOptimizationEngine = async (
                     code: generateCodeFromState(m.tier, m.maximizeStats, callerMachines[mIdx].targetStats, inventoryForCode, board),
                 });
             }
-            onUpdate(updates);
+            onUpdate(updates, reportTiers((mIdx) => spareStats[mIdx], (mIdx) => spare.boards[mIdx]));
             return;
         }
 
@@ -1467,7 +1622,7 @@ export const runOptimizationEngine = async (
                 code: currentCodes[mIdx]
             });
         }
-        onUpdate(updates);
+        onUpdate(updates, reportTiers((mIdx) => bestStats[mIdx], (mIdx) => bestBoards[mIdx]));
     };
 
     const { portYield, timerYield, dispose } = createYielder();
@@ -1558,7 +1713,7 @@ export const runOptimizationEngine = async (
                                     if (removedIds.has(cell.id)) {
                                         board[y][x] = null;
                                     } else {
-                                        const pIdx = poolIndexOf.get(cell.id);
+                                        const pIdx = poolIndexOfCell(cell);
                                         if (pIdx !== undefined) placedMark[pIdx] = markGen;
                                     }
                                 }
@@ -1570,7 +1725,7 @@ export const runOptimizationEngine = async (
                         for (let x = 0; x < 7; x++) {
                             const cell = board[y][x];
                             if (cell && cell !== 'Locked') {
-                                const pIdx = poolIndexOf.get(cell.id);
+                                const pIdx = poolIndexOfCell(cell);
                                 if (pIdx !== undefined) placedMark[pIdx] = markGen;
                             }
                         }
@@ -1589,7 +1744,7 @@ export const runOptimizationEngine = async (
                     for (const row of currentBoards[mIdx]) {
                         for (const cell of row) {
                             if (!cell || cell === 'Locked') continue;
-                            const pIdx = poolIndexOf.get(cell.id);
+                            const pIdx = poolIndexOfCell(cell);
                             if (pIdx === undefined || seen.has(pIdx)) continue;
                             seen.add(pIdx);
                             stealCandidates.push({ pIdx, owner: mIdx });
@@ -1645,7 +1800,7 @@ export const runOptimizationEngine = async (
                 shuffleInPlace(freeCells);
                 let fillBoardEmpty = freeCells.length === openCellCount[fillMIdx];
 
-                let currentTotals = calculateBoardStats(fillBoard, fullInventory, inventoryById).totals;
+                let currentTotals = calculateBoardStats(fillBoard, fullInventory, inventoryById, precomputedInternal).totals;
 
                 /* The board's specials, offered a better cell one at a time and before anything is drawn
                  *
@@ -1654,7 +1809,13 @@ export const runOptimizationEngine = async (
                  * first one take the second one's cells and leave the second with nowhere guaranteed to go
                  * Going before the draw also means they choose out of the whole ruined area rather than whatever the fill leaves over
                  */
-                for (const special of specialsOnBoard[fillMIdx]) {
+                const specials = specialsOnBoard[fillMIdx];
+                const repack = specials.length > 0 && (isStagnant || Math.random() * REPACK_ONE_IN < 1) && repackSpecials(fillBoard, specials);
+                if (repack) {
+                    fillBoardEmpty = false;
+                    currentTotals = calculateBoardStats(fillBoard, fullInventory, inventoryById, precomputedInternal).totals;
+                }
+                if (!repack) for (const special of specials) {
                     const ctx = placementContexts.get(special.piece.id);
                     const orientations = PRECOMPUTED_ORIENTATIONS.get(special.piece.shape);
                     if (ctx === undefined || orientations === undefined) continue;
@@ -1685,7 +1846,7 @@ export const runOptimizationEngine = async (
                         home === null ? null : { x: homeX, y: homeY, orientation: home }
                     );
                     fillBoardEmpty = false;
-                    currentTotals = calculateBoardStats(fillBoard, fullInventory, inventoryById).totals;
+                    currentTotals = calculateBoardStats(fillBoard, fullInventory, inventoryById, precomputedInternal).totals;
                 }
 
                 infeasibleShapes.clear();
@@ -1703,7 +1864,8 @@ export const runOptimizationEngine = async (
 
                 // Stops once every shape in the pool has been shown to fit nowhere, which cannot change while the board is only losing free cells
                 let drawn = 0;
-                while (drawn < poolOrder.length && infeasibleShapes.size < poolShapeCount) {
+                for (const shape of poolShapes) if (!shapeFitsAnywhere(shape, fillBoard)) infeasibleShapes.add(shape);
+                while (drawn < poolOrder.length && drawn < MAX_DRAWS && infeasibleShapes.size < poolShapeCount) {
                     // Best of DRAW_TOURNAMENT random candidates rather than the first one drawn
                     // The permutation is still only partially shuffled, so the losers stay in the undrawn region and can be picked again later this fill
                     const remaining = poolOrder.length - drawn;
@@ -1736,7 +1898,12 @@ export const runOptimizationEngine = async (
                     if (placeBestFit(ctx, orientations, piece, fillBoard, fillBoardEmpty, dynWp, dynWq, dynWe, currentTotals.Performance, currentTotals.Quality, currentTotals.Efficiency, fillConfig)) {
                         fillBoardEmpty = false;
                         consumedMark[pieceIdx] = consumedGen;
-                        currentTotals = calculateBoardStats(fillBoard, fullInventory, inventoryById).totals;
+                        // Only steers the rest of this fill; the rebuilt board is scored exactly afterwards
+                        currentTotals = {
+                            Performance: currentTotals.Performance + COMMITTED_DELTA.p,
+                            Quality: currentTotals.Quality + COMMITTED_DELTA.q,
+                            Efficiency: currentTotals.Efficiency + COMMITTED_DELTA.e,
+                        };
                     } else {
                         infeasibleShapes.add(piece.shape);
                     }
@@ -1760,7 +1927,7 @@ export const runOptimizationEngine = async (
 
             // Only rebuilt machines can have changed, so the rest keep their cached stats
             for (const mIdx of rebuiltMachines) {
-                rebuiltStats[mIdx] = calculateBoardStats(testBoards[mIdx], fullInventory, inventoryById);
+                rebuiltStats[mIdx] = calculateBoardStats(testBoards[mIdx], fullInventory, inventoryById, precomputedInternal);
             }
             const statsFor = (mIdx: number) =>
                 isRebuilt[mIdx] ? rebuiltStats[mIdx]! : currentStats[mIdx];
@@ -1808,7 +1975,7 @@ export const runOptimizationEngine = async (
                 // Hand strong modules held by target-only machines back to the pool while the search can still use them
                 if (downgradeTargetMachines(currentBoards)) {
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                        currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], fullInventory, inventoryById);
+                        currentStats[mIdx] = calculateBoardStats(currentBoards[mIdx], fullInventory, inventoryById, precomputedInternal);
                     }
                 }
                 // Perturbing the same neighbourhood for long without a new record means the record is probably as good as this region gets
@@ -1834,7 +2001,7 @@ export const runOptimizationEngine = async (
                             if (mIdx !== k) b.forEach(row => row.forEach(cell => { if (cell && cell !== 'Locked') elsewhere.add(cell.id); }));
                         });
                         currentBoards[k] = initialBoards[k].map(row => row.map(cell => (cell && cell !== 'Locked' && elsewhere.has(cell.id)) ? null : cell));
-                        currentStats[k] = calculateBoardStats(currentBoards[k], fullInventory, inventoryById);
+                        currentStats[k] = calculateBoardStats(currentBoards[k], fullInventory, inventoryById, precomputedInternal);
                     }
                 }
             }
@@ -1854,7 +2021,7 @@ export const runOptimizationEngine = async (
         // Final clean-up of the reported layout: target-only machines give up any module a weaker one can replace
         if (downgradeTargetMachines(bestBoards)) {
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                bestStats[mIdx] = calculateBoardStats(bestBoards[mIdx], fullInventory, inventoryById);
+                bestStats[mIdx] = calculateBoardStats(bestBoards[mIdx], fullInventory, inventoryById, precomputedInternal);
             }
             codeIsStale.fill(true);
             pendingUpdate = true;
@@ -2188,7 +2355,7 @@ export function useOptimizer(
 
         const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps };
 
-        await runOptimizationEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
+        await runParallelEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
             if (myUpdate) {
                 setBoardSync(myUpdate.board);
