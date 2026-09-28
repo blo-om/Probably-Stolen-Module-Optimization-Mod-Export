@@ -33,9 +33,24 @@ const PRESETS: EngineTuning[] = [
 // Solves running at the same time (several cards can be solving individually) share the cores rather than each taking all of them
 let activeSolves = 0;
 
+/* CPU usage setting (page footer), read when a solve starts. Measured on a 16-thread PC (4 scenarios, 6 repeats, 12 s):
+ * half the cores reached the all-but-one result in ~1.5x the time, a quarter in ~2-3x, one core never within 12 s
+ */
+export type CpuUsage = 'low' | 'balanced' | 'max';
+export const CPU_USAGE_KEY = 'optimizer_cpu_usage';
+export const readCpuUsage = (): CpuUsage => {
+    try {
+        const v = localStorage.getItem(CPU_USAGE_KEY);
+        return v === 'low' || v === 'max' ? v : 'balanced';
+    } catch {
+        return 'balanced';
+    }
+};
 const workerCount = () => {
     const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4;
-    return Math.max(1, Math.floor((cores - 1) / Math.max(1, activeSolves)));
+    const usage = readCpuUsage();
+    const budget = usage === 'max' ? cores - 1 : usage === 'low' ? Math.floor(cores / 4) : Math.floor(cores / 2);
+    return Math.max(1, Math.floor(budget / Math.max(1, activeSolves)));
 };
 
 // Lexicographic, most important tier first
