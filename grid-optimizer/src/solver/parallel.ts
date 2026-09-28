@@ -50,17 +50,15 @@ const beats = (a: number[], b: number[]) => {
  *   - any progress on a target is significant (target tiers come first in the score)
  *   - otherwise the first score tier that changed must have gained at least MIN_GAIN of the whole maximized score on screen (every card's
  *     maximized tiers together), so a point on a low-priority card does not count as much as the same point would on its own small tier
- *   - for the first GRACE_MS every stat change counts, so the early climb shows as it happens
  * A smaller gain is not dropped: the next record is compared with what is still on screen, so small gains add up until they count
- * The final record is always shown when the solve ends
+ * When the solve ends the page keeps the last significant record rather than switching to a layout that barely differs;
+ * only a solve that never showed anything shows its best
  */
-const GRACE_MS = 1000;
 const MIN_GAIN = 0.01;
 
 const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
     let pending: { updates: Updates; tiers: number[] } | null = null;
     let shown: { sig: string; tiers: number[] } | null = null;
-    const started = performance.now();
     const signature = (updates: Updates) => machines.map(m => {
         const t = updates.get(m.id)?.totals;
         return t ? `${t.Performance},${t.Quality},${t.Efficiency}` : '-';
@@ -78,7 +76,6 @@ const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, t
             if (tiers[i] === onScreen[i]) continue;
             if (i === tiers.length - 1) return false;
             if (i < targetTiers) return true;
-            if (performance.now() - started < GRACE_MS) return true;
             let whole = 0;
             for (let k = targetTiers; k < tiers.length - 1; k++) whole += Math.abs(onScreen[k]);
             return (tiers[i] - onScreen[i]) >= MIN_GAIN * Math.max(whole, 1);
@@ -91,7 +88,7 @@ const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, t
             if (shown === null) { show(); return; }
             if (signature(updates) !== shown.sig && significant(tiers, shown.tiers)) show();
         },
-        final: show,
+        final: () => { if (shown === null) show(); },
     };
 };
 
