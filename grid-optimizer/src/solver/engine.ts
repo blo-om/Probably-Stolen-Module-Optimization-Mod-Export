@@ -131,6 +131,9 @@ type Scored = Totals & { tb: number; tbGen: number };
  *   swapOneIn        one iteration in so many is a same-shape swap instead of a rebuild (0: never; default 6)
  *   relayoutOneIn    one iteration in so many re-lays one board's own modules in a new order instead of a rebuild (0: never)
  *   lateAcceptance   history length of late-acceptance hill climbing (0: plain hill climbing; measured no better at 100 and worse at 500, so off)
+ *   polish           near-target polish (see polishNearTargets; 0: off). On by default: on A/B scenarios with most machines on targets near
+ *                    what they reach (28 runs a side, 8 s), the hardest near miss (AgeWell 250, reached ~245) was met 16 times against 7;
+ *                    other targets and the overall score within noise; ~3% of the search time
  */
 export type EngineTuning = {
     tournament?: number;
@@ -140,6 +143,7 @@ export type EngineTuning = {
     swapOneIn?: number;
     relayoutOneIn?: number;
     lateAcceptance?: number;
+    polish?: number;
 };
 
 export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>;
@@ -165,6 +169,7 @@ export const runOptimizationEngine = async (
     const SWAP_EVERY = tuning.swapOneIn ?? 6;
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
     const LAHC = tuning.lateAcceptance ?? 0;
+    const POLISH = tuning.polish ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
     const machineCount = machines.length;
@@ -827,6 +832,197 @@ export const runOptimizationEngine = async (
         return true;
     };
 
+    /* Near-target polish: when the record misses a target by a little, the last points usually need one exact exchange (this module
+     * for that one, one out and two in) that random rebuilds rarely hit. So once per new record, each target missed by at most
+     * POLISH_NEAR of its size gets a systematic look on its own board:
+     *   every spare module (and every module on another board) in every free spot, after taking off nothing or any one module,
+     *   plus the best second module after the best first one
+     * Placements are ranked on the missing stat by the fast placement estimate; the best POLISH_TOP are scored in full, and the best
+     * that beats the record is kept. A stepped target's move must reach the step: getting closer to a step it still misses changes nothing
+     * in the game, and taking modules for that cost the targets below it. Repeats while it finds something, within POLISH_BUDGET_MS a record
+     */
+    const POLISH_NEAR = 0.25;
+    const POLISH_TOP = 24;
+    const POLISH_BUDGET_MS = 60;
+    const polishOwner = new Int16Array(N);
+    const polishMark = new Float64Array(TIER_LENGTH).fill(NaN);
+    const polishTiers = new Float64Array(TIER_LENGTH);
+    const polishBestTiers = new Float64Array(TIER_LENGTH);
+    const polishBoard = new Int16Array(CELLS);
+    const polishOther = new Int16Array(CELLS);
+    // Interchangeable modules (same shape, colour, name and effects) share a class; one of each class per owner is enough to try
+    const classOf = new Int32Array(N);
+    {
+        const classes = new Map<string, number>();
+        for (let it = 0; it < N; it++) {
+            const item = core.items[it];
+            const key = `${item.shape}|${item.color}|${item.displayName}|${item.effects.join(',')}|${item.effectValues.join(',')}`;
+            let c = classes.get(key);
+            if (c === undefined) { c = classes.size; classes.set(key, c); }
+            classOf[it] = c;
+        }
+    }
+    type PolishMove = { a: number; it: number; x: number; y: number; o: Orientation; it2: number; x2: number; y2: number; o2: Orientation | null; gain: number };
+    const polishMoves: PolishMove[] = [];
+    const keepMove = (m: PolishMove) => {
+        if (polishMoves.length >= POLISH_TOP && m.gain <= polishMoves[polishMoves.length - 1].gain) return;
+        let i = polishMoves.length;
+        while (i > 0 && polishMoves[i - 1].gain < m.gain) i--;
+        polishMoves.splice(i, 0, m);
+        if (polishMoves.length > POLISH_TOP) polishMoves.pop();
+    };
+    const lift = (board: Board, it: number) => { for (let c = 0; c < CELLS; c++) if (board[c] === it) board[c] = EMPTY; };
+    // The best placement of any candidate on `board` for stat `s` of machine `k`; `skip` is left out. Returns the stat gain, or -Infinity
+    const bestAdd = (k: number, s: number, board: Board, reps: number[], skip: number, out: PolishMove, second: boolean) => {
+        let empty = true;
+        for (let c = 0; c < CELLS; c++) if (board[c] >= 0) { empty = false; break; }
+        let best = -Infinity;
+        const sumPQ = s === 0 && params[k].sumPQ;
+        for (const it of reps) {
+            if (it === skip) continue;
+            const orientations = core.orientations[it];
+            if (!orientations) continue;
+            for (let c = 0; c < CELLS; c++) {
+                if (board[c] !== EMPTY) continue;
+                const x = c % 7, y = (c - x) / 7;
+                for (const o of orientations) {
+                    const r = core.evalPlacement(it, x, y, o, board, empty, 0, 0, 0, 0, 0, 0, params[k], true);
+                    if (r <= -9000) continue;
+                    const g = sumPQ ? core.delta[0] + core.delta[1] : core.delta[s];
+                    if (g <= best) continue;
+                    best = g;
+                    if (second) { out.it2 = it; out.x2 = x; out.y2 = y; out.o2 = o; } else { out.it = it; out.x = x; out.y = y; out.o = o; }
+                }
+            }
+        }
+        return best;
+    };
+    // Every placement worth a full look for one removal (`a`, or -1 for none) goes to polishMoves
+    const scanAdds = (k: number, s: number, board: Board, reps: number[], a: number, baseValue: number, valueNow: number) => {
+        let empty = true;
+        for (let c = 0; c < CELLS; c++) if (board[c] >= 0) { empty = false; break; }
+        const sumPQ = s === 0 && params[k].sumPQ;
+        for (const it of reps) {
+            const orientations = core.orientations[it];
+            if (!orientations) continue;
+            for (let c = 0; c < CELLS; c++) {
+                if (board[c] !== EMPTY) continue;
+                const x = c % 7, y = (c - x) / 7;
+                for (const o of orientations) {
+                    const r = core.evalPlacement(it, x, y, o, board, empty, 0, 0, 0, 0, 0, 0, params[k], true);
+                    if (r <= -9000) continue;
+                    const gain = baseValue + (sumPQ ? core.delta[0] + core.delta[1] : core.delta[s]) - valueNow;
+                    if (gain <= 0) continue;
+                    keepMove({ a, it, x, y, o, it2: -1, x2: 0, y2: 0, o2: null, gain });
+                }
+            }
+        }
+    };
+    const valueOf = (k: number, s: number, t: Totals) => statOf(params[k], t, s);
+    const polishTarget = (k: number, s: number, deadline: number) => {
+        polishOwner.fill(-1);
+        for (let m = 0; m < machineCount; m++) for (let c = 0; c < CELLS; c++) { const a = bestBoards[m][c]; if (a >= 0) polishOwner[a] = m; }
+        const reps: number[] = [];
+        const seen = new Set<number>();
+        for (const it of searchPool) {
+            if (fixed[it] || polishOwner[it] === k) continue;
+            const key = classOf[it] * (machineCount + 1) + polishOwner[it] + 1;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            reps.push(it);
+        }
+        const pieces: number[] = [-1];
+        const g = ++itemGen;
+        for (let c = 0; c < CELLS; c++) {
+            const a = bestBoards[k][c];
+            if (a < 0 || fixed[a] || itemStamp[a] === g) continue;
+            itemStamp[a] = g;
+            pieces.push(a);
+        }
+        const valueNow = valueOf(k, s, bestStats[k]);
+        const mustReach = stepsOf[k][s] ? params[k].target[s] : null;
+        polishMoves.length = 0;
+        const two: PolishMove = { a: -1, it: -1, x: 0, y: 0, o: null as any, it2: -1, x2: 0, y2: 0, o2: null, gain: 0 };
+        for (const a of pieces) {
+            if (now() > deadline) return false;
+            polishBoard.set(bestBoards[k]);
+            if (a >= 0) lift(polishBoard, a);
+            const baseValue = a >= 0 ? valueOf(k, s, core.boardTotals(polishBoard)) : valueNow;
+            scanAdds(k, s, polishBoard, reps, a, baseValue, valueNow);
+            // One out, two in: the best first module, then the best second next to it
+            const g1 = bestAdd(k, s, polishBoard, reps, -1, two, false);
+            if (g1 === -Infinity) continue;
+            put(polishBoard, two.x, two.y, two.o, two.it);
+            const g2 = bestAdd(k, s, polishBoard, reps, two.it, two, true);
+            if (g2 !== -Infinity && baseValue + g1 + g2 > valueNow) keepMove({ ...two, a, gain: baseValue + g1 + g2 - valueNow });
+        }
+        // Full scores for the shortlist
+        polishBestTiers.set(bestTiers);
+        let pick: PolishMove | null = null;
+        for (const mv of polishMoves) {
+            polishBoard.set(bestBoards[k]);
+            if (mv.a >= 0) lift(polishBoard, mv.a);
+            const owners: number[] = [];
+            for (const [it, x, y, o] of [[mv.it, mv.x, mv.y, mv.o], [mv.it2, mv.x2, mv.y2, mv.o2]] as [number, number, number, Orientation | null][]) {
+                if (it < 0 || !o) continue;
+                if (!fits(polishBoard, x, y, o)) { owners.length = 0; owners.push(-2); break; }
+                put(polishBoard, x, y, o, it);
+                if (polishOwner[it] >= 0) owners.push(polishOwner[it]);
+            }
+            if (owners[0] === -2) continue;
+            // A module taken off another board leaves that board; two from the same board are not tried
+            if (owners.length > 1 && owners[0] === owners[1]) continue;
+            const otherStats = new Map<number, Scored>();
+            const otherBoards = new Map<number, Board>();
+            for (const j of owners) {
+                const b = bestBoards[j].slice();
+                if (mv.it >= 0 && polishOwner[mv.it] === j) lift(b, mv.it);
+                if (mv.it2 >= 0 && polishOwner[mv.it2] === j) lift(b, mv.it2);
+                otherBoards.set(j, b);
+                otherStats.set(j, score(b));
+            }
+            const mine = score(polishBoard);
+            // A stepped target only counts once reached: points towards a step it still misses do nothing in the game
+            if (mustReach !== null && valueOf(k, s, mine) < mustReach) continue;
+            scoreInto(polishTiers, (m) => m === k ? mine : otherStats.get(m) ?? bestStats[m], (m) => m === k ? polishBoard : otherBoards.get(m) ?? bestBoards[m]);
+            if (compareTiers(polishTiers, polishBestTiers) > 0) {
+                polishBestTiers.set(polishTiers);
+                pick = mv;
+                polishOther.set(polishBoard);
+                (pick as any).boards = otherBoards;
+            }
+        }
+        if (pick === null) return false;
+        bestBoards[k].set(polishOther);
+        bestStats[k] = score(bestBoards[k]);
+        ((pick as any).boards as Map<number, Board>).forEach((b, j) => { bestBoards[j].set(b); bestStats[j] = score(bestBoards[j]); });
+        scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
+        // The search carries on from where it is (sending it back to the record measured worse); it meets the record at its next restart
+        codeIsStale.fill(true);
+        pendingUpdate = true;
+        return true;
+    };
+    const polishNearTargets = () => {
+        if (!POLISH || compareTiers(bestTiers, polishMark) === 0) return;
+        const deadline = now() + POLISH_BUDGET_MS;
+        let improved = true;
+        while (improved) {
+            improved = false;
+            for (let k = 0; k < machineCount && !improved; k++) {
+                for (let s = 0; s < 3 && !improved; s++) {
+                    const target = params[k].target[s];
+                    if (params[k].ignored[s] || target === null) continue;
+                    const v = valueOf(k, s, bestStats[k]);
+                    if (v >= target || target - v > POLISH_NEAR * Math.max(Math.abs(target), 100)) continue;
+                    if (polishTarget(k, s, deadline)) improved = true;
+                    // Out of time: this record is left as it is, not tried again every frame
+                    else if (now() > deadline) { polishMark.set(bestTiers); return; }
+                }
+            }
+        }
+        polishMark.set(bestTiers);
+    };
+
     const { portYield, timerYield, dispose } = createYielder();
     let lastYield = now();
     let lastTimerYield = lastYield;
@@ -1120,6 +1316,7 @@ export const runOptimizationEngine = async (
 
             if (now() - lastYield >= FRAME_BUDGET_MS) {
                 checkRelax();
+                polishNearTargets();
                 flushUpdate();
                 if (now() - lastTimerYield >= TIMER_YIELD_INTERVAL_MS) {
                     await timerYield();
