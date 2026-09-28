@@ -194,6 +194,7 @@ const UnitTargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit;
             onBlur={(e) => { commit(e.target.value); setDraft(null); }}
             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             disabled={disabled}
+            title={unit.hint}
             placeholder="Max"
             style={{ width: '55px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
         />
@@ -535,8 +536,12 @@ const MachineInstance = React.memo(forwardRef(({
                             {formatStatValue(optimizer.bestTotals.Performance)}
                         </div>
                         {statUnit(machineType, 'Performance') && (
-                            <div style={{ fontSize: '0.7em', color: '#aaa' }}>
-                                {statUnit(machineType, 'Performance')!.fromPercent(optimizer.bestTotals.Performance)} {statUnit(machineType, 'Performance')!.unit}
+                            <div title={statUnit(machineType, 'Performance')!.hint} style={{ fontSize: '0.7em', color: '#aaa' }}>
+                                {(() => {
+                                    const u = statUnit(machineType, 'Performance')!;
+                                    const v = u.fromPercent(optimizer.bestTotals.Performance);
+                                    return u.readout ? u.readout(v) : `${v} ${u.unit}`;
+                                })()}
                             </div>
                         )}
                     </div>
