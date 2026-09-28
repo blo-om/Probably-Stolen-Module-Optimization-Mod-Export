@@ -31,19 +31,21 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
     Efficiency: !ignored.Efficiency,
 });
 
-// Quality only matters at fixed thresholds on some machines, so their Quality card picks an outcome instead of a number.
-// The pick becomes the Quality target, and since a target is a threshold, nothing is spent past it.
+// Some stats only matter at fixed thresholds, so their card picks an outcome instead of a number.
+// The pick becomes that stat's target, and since a target is a threshold, nothing is spent past it.
 // From the community guides (Maslak):
 //   Moisture Farm  - every 50% steps the water it makes up a grade; 49% still makes ghostwater
 //   Water Purifier - lowers the contaminant floor at 50 / 75 / 100 / 200%. A basic source needs 100% for pure (75% if
 //                    pitcher-filtered first), which puts its floor at 0.5-1.25%: basewater at 0%, high-quality by 50%
 //   Furnace        - every 100% raises the ingot one purity stage, and 100% also stops Flux being consumed.
 //                    With a Blast module the first 100% is ignored, so every step needs 100% more
-export type QualityBreakpoint = { value: number; label: string; hint: string };
+//   Desequencer    - Performance: 33 work/d base, +1 per 3.03%; a keycard takes whole days, so only the cut-offs
+//                    where some chipset's card finishes a day sooner matter
+export type StatBreakpoint = { value: number; label: string; hint: string };
 
 const PURITIES = ['Low', 'Fair', 'High', 'Very high', 'Perfect'];
 
-const furnaceBreakpoints = (hasBlast: boolean): QualityBreakpoint[] => {
+const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
     // Base purity of each recipe, by index into PURITIES
     const recipes: [string, number][] = hasBlast
         ? [['3 scrap', 0], ['2 scrap + 1 ore', 1], ['1 scrap + 2 ore', 2]]
@@ -57,7 +59,7 @@ const furnaceBreakpoints = (hasBlast: boolean): QualityBreakpoint[] => {
     }));
 };
 
-const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => QualityBreakpoint[]][] = [
+const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] = [
     ['moisture farm', () => [
         { value: 0, label: 'Ghostwater', hint: '96-98% water. Pitcher: 75% high-quality, 25% basewater' },
         { value: 50, label: 'Basewater', hint: '98-99% water. Pitcher: always high-quality' },
@@ -74,8 +76,35 @@ const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => QualityBreakpoint[]][
     ['furnace', furnaceBreakpoints],
 ];
 
-export const qualityBreakpoints = (machineType: string, hasBlast = false): QualityBreakpoint[] | null => {
+// Work per chipset: 75 Service/Supply, 100 Engineering/Medical, 125 Security, 150 Command
+const CHIPSETS: Record<number, string> = { 75: 'Service/Supply', 100: 'Engineering/Medical', 125: 'Security', 150: 'Command' };
+const DESEQUENCER_CUTOFFS: [number, [number, number][]][] = [
+    [4, [[100, 3]]],
+    [16, [[75, 2], [150, 4]]],
+    [28, [[125, 3]]],
+    [52, [[100, 2], [150, 3]]],
+    [90, [[125, 2]]],
+    [128, [[75, 1], [150, 2]]],
+    [204, [[100, 1]]],
+    [279, [[125, 1]]],
+    [355, [[150, 1]]],
+];
+const PERFORMANCE_BREAKPOINTS: [string, () => StatBreakpoint[]][] = [
+    ['desequencer', () => DESEQUENCER_CUTOFFS.map(([value, cards]) => ({
+        value,
+        label: cards.map(([work, days]) => `${work} in ${days}d`).join(', '),
+        hint: cards.map(([work, days]) => `${CHIPSETS[work]} (${work} work) in ${days} day${days > 1 ? 's' : ''}`).join(' · '),
+    }))],
+];
+
+const BREAKPOINTS_BY_STAT: Partial<Record<'Performance' | 'Quality' | 'Efficiency', [string, (hasBlast: boolean) => StatBreakpoint[]][]>> = {
+    Quality: QUALITY_BREAKPOINTS,
+    Performance: PERFORMANCE_BREAKPOINTS,
+};
+
+// Outcome list for one stat card, or null when that stat takes a plain number
+export const statBreakpoints = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency', hasBlast = false): StatBreakpoint[] | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
-    const hit = QUALITY_BREAKPOINTS.find(([keyword]) => name.includes(keyword));
+    const hit = BREAKPOINTS_BY_STAT[stat]?.find(([keyword]) => name.includes(keyword));
     return hit ? hit[1](hasBlast) : null;
 };
