@@ -39,6 +39,7 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 //                    pitcher-filtered first), which puts its floor at 0.5-1.25%: basewater at 0%, high-quality by 50%
 //   Furnace        - every 100% raises the ingot one purity stage, and 100% also stops Flux being consumed.
 //                    With a Blast module the first 100% is ignored, so every step needs 100% more
+//   AgeWell        - every 125% ages the wine one more day per night (only multiples of 125 matter)
 //   Desequencer    - Performance: 33 work/d base, +1 per 3.03%; a keycard takes whole days, so only the cut-offs
 //                    where some chipset's card finishes a day sooner matter
 export type StatBreakpoint = { value: number; label: string; hint: string };
@@ -74,6 +75,11 @@ const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] =
         { value: 200, label: '100% water', hint: 'Contaminant floor 0%: converts everything' },
     ]],
     ['furnace', furnaceBreakpoints],
+    ['agewell', () => [1, 2, 3, 4].map(extra => ({
+        value: extra * 125,
+        label: `+${extra} day${extra > 1 ? 's' : ''}`,
+        hint: `Wine ages ${extra + 1} days per night instead of 1`,
+    }))],
 ];
 
 // Work per chipset: 75 Service/Supply, 100 Engineering/Medical, 125 Security, 150 Command
