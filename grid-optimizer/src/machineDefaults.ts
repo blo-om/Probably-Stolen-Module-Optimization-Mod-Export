@@ -119,7 +119,8 @@ export const statBreakpoints = (machineType: string, stat: 'Performance' | 'Qual
 };
 
 // The Desequencer's goal is picked as chipset + days, which is how players think about it
-export const DESEQUENCER_CHIPSETS: { work: number; name: string }[] = [75, 100, 125, 150].map(work => ({ work, name: CHIPSETS[work] }));
+const CHIPSET_SHORT: Record<number, string> = { 75: 'Service', 100: 'Medical', 125: 'Security', 150: 'Command' };
+export const DESEQUENCER_CHIPSETS: { work: number; name: string; short: string }[] = [75, 100, 125, 150].map(work => ({ work, name: CHIPSETS[work], short: CHIPSET_SHORT[work] }));
 
 // Every (days, Performance needed) a chipset's card can be done in, slowest first. The slowest is the 33 work/d base
 export const desequencerDayOptions = (work: number): { days: number; value: number }[] => {
@@ -139,13 +140,12 @@ export const isDesequencer = (machineType: string) => (machineType.split(' > ').
 
 // What each stat does on a machine, in the machine's own words. Falls back to the stat's name
 const STAT_NAMES: [string, 'Performance' | 'Quality' | 'Efficiency', string][] = [
-    ['moisture farm', 'Performance', 'Water volume'],
-    ['moisture farm', 'Quality', 'Water grade'],
-    ['water purifier', 'Performance', 'Removal speed'],
-    ['water purifier', 'Quality', 'Best water grade'],
+    ['moisture farm', 'Performance', 'Volume'],
+    ['moisture farm', 'Quality', 'Purity'],
+    ['water purifier', 'Performance', 'Volume'],
+    ['water purifier', 'Quality', 'Purity'],
     ['furnace', 'Quality', 'Ingot purity'],
     ['agewell', 'Quality', 'Extra aging'],
-    ['agewell', 'Performance', 'Energy (Performance)'],
     ['desequencer', 'Performance', 'Work speed'],
     ['alarm', 'Performance', 'Theft prevention'],
 ];
@@ -153,7 +153,7 @@ const STAT_NAMES: [string, 'Performance' | 'Quality' | 'Efficiency', string][] =
 export const statName = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     const hit = STAT_NAMES.find(([keyword, s]) => s === stat && name.includes(keyword));
-    return hit ? hit[2] : stat === 'Efficiency' ? 'Energy (Efficiency)' : stat;
+    return hit ? hit[2] : stat;
 };
 
 // Stats that change nothing on a machine, per the machine guide
@@ -198,7 +198,7 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         toPercent: ml => Math.ceil(ml * 50 - 1e-9),
         step: 0.1,
         hint: 'Extra ml/day removed of EACH contaminant type in the water, on top of the base rate (0.02 ml per 1% Performance). Basic sources have 6 types, pitcher-filtered water 2',
-        readout: ml => `+${ml} ml/d per type`,
+        readout: ml => `+${ml} ml/d`,
     }],
 ];
 
