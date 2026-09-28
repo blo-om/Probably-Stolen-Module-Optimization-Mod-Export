@@ -54,7 +54,7 @@ const beats = (a: number[], b: number[]) => {
  * When the solve ends the page keeps the last significant record rather than switching to a layout that barely differs;
  * only a solve that never showed anything shows its best
  */
-const MIN_GAIN = 0.01;
+const MIN_GAIN = 0.005;
 
 const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
     let pending: { updates: Updates; tiers: number[] } | null = null;

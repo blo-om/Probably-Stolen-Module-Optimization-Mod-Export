@@ -408,16 +408,18 @@ const MachineInstance = React.memo(forwardRef(({
         : false;
 
     return (
-        <div style={{
-            position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center',
-            backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px', padding: `${HEADER_TOP + HEADER_HEIGHT + 10}px 15px 15px 15px`,
-            width: 'max-content', boxSizing: 'border-box'
-        }}>
+        <div
+            // The whole card background drags the card; the grid and the controls keep their own behaviour
+            onPointerDown={(e) => { if (!isAnySolving) onReorderStart(machineId, e); }}
+            style={{
+                position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center',
+                backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px', padding: `${HEADER_TOP + HEADER_HEIGHT + 10}px 15px 15px 15px`,
+                width: 'max-content', boxSizing: 'border-box', cursor: isAnySolving ? 'default' : 'grab'
+            }}>
 
             <div
-                onPointerDown={(e) => { if (!isAnySolving) onReorderStart(machineId, e); }}
                 title="Drag to reorder. Machines are prioritised left to right, then top to bottom."
-                style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center', cursor: isAnySolving ? 'default' : 'grab' }}
+                style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center' }}
             >
                 <div
                     title={machineType !== 'Select Machine...' ? machineType : undefined}
@@ -1423,8 +1425,8 @@ export default function ModuleInventoryUI() {
 
     const handleSortStart = (id: string, e: React.PointerEvent) => {
         if (e.button !== 0 || sortRef.current) return;
-        // The header's own controls keep working as normal clicks
-        if ((e.target as HTMLElement).closest('button, select, input, option')) return;
+        // Controls and the module grid keep working as normal clicks and module drags
+        if ((e.target as HTMLElement).closest('button, select, input, option, textarea, label, a, .grid-wrapper')) return;
         const card = cardRefs.current[id];
         if (!card) return;
         const rect = card.getBoundingClientRect();
