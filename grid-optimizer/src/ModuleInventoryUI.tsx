@@ -6,6 +6,7 @@ import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
+import { createPortal } from 'react-dom';
 import { useOptimizer } from './hooks/useOptimizer';
 import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
@@ -208,6 +209,8 @@ const MachineInstance = React.memo(forwardRef(({
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [showPaths, setShowPaths] = useState(false);
+    // Mouse position while over the machine icon, for its tooltip
+    const [iconHover, setIconHover] = useState<{ x: number; y: number } | null>(null);
 
     // Manage local lock state
     const [isMachineLocked, setIsMachineLocked] = useState(() => {
@@ -422,7 +425,9 @@ const MachineInstance = React.memo(forwardRef(({
                 style={{ position: 'absolute', top: `${HEADER_TOP}px`, left: '15px', right: '10px', height: `${HEADER_HEIGHT}px`, display: 'flex', gap: '10px', zIndex: 10, alignItems: 'center' }}
             >
                 <div
-                    title={machineType !== 'Select Machine...' ? machineType : undefined}
+                    onMouseMove={(e) => { if (machineType !== 'Select Machine...') setIconHover({ x: e.clientX, y: e.clientY }); }}
+                    onMouseLeave={() => setIconHover(null)}
+                    onPointerDown={() => setIconHover(null)}
                     style={{ width: `${HEADER_HEIGHT}px`, height: `${HEADER_HEIGHT}px`, flexShrink: 0, backgroundColor: '#1a1a1a', border: '1px solid #2c2c2e', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}
                 >
                     {machineIconUrl && (
@@ -434,6 +439,31 @@ const MachineInstance = React.memo(forwardRef(({
                         />
                     )}
                 </div>
+                {/* Same look as the module tooltip; in a portal so a card being dragged (transformed) can't shift it */}
+                {iconHover && !dragState && createPortal(
+                    <div style={{
+                        position: 'fixed', top: iconHover.y + 15, left: iconHover.x + 15,
+                        backgroundColor: 'rgba(0, 0, 0, 0.95)', border: '1px solid #4fb3bf', padding: '10px 15px', borderRadius: '6px',
+                        zIndex: 1000, pointerEvents: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', minWidth: '150px'
+                    }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#eee' }}>{machineType.split(' > ').pop()}</div>
+                        <div style={{ fontSize: '0.75em', color: '#4fb3bf', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>[Machine]</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9em' }}>
+                            {([['Perf', 'Performance'], ['Qual', 'Quality'], ['Effic', 'Efficiency']] as const).map(([label, stat]) => (
+                                <div key={stat} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                    <span style={{ color: '#aaa' }}>{label}:</span>
+                                    <span style={{ color: getStatColor(optimizer.bestTotals[stat]) }}>{formatStatValue(optimizer.bestTotals[stat])}</span>
+                                </div>
+                            ))}
+                        </div>
+                        {isImportedMachine && (
+                            <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #333', fontSize: '0.75em', color: '#888', wordBreak: 'break-word', maxWidth: '250px' }}>
+                                <span style={{ color: '#aaa' }}>Path: </span>{machineType}
+                            </div>
+                        )}
+                    </div>,
+                    document.body
+                )}
                 <div style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '2px 0' , boxSizing: 'border-box' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
                         <button
