@@ -1265,12 +1265,86 @@ export const runOptimizationEngine = async (
         return true;
     };
 
+    /* Learning Algorithm Overclocks only grow while they sit in a machine, so any left unused go into free space in what gets reported,
+     * even where their Efficiency penalty costs something. The search scores them like any module and often leaves them out
+     * (a 0% one earns nothing and loses Efficiency), so this is done on a copy of the result rather than inside the search
+     * Machines with Efficiency off come first, machines with an Efficiency target are skipped so it can never break one,
+     * and a spot touching no Node is preferred (a Node would amplify the penalty)
+     */
+    const learningAlgorithms = searchPoolInventory.filter(item =>
+        isOverclock(item) && item.effects.includes('Learning Algorithm') && !item.isLocked && !item.id.includes('_clone_'));
+    const withSpareLearningAlgorithms = (boards: (InventoryItem | 'Locked' | null)[][][]) => {
+        if (learningAlgorithms.length === 0) return null;
+        const onBoards = new Set<string>();
+        boards.forEach(b => b.forEach(row => row.forEach(cell => { if (cell && cell !== 'Locked') onBoards.add(cell.id); })));
+        const spare = learningAlgorithms.filter(item => !onBoards.has(item.id));
+        if (spare.length === 0) return null;
+
+        const order = machines.map((m, mIdx) => mIdx)
+            .filter(mIdx => machines[mIdx].targetStats.Efficiency === null || statIsIgnored(machines[mIdx], 'Efficiency'))
+            .sort((a, b) => Number(!statIsIgnored(machines[a], 'Efficiency')) - Number(!statIsIgnored(machines[b], 'Efficiency')));
+        let out: (InventoryItem | 'Locked' | null)[][][] | null = null;
+        const changed = new Set<number>();
+        for (const piece of spare) {
+            const orientations = PRECOMPUTED_ORIENTATIONS.get(piece.shape);
+            if (!orientations) continue;
+            let best: { mIdx: number; x: number; y: number; o: Orientation; nodes: number } | null = null;
+            for (const mIdx of order) {
+                const board = (out ?? boards)[mIdx];
+                for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) for (const o of orientations) {
+                    if (x + o.minX < 0 || x + o.maxX > 6 || y + o.minY < 0 || y + o.maxY > 4) continue;
+                    let fits = true, nodes = 0;
+                    for (let i = 0; i < o.count && fits; i++) {
+                        const cx = x + o.xs[i], cy = y + o.ys[i];
+                        if (board[cy][cx] !== null) { fits = false; break; }
+                        for (let d = 0; d < 4; d++) {
+                            const nx = cx + NEIGHBOR_DX[d], ny = cy + NEIGHBOR_DY[d];
+                            if (nx < 0 || nx > 6 || ny < 0 || ny > 4) continue;
+                            const adj = board[ny][nx];
+                            if (adj && adj !== 'Locked' && adj.color === 'White') nodes++;
+                        }
+                    }
+                    if (fits && (best === null || nodes < best.nodes)) best = { mIdx, x, y, o, nodes };
+                }
+                // A machine earlier in the order wins unless it could only take it against a Node
+                if (best !== null && best.nodes === 0) break;
+            }
+            if (best === null) continue;
+            if (out === null) out = boards.map(b => b.map(row => [...row]));
+            for (let i = 0; i < best.o.count; i++) out[best.mIdx][best.y + best.o.ys[i]][best.x + best.o.xs[i]] = piece;
+            changed.add(best.mIdx);
+        }
+        return out ? { boards: out, changed } : null;
+    };
+
     let pendingUpdate = false;
     const flushUpdate = () => {
         if (!pendingUpdate) return;
         pendingUpdate = false;
 
         const updates = new Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>();
+
+        const spare = withSpareLearningAlgorithms(bestBoards);
+        if (spare) {
+            // Every code lists the modules the other machines are not using, so all of them are rebuilt for this report
+            // The cached codes stay those of the search's own boards
+            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+                const m = machines[mIdx];
+                const board = spare.boards[mIdx];
+                const stats = spare.changed.has(mIdx) ? calculateBoardStats(board, fullInventory, inventoryById) : bestStats[mIdx];
+                const usedCloneIds = new Set<string>();
+                board.forEach(row => row.forEach(cell => { if (cell && cell !== 'Locked' && cell.id.includes('_clone_')) usedCloneIds.add(cell.id); }));
+                const inventoryForCode = fullInventory.filter(item => !item.id.includes('_clone_') || usedCloneIds.has(item.id));
+                updates.set(m.id, {
+                    board: board.map(row => [...row]),
+                    totals: stats.totals,
+                    pieceStats: stats.pieceStats,
+                    code: generateCodeFromState(m.tier, m.maximizeStats, m.targetStats, inventoryForCode, board),
+                });
+            }
+            onUpdate(updates);
+            return;
+        }
 
         for (let mIdx = 0; mIdx < machineCount; mIdx++) {
             const m = machines[mIdx];

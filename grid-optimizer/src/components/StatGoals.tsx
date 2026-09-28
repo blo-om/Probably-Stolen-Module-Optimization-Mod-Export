@@ -22,6 +22,7 @@ const C = {
     accentText: '#9fd8a9',
     met: '#4caf50',
     short: '#e0a13a',
+    far: '#e2603f',
     field: '#111',
     fieldBorder: '#444',
 };
@@ -33,12 +34,12 @@ const stepName = (b: StatBreakpoint) => (b.label.length > 12 && b.short ? b.shor
 
 // Target typed in a machine's own unit (e.g. ml/day), stored as the % target the solver works with
 // Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
-const TargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit | null; target: number | null; onChange: (pct: number) => void; disabled: boolean }) => {
-    const shown = target === null ? '' : String(unit ? unit.fromPercent(target) : target);
+const TargetInput = ({ unit, target, onChange, disabled, totals }: { unit: StatUnit | null; target: number | null; onChange: (pct: number) => void; disabled: boolean; totals: Stats }) => {
+    const shown = target === null ? '' : String(unit ? unit.fromPercent(target, totals) : target);
     const [draft, setDraft] = useState<string | null>(null);
     const commit = (text: string) => {
         if (text.trim() === '' || isNaN(Number(text))) return;
-        onChange(unit ? unit.toPercent(Number(text)) : Math.round(Number(text)));
+        onChange(unit ? unit.toPercent(Number(text), totals) : Math.round(Number(text)));
     };
     return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
@@ -87,11 +88,13 @@ type Props = {
     setTargetStats: (fn: (prev: any) => any) => void;
     disabled: boolean;
     hasBlast: boolean;
+    // Row width in px; the module grid is meant to be 0.8 of it
+    width?: number;
 };
 
 // Three cards side by side, one per stat: its name, the result it gives this machine, and Auto / Target / Off
 // Target's options open in a panel under the cards
-export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, disabled, hasBlast }: Props) => {
+export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, disabled, hasBlast, width }: Props) => {
     const [open, setOpen] = useState<StatKey | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -138,7 +141,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         // The result, in the machine's terms
         const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
         const result = unit
-            ? (unit.readout ? unit.readout(unit.fromPercent(total)) : `${unit.fromPercent(total)} ${unit.unit}`)
+            ? (unit.readout ? unit.readout(unit.fromPercent(total, totals)) : `${unit.fromPercent(total, totals)} ${unit.unit}`)
             : deseq ? `${desequencerDaysAt(work, total)} days`
             : breakpoints ? (reached ? stepName(reached) : `< ${stepName(breakpoints[0])}`)
             : fmtPct(total);
@@ -148,19 +151,24 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const goal = target === null ? null
             : deseq ? (desequencerDayOptions(work).find(o => o.value === target)?.days ?? null) !== null ? `${chip.short} ${desequencerDayOptions(work).find(o => o.value === target)!.days}d` : `${target}%`
             : breakpoints?.find(b => b.value === target) ? stepName(breakpoints.find(b => b.value === target)!)
-            : unit ? `${unit.fromPercent(target)} ${unit.unit}`
+            : unit ? `${unit.fromPercent(target, totals)} ${unit.unit}`
             : `${target}%`;
         const met = target !== null && total >= target;
         const gap = target === null || met ? null
-            : unit ? `${round2(unit.fromPercent(target) - unit.fromPercent(total))} ${unit.unit} short`
+            : unit?.lowerIsBetter ? `${round2(unit.fromPercent(total, totals) - unit.fromPercent(target, totals))} ${unit.unit} over`
+            : unit ? `${round2(unit.fromPercent(target, totals) - unit.fromPercent(total, totals))} ${unit.unit} short`
             : `${Math.ceil(target - total)}% short`;
+        // How close an unmet target is, 0..1. A target at or below 0 counts from 100 points under it
+        const progress = target === null || met ? null
+            : Math.max(0, Math.min(0.99, target > 0 ? total / target : 1 + (total - target) / 100));
+        const stateColor = off ? C.muted : target === null ? C.text : met ? C.met : progress! >= 0.75 ? C.short : C.far;
 
         const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
         const defaultTarget = deseq ? nextStepAbove(desequencerDayOptions(work))
             : breakpoints ? nextStepAbove(breakpoints)
             : Math.max(0, Math.ceil(total));
 
-        return { stat, off, target, total, mode, unit, deseq, breakpoints, work, result, detail, goal, met, gap, defaultTarget, nextStepAbove };
+        return { stat, off, target, total, mode, unit, deseq, breakpoints, work, result, detail, goal, met, gap, progress, stateColor, defaultTarget, nextStepAbove };
     });
 
     const choose = (stat: StatKey, mode: Mode, current: typeof info[number]) => {
@@ -174,34 +182,42 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     const panel = open ? info.find(i => i.stat === open)! : null;
 
     return (
-        <div ref={rootRef} style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '5px' }}>
+        <div ref={rootRef} style={{ width: width ? `${width}px` : '100%', maxWidth: '100%', alignSelf: 'center', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '4px' }}>
                 {info.map((i) => {
                     const noEffect = statHasNoEffect(machineType, i.stat) && i.off;
-                    const color = i.off ? C.muted : i.mode === 'target' ? (i.met ? C.met : C.short) : C.text;
+                    const color = i.stateColor;
                     const isOpen = open === i.stat;
+                    // Border follows the state too, faintly: green met, amber/red short, accent while its options are open
+                    const border = isOpen ? C.accentBorder : i.mode !== 'target' ? C.cardBorder : i.met ? '#2f5e37' : i.progress! >= 0.75 ? '#6b5320' : '#6e3326';
                     return (
                         <div key={i.stat} style={{
-                            display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '4px',
-                            backgroundColor: C.card, borderRadius: '6px', padding: '6px 5px 5px',
-                            border: `1px solid ${isOpen ? C.accentBorder : C.cardBorder}`,
+                            display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '3px', minWidth: 0,
+                            backgroundColor: C.card, borderRadius: '6px', padding: '5px 3px 3px',
+                            border: `1px solid ${border}`,
                         }}>
                             <span style={{ fontSize: '0.66em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center' }}>
                                 {statName(machineType, i.stat)}
                             </span>
                             {noEffect ? (
-                                <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75em', color: C.muted, minHeight: '42px' }}>No effect</span>
+                                <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75em', color: C.muted, minHeight: '38px' }}>No effect</span>
                             ) : (
                                 <>
-                                    <div style={{ textAlign: 'center', minHeight: '42px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                    <div style={{ textAlign: 'center', minHeight: '38px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
                                         <div style={{ fontSize: '1.05em', fontWeight: 'bold', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.result}>
                                             {i.result}
                                         </div>
-                                        <div style={{ fontSize: '0.65em', color: i.mode === 'target' && !i.met ? C.short : C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {i.off ? 'off' : i.mode === 'target' ? (i.met ? `✓ ${i.goal}` : `→ ${i.goal}`) : i.detail}
+                                        <div style={{ fontSize: '0.65em', color: i.mode === 'target' ? color : C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                            title={i.gap ?? undefined}>
+                                            {i.off ? 'off' : i.mode === 'target' ? (i.met ? `✓ ${i.goal}` : `→ ${i.goal} · ${Math.floor(i.progress! * 100)}%`) : i.detail}
                                         </div>
+                                        {i.progress !== null && (
+                                            <div style={{ height: '3px', margin: '2px 4px 0', background: '#2a2a2a', borderRadius: '2px', overflow: 'hidden' }}>
+                                                <div style={{ width: `${i.progress * 100}%`, height: '100%', background: color }} />
+                                            </div>
+                                        )}
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '2px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1px' }}>
                                         {(['auto', 'target', 'off'] as Mode[]).map((m) => {
                                             const on = i.mode === m;
                                             return (
@@ -211,13 +227,13 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                                     onClick={() => choose(i.stat, m, i)}
                                                     disabled={disabled}
                                                     style={{
-                                                        padding: '3px 0', fontSize: '0.68em', borderRadius: '3px', cursor: disabled ? 'not-allowed' : 'pointer',
+                                                        padding: '2px 0', fontSize: '0.62em', borderRadius: '3px', cursor: disabled ? 'not-allowed' : 'pointer', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap',
                                                         backgroundColor: on ? (m === 'off' ? '#2e2e2e' : C.accentBg) : 'transparent',
                                                         color: on ? (m === 'off' ? '#ccc' : C.accentText) : C.sub,
                                                         border: `1px solid ${on ? (m === 'off' ? '#444' : C.accentBorder) : '#333'}`,
                                                     }}
                                                 >
-                                                    {m === 'auto' ? 'Auto' : m === 'target' ? `Target${isOpen ? ' ▴' : ' ▾'}` : 'Off'}
+                                                    {m === 'auto' ? 'Auto' : m === 'target' ? 'Target' : 'Off'}
                                                 </button>
                                             );
                                         })}
@@ -254,7 +270,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                 title={`${b.hint} (${b.value}%)`} onClick={() => setTarget(panel.stat, b.value)} disabled={disabled} />
                         ))
                     ) : (
-                        <TargetInput unit={panel.unit} target={panel.target} onChange={(pct) => setTarget(panel.stat, pct)} disabled={disabled} />
+                        <TargetInput unit={panel.unit} target={panel.target} totals={totals} onChange={(pct) => setTarget(panel.stat, pct)} disabled={disabled} />
                     )}
                     {panel.gap && <span style={{ marginLeft: 'auto', fontSize: '0.75em', color: C.short }}>{panel.gap}</span>}
                 </div>
