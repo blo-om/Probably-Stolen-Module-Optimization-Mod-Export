@@ -99,11 +99,16 @@ const compareTiers = (a: Float64Array, b: Float64Array) => {
 const statIsIgnored = (m: MachineConfig, key: keyof Stats) => Boolean(m.ignoreStats?.[key]);
 const priorityOf = (m: MachineConfig, key: keyof Stats) => m.statPriority?.[key] ?? 1;
 
+// With sumPQ (see MachineConfig) Quality folds into Performance, so it is ignored as a stat of its own
 const paramsOf = (m: MachineConfig): MachineParams => ({
-    ignored: STAT_KEYS.map(k => statIsIgnored(m, k)),
-    target: STAT_KEYS.map(k => m.targetStats[k]),
-    maximize: STAT_KEYS.map(k => Boolean(m.maximizeStats?.[k])),
+    ignored: STAT_KEYS.map(k => statIsIgnored(m, k) || (Boolean(m.sumPQ) && k === 'Quality')),
+    target: STAT_KEYS.map(k => (m.sumPQ && k === 'Quality') ? null : m.targetStats[k]),
+    maximize: STAT_KEYS.map(k => !(m.sumPQ && k === 'Quality') && Boolean(m.maximizeStats?.[k])),
+    sumPQ: Boolean(m.sumPQ),
 });
+
+// A machine's value of stat s: its own total, except Performance on a sumPQ machine, which is Performance + Quality
+const statOf = (p: MachineParams, t: Totals, s: number) => (s === 0 && p.sumPQ ? t.p + t.q : totalOf(t, s));
 
 // A scored board: its totals, and its tiebreak once worked out (tbGen says under which targets)
 type Scored = Totals & { tb: number; tbGen: number };
@@ -181,7 +186,7 @@ export const runOptimizationEngine = async (
     const tierCount = rankOrder.length;
     const tierOfRank = new Map<number, number>(rankOrder.map((r, i) => [r, i]));
     // Tier of each machine's stat, -1 when ignored
-    const tierOfStat = machines.map(m => STAT_KEYS.map(k => statIsIgnored(m, k) ? -1 : tierOfRank.get(priorityOf(m, k))!));
+    const tierOfStat = machines.map((m, mIdx) => STAT_KEYS.map((k, s) => params[mIdx].ignored[s] ? -1 : tierOfRank.get(priorityOf(m, k))!));
     const stepsOf = machines.map(m => STAT_KEYS.map(k => m.targetSteps?.[k]));
 
     /* Tier layout, most important first:
@@ -210,13 +215,13 @@ export const runOptimizationEngine = async (
     const meetsTargets = (p: MachineParams, t: Totals) => {
         for (let s = 0; s < 3; s++) {
             const target = p.target[s];
-            if (!p.ignored[s] && target !== null && totalOf(t, s) < target) return false;
+            if (!p.ignored[s] && target !== null && statOf(p, t, s) < target) return false;
         }
         return true;
     };
 
     // What a module is worth to the machines that maximize (Nodes a little; specials and Overclocks nothing)
-    const maximized = [0, 1, 2].filter(s => params.some(p => !p.ignored[s] && p.maximize[s]));
+    const maximized = [0, 1, 2].filter(s => params.some(p => (!p.ignored[s] && p.maximize[s]) || (s === 1 && p.sumPQ && p.maximize[0])));
     const valueStats = maximized.length > 0 ? maximized : [0, 1, 2];
     const value = new Float64Array(N);
     for (let i = 0; i < N; i++) {
@@ -238,7 +243,7 @@ export const runOptimizationEngine = async (
         for (let s = 0; s < 3; s++) {
             const target = p.target[s];
             if (p.ignored[s] || target === null || p.maximize[s]) continue;
-            const v = totalOf(t, s);
+            const v = statOf(p, t, s);
             if (v > target) overshoot += v - target;
         }
         const g = ++tbStampGen;
@@ -263,7 +268,7 @@ export const runOptimizationEngine = async (
             for (let s = 0; s < 3; s++) {
                 const ti = tierOfStat[mIdx][s];
                 if (ti < 0) continue;
-                const v = totalOf(st, s);
+                const v = statOf(p, st, s);
                 const target = p.target[s];
                 if (target !== null && v < target) {
                     tiers[ti] -= (target - v) * 10000;
@@ -294,10 +299,10 @@ export const runOptimizationEngine = async (
                 byTier.forEach((members, ti) => {
                     if (members.length < 2) return;
                     let sum = 0;
-                    for (const mIdx of members) sum += totalOf(statsFor(mIdx), s);
+                    for (const mIdx of members) sum += statOf(ps[mIdx], statsFor(mIdx), s);
                     const avg = sum / members.length;
                     let mad = 0;
-                    for (const mIdx of members) mad += Math.abs(totalOf(statsFor(mIdx), s) - avg);
+                    for (const mIdx of members) mad += Math.abs(statOf(ps[mIdx], statsFor(mIdx), s) - avg);
                     tiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
                 });
             }
@@ -341,6 +346,7 @@ export const runOptimizationEngine = async (
                 if (ti !== -1) v += 15 * ((mask & (1 << ti)) !== 0 ? TARGET_MET_DRAW_SCALE : 1);
                 return v * Math.pow(PRIORITY_WEIGHT_STEP, tierCount - 1 - tierOfStat[mIdx][s]);
             });
+            if (p.sumPQ) w[1] = w[0];
             const values = new Float64Array(P);
             const stated: number[] = [];
             for (let i = 0; i < P; i++) {
@@ -580,7 +586,7 @@ export const runOptimizationEngine = async (
             for (let s = 0; s < 3; s++) {
                 const target = params[mIdx].target[s];
                 if (params[mIdx].ignored[s] || target === null || !stepsOf[mIdx][s]) continue;
-                if (totalOf(bestStats[mIdx], s) >= target) continue;
+                if (statOf(params[mIdx], bestStats[mIdx], s) >= target) continue;
                 const rank = priorityOf(machines[mIdx], STAT_KEYS[s]);
                 if (pick === null || rank > pick.rank || (rank === pick.rank && mIdx > pick.mIdx)) pick = { mIdx, s, rank };
             }
@@ -745,10 +751,10 @@ export const runOptimizationEngine = async (
                         let sum = 0, cnt = 0;
                         for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                             if (tierOfStat[mIdx][s] !== ti) continue;
-                            sum += totalOf(currentStats[mIdx], s);
+                            sum += statOf(params[mIdx], currentStats[mIdx], s);
                             cnt++;
                         }
-                        if (cnt > 1 && totalOf(currentStats[fillMIdx], s) < sum / cnt) w[s] *= 2;
+                        if (cnt > 1 && statOf(p, currentStats[fillMIdx], s) < sum / cnt) w[s] *= 2;
                     }
                 }
 
@@ -792,7 +798,7 @@ export const runOptimizationEngine = async (
                 let metMask = 0;
                 for (let i = 0; i < targeted.length; i++) {
                     const target = p.target[targeted[i]];
-                    if (target === null || totalOf(currentStats[fillMIdx], targeted[i]) >= target) metMask |= 1 << i;
+                    if (target === null || statOf(p, currentStats[fillMIdx], targeted[i]) >= target) metMask |= 1 << i;
                 }
                 const values = drawValues[fillMIdx][metMask];
 

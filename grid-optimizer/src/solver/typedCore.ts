@@ -22,6 +22,8 @@ export const NEIGHBOR_DY = [-1, 1, 0, 0];
 // What the objective needs to know about one machine, per stat (0 Performance, 1 Quality, 2 Efficiency)
 export interface MachineParams {
     ignored: boolean[];
+    // Performance and Quality count as one stat, their sum, scored under Performance (Mirage Projector attractiveness); Quality is then ignored
+    sumPQ?: boolean;
     // null when the stat has no target
     target: (number | null)[];
     maximize: boolean[];
@@ -277,7 +279,9 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         dp += roundStat(myP); dq += roundStat(myQ); de += roundStat(myE);
         delta[0] = dp; delta[1] = dq; delta[2] = de;
 
-        const statScore = scoreStat(0, dp, c0, w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
+        const statScore = params.sumPQ
+            ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
+            : scoreStat(0, dp, c0, w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
         const tiebreakers = (adj * 0.05) - (negativeContacts * 1000);
         if (statScore < 0 || (statScore === 0 && !zeroScoreOk)) return -10000 + tiebreakers;
         return statScore + tiebreakers;
