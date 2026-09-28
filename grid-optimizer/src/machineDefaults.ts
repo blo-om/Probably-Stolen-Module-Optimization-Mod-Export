@@ -38,7 +38,11 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 //   Water Purifier - lowers the contaminant floor at 50 / 75 / 100 / 200%. A basic source needs 100% for pure (75% if
 //                    pitcher-filtered first), which puts its floor at 0.5-1.25%: basewater at 0%, high-quality by 50%
 //   Furnace        - every full 100% raises the ingot one purity stage (negative Quality does nothing). Flux only lifts 0 stages to 1,
-//                    so from 100% it is not consumed. A Blast module takes one stage off, so every step needs 100% more
+//                    so from 100% it is not consumed. A Blast module takes one stage off, so every step needs 100% more.
+//                    Checked against the game (MachineFurnace day lambda, IngotPurityHelper): stages = Quality / 100 (RNG.ModuloWithCount is
+//                    plain whole division, no chance involved), Blast -1 (never below 0) and 3 inputs for 2 ingots, flux lifts 0 to 1 and is
+//                    used up, advanced flux lifts 0 to 1 and is never used up. Base purity: no ore Low, one ore Fair, two ore High
+//                    (from the last two inputs, ores sort last); each stage is one step up (Very low, Low, Fair, High, Very high, Perfect), capped at Perfect
 //   AgeWell        - every 125% ages the wine one more day per night (only multiples of 125 matter)
 //   Desequencer    - Performance: 33 + (33 * P) / 100 work a day (MachineProgressHelper); a keycard takes whole days, so only the cut-offs
 //                    where some chipset's card finishes a day sooner matter. Checked against the game: the guide's 90% for Security in 2 days is 91%
