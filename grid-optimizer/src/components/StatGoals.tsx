@@ -1,35 +1,34 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Stats } from '../types';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect,
     isDesequencer, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerDaysAt,
 } from '../machineDefaults';
-import type { StatBreakpoint, StatUnit } from '../machineDefaults';
+import type { StatUnit } from '../machineDefaults';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
-type Mode = 'off' | 'max' | 'goal';
 
 const STATS: StatKey[] = ['Performance', 'Quality', 'Efficiency'];
 
 const C = {
-    rowBorder: '#2c2c2c',
     text: '#ddd',
     sub: '#8a8a8a',
     muted: '#5f5f5f',
-    onBg: '#1d3323',
-    onBorder: '#3f7a4c',
-    onText: '#9fd8a9',
+    goalBg: '#1d3323',
+    goalBorder: '#3f7a4c',
+    goalText: '#9fd8a9',
     ok: '#4caf50',
     short: '#e0a13a',
     field: '#111',
     fieldBorder: '#444',
 };
 
-const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${Math.trunc(v)}%`;
+const fmtPct = (v: number) => `${Math.trunc(v)}%`;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 // Target typed in a machine's own unit (e.g. ml/day), stored as the % target the solver works with
 // Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
-const UnitTargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit | null; target: number | null; onChange: (pct: number | null) => void; disabled: boolean }) => {
+const TargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit | null; target: number | null; onChange: (pct: number) => void; disabled: boolean }) => {
     const shown = target === null ? '' : String(unit ? unit.fromPercent(target) : target);
     const [draft, setDraft] = useState<string | null>(null);
     const commit = (text: string) => {
@@ -47,52 +46,31 @@ const UnitTargetInput = ({ unit, target, onChange, disabled }: { unit: StatUnit 
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 disabled={disabled}
                 title={unit?.hint}
-                style={{ width: '64px', padding: '3px 4px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px', textAlign: 'center' }}
+                style={{ width: '64px', padding: '2px 4px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px', textAlign: 'center' }}
             />
             <span style={{ fontSize: '0.75em', color: C.sub }}>{unit ? unit.unit : '%'}</span>
         </span>
     );
 };
 
-const Chip = ({ label, selected, reached, title, onClick, disabled }: { label: string; selected: boolean; reached: boolean; title?: string; onClick: () => void; disabled: boolean }) => (
+const Option = ({ label, selected, title, onClick, disabled, dim }: { label: string; selected: boolean; title?: string; onClick: () => void; disabled: boolean; dim?: boolean }) => (
     <button
         type="button"
         onClick={onClick}
         disabled={disabled}
         title={title}
         style={{
-            padding: '2px 8px', fontSize: '0.75em', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer',
-            backgroundColor: selected ? C.onBg : 'transparent',
-            color: selected ? C.onText : reached ? C.text : C.sub,
-            border: `1px ${reached && !selected ? 'dashed' : 'solid'} ${selected ? C.onBorder : reached ? '#666' : '#3a3a3a'}`,
+            padding: '2px 9px', fontSize: '0.75em', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer',
+            backgroundColor: selected ? C.goalBg : 'transparent',
+            color: selected ? C.goalText : dim ? C.muted : C.sub,
+            border: `1px solid ${selected ? C.goalBorder : '#3a3a3a'}`,
         }}
     >
         {label}
     </button>
 );
 
-const ModeSwitch = ({ mode, onChange, disabled }: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean }) => (
-    <div role="radiogroup" style={{ display: 'inline-flex', border: `1px solid ${C.fieldBorder}`, borderRadius: '5px', overflow: 'hidden', flexShrink: 0 }}>
-        {(['off', 'max', 'goal'] as Mode[]).map((m) => (
-            <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={mode === m}
-                onClick={() => onChange(m)}
-                disabled={disabled}
-                style={{
-                    padding: '2px 8px', fontSize: '0.72em', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-                    backgroundColor: mode === m ? (m === 'off' ? '#333' : C.onBg) : 'transparent',
-                    color: mode === m ? (m === 'off' ? C.text : C.onText) : C.sub,
-                    borderLeft: m === 'off' ? 'none' : `1px solid ${C.fieldBorder}`,
-                }}
-            >
-                {m === 'off' ? 'Off' : m === 'max' ? 'Max' : 'Goal'}
-            </button>
-        ))}
-    </div>
-);
+const selectStyle: React.CSSProperties = { padding: '2px', fontSize: '0.75em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' };
 
 type Props = {
     machineType: string;
@@ -106,8 +84,19 @@ type Props = {
     hasBlast: boolean;
 };
 
-// One row per stat: what it does on this machine, what it is now, and Off / Max / a goal in the machine's own terms
+// One line per stat: name, where it is now, and a pill with its goal. Clicking the pill opens that stat's options
 export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, disabled, hasBlast }: Props) => {
+    const [open, setOpen] = useState<StatKey | null>(null);
+    const rootRef = useRef<HTMLDivElement>(null);
+
+    // Clicking anywhere else closes the open row
+    useEffect(() => {
+        if (!open) return;
+        const close = (e: MouseEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(null); };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [open]);
+
     const chipsetKey = `optimizer_chipset_${machineId}`;
     const [chipset, setChipsetState] = useState<number | null>(() => {
         try { const v = Number(localStorage.getItem(chipsetKey)); return v ? v : null; } catch { return null; }
@@ -118,22 +107,25 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     };
 
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));
+    const setOff = (stat: StatKey, off: boolean) => setIgnoreStats((prev: any) => ({ ...prev, [stat]: off }));
 
     return (
-        <div style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+        <div ref={rootRef} style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {STATS.map((stat) => {
                 const off = Boolean(ignoreStats[stat]);
                 const target = targetStats[stat];
-                const mode: Mode = off ? 'off' : target === null ? 'max' : 'goal';
                 const total = totals[stat];
-                const name = statName(machineType, stat);
-                const noEffect = statHasNoEffect(machineType, stat);
-                const unit = statUnit(machineType, stat);
-                const breakpoints = statBreakpoints(machineType, stat, hasBlast);
-                const deseq = stat === 'Performance' && isDesequencer(machineType);
 
-                // Chipset in use: the saved pick (Command until one is made) if the current goal is one of its steps,
-                // else the first chipset the goal belongs to
+                // A stat that does nothing here is not shown while it is off
+                if (off && statHasNoEffect(machineType, stat)) return null;
+
+                const name = statName(machineType, stat);
+                const unit = statUnit(machineType, stat);
+                const deseq = stat === 'Performance' && isDesequencer(machineType);
+                const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
+                const isOpen = open === stat;
+
+                // Chipset in use: the saved pick (Command until one is made) if the goal is one of its steps, else the first chipset the goal belongs to
                 const work = (() => {
                     const preferred = chipset ?? 150;
                     if (!deseq || target === null) return preferred;
@@ -141,132 +133,103 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                     if (fits(preferred)) return preferred;
                     return DESEQUENCER_CHIPSETS.find(c => fits(c.work))?.work ?? preferred;
                 })();
+                const chip = DESEQUENCER_CHIPSETS.find(c => c.work === work)!;
+                const daysFor = (value: number) => desequencerDayOptions(work).find(o => o.value === value)?.days;
 
-                // A stat that does nothing here is one quiet line while it is off
-                if (off && noEffect) {
-                    return (
-                        <div key={stat} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 2px', borderTop: `1px solid ${C.rowBorder}`, fontSize: '0.75em', color: C.muted }}>
-                            <span>{stat}</span><span>No effect here</span>
-                        </div>
-                    );
-                }
-
-                const valueText = unit
+                // Where the machine is now, in the stat's own terms
+                const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
+                const now = unit
                     ? (unit.readout ? unit.readout(unit.fromPercent(total)) : `${unit.fromPercent(total)} ${unit.unit}`)
-                    : deseq ? `${DESEQUENCER_CHIPSETS.find(c => c.work === work)!.name} in ${desequencerDaysAt(work, total)}d`
-                    : breakpoints ? (() => {
-                        const reached = [...breakpoints].reverse().find(b => total >= b.value);
-                        return reached ? reached.label : `below ${breakpoints[0].label}`;
-                    })()
-                    : null;
+                    : deseq ? `${chip.short} ${desequencerDaysAt(work, total)}d`
+                    : breakpoints ? `${reached ? (reached.short ?? reached.label) : '–'} · ${fmtPct(total)}`
+                    : fmtPct(total);
 
-                // First step above where the machine is now, the natural thing to aim for when switching to Goal
-                const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
+                // The goal pill
+                const pick = breakpoints?.find(b => b.value === target);
+                const pill = off ? 'Off'
+                    : target === null ? 'Max'
+                    : deseq && daysFor(target) !== undefined ? `${chip.short} ${daysFor(target)}d`
+                    : pick ? (pick.short ?? pick.label)
+                    : unit ? `${unit.fromPercent(target)} ${unit.unit}`
+                    : `${target}%`;
 
-                const changeMode = (m: Mode) => {
-                    if (m === mode) return;
-                    if (m === 'off') { setIgnoreStats((prev: any) => ({ ...prev, [stat]: true })); return; }
-                    if (off) setIgnoreStats((prev: any) => ({ ...prev, [stat]: false }));
-                    if (m === 'max') { setTarget(stat, null); return; }
-                    if (deseq) setTarget(stat, nextStepAbove(desequencerDayOptions(work)));
-                    else if (breakpoints) setTarget(stat, nextStepAbove(breakpoints));
-                    else if (unit) setTarget(stat, Math.max(0, Math.ceil(total)));
-                    else setTarget(stat, Math.max(0, Math.ceil(total)));
-                };
-
-                // Status: met, or how far off in the goal's own terms. In Max, stepped stats show the next step up
+                // Met, or how far off. In Max, a stepped stat shows its next step
                 let status: React.ReactNode = null;
-                if (mode === 'goal' && target !== null) {
-                    if (total >= target) {
-                        status = <span style={{ color: C.ok }}>✓ met</span>;
-                    } else {
-                        const gap = unit
-                            ? `${Math.round((unit.fromPercent(target) - unit.fromPercent(total)) * 100) / 100} ${unit.unit}`
-                            : `${Math.ceil(target - total)}%`;
-                        status = <span style={{ color: C.short }}>{gap} short</span>;
-                    }
-                } else if (mode === 'max' && breakpoints && !deseq) {
+                const isShort = !off && target !== null && total < target;
+                if (!off && target !== null) {
+                    status = isShort
+                        ? <span style={{ color: C.short }}>{unit ? round2(unit.fromPercent(target) - unit.fromPercent(total)) : `${Math.ceil(target - total)}%`} short</span>
+                        : <span style={{ color: C.ok }}>✓</span>;
+                } else if (!off && breakpoints) {
                     const next = breakpoints.find(b => b.value > total);
-                    if (next) status = <span style={{ color: C.sub }}>next: {next.short ?? next.label} at {next.value}% (+{Math.ceil(next.value - total)}%)</span>;
-                }
-                const progress = mode === 'goal' && target !== null && target > 0 ? Math.max(0, Math.min(1, total / target)) : null;
-
-                let goalControl: React.ReactNode = null;
-                if (mode === 'goal') {
-                    if (deseq) {
-                        const options = desequencerDayOptions(work);
-                        goalControl = (
-                            <>
-                                <select
-                                    value={work}
-                                    disabled={disabled}
-                                    onChange={(e) => {
-                                        const w = Number(e.target.value);
-                                        setChipset(w);
-                                        // Its first speed-up above where the machine is now, as when switching to Goal
-                                        setTarget(stat, nextStepAbove(desequencerDayOptions(w)));
-                                    }}
-                                    style={{ padding: '2px', fontSize: '0.75em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' }}
-                                >
-                                    {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name} ({c.work})</option>)}
-                                </select>
-                                <select
-                                    value={target ?? ''}
-                                    disabled={disabled}
-                                    onChange={(e) => setTarget(stat, Number(e.target.value))}
-                                    style={{ padding: '2px', fontSize: '0.75em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' }}
-                                >
-                                    {options.map(o => <option key={o.value} value={o.value}>in {o.days} day{o.days > 1 ? 's' : ''}{o.value === 0 ? ' (base)' : ` (${o.value}%)`}</option>)}
-                                    {target !== null && !options.some(o => o.value === target) && <option value={target}>{target}%</option>}
-                                </select>
-                            </>
-                        );
-                    } else if (breakpoints) {
-                        const custom = target !== null && !breakpoints.some(b => b.value === target);
-                        goalControl = (
-                            <>
-                                {breakpoints.map((b: StatBreakpoint) => (
-                                    <Chip
-                                        key={b.value}
-                                        label={b.short ?? b.label}
-                                        selected={target === b.value}
-                                        reached={total >= b.value}
-                                        title={`${b.label} — ${b.hint} (needs ${b.value}%)`}
-                                        onClick={() => setTarget(stat, b.value)}
-                                        disabled={disabled}
-                                    />
-                                ))}
-                                {custom && <Chip label={`${target}%`} selected reached={total >= target!} onClick={() => {}} disabled={disabled} />}
-                            </>
-                        );
-                    } else {
-                        goalControl = <UnitTargetInput unit={unit} target={target} onChange={(pct) => setTarget(stat, pct)} disabled={disabled} />;
-                    }
+                    if (next) status = <span style={{ color: C.muted }}>{next.short ?? next.label} at {next.value}%</span>;
                 }
 
-                // The Desequencer's pickers already say it all; its breakpoint hints mix chipsets
-                const pickedHint = deseq ? undefined : breakpoints?.find(b => b.value === target)?.hint;
+                const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
+                const chooseMax = () => { setOff(stat, false); setTarget(stat, null); };
+                const chooseGoal = (value: number) => { setOff(stat, false); setTarget(stat, value); };
+
+                let goalOptions: React.ReactNode;
+                if (deseq) {
+                    const options = desequencerDayOptions(work);
+                    goalOptions = (
+                        <>
+                            <select value={work} disabled={disabled} style={selectStyle}
+                                onChange={(e) => { const w = Number(e.target.value); setChipset(w); chooseGoal(nextStepAbove(desequencerDayOptions(w))); }}>
+                                {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name}</option>)}
+                            </select>
+                            <select value={!off && target !== null ? target : ''} disabled={disabled} style={selectStyle}
+                                onChange={(e) => chooseGoal(Number(e.target.value))}>
+                                {(off || target === null) && <option value="">days</option>}
+                                {options.map(o => <option key={o.value} value={o.value}>{o.days}d</option>)}
+                                {!off && target !== null && !options.some(o => o.value === target) && <option value={target}>{target}%</option>}
+                            </select>
+                        </>
+                    );
+                } else if (breakpoints) {
+                    goalOptions = breakpoints.map(b => (
+                        <Option key={b.value} label={b.short ?? b.label} selected={!off && target === b.value}
+                            title={`${b.label}: ${b.hint} (${b.value}%)`} onClick={() => chooseGoal(b.value)} disabled={disabled} />
+                    ));
+                } else {
+                    goalOptions = <TargetInput unit={unit} target={off ? null : target} onChange={(pct) => chooseGoal(pct)} disabled={disabled} />;
+                }
 
                 return (
-                    <div key={stat} style={{ padding: '6px 2px', borderTop: `1px solid ${C.rowBorder}`, display: 'flex', flexDirection: 'column', gap: '5px', opacity: off ? 0.6 : 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                                <span title={name !== stat ? stat : undefined} style={{ fontSize: '0.8em', fontWeight: 'bold', color: C.text }}>{name}</span>
-                                <span style={{ fontSize: '0.75em', color: total > 0 ? C.ok : total < 0 ? '#ff4d4d' : C.sub }}>{fmtPct(total)}</span>
-                                {valueText && <span style={{ fontSize: '0.72em', color: C.sub }}>{valueText}</span>}
+                    <div key={stat} style={{ padding: '4px 2px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '24px' }}>
+                            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: '6px', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                <span style={{ fontSize: '0.82em', color: off ? C.muted : C.text }}>{name}</span>
+                                {!off && <span style={{ fontSize: '0.75em', color: C.sub }}>{now}</span>}
                             </div>
-                            <ModeSwitch mode={mode} onChange={changeMode} disabled={disabled} />
+                            {status && <span style={{ fontSize: '0.72em', whiteSpace: 'nowrap' }}>{status}</span>}
+                            <button
+                                type="button"
+                                onClick={() => setOpen(isOpen ? null : stat)}
+                                disabled={disabled}
+                                style={{
+                                    padding: '1px 10px', fontSize: '0.75em', borderRadius: '999px', whiteSpace: 'nowrap',
+                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                    backgroundColor: !off && target !== null ? C.goalBg : 'transparent',
+                                    color: off ? C.muted : target !== null ? C.goalText : C.text,
+                                    border: `1px ${off ? 'dashed' : 'solid'} ${off ? '#444' : target !== null ? C.goalBorder : '#555'}`,
+                                    outline: isOpen ? `1px solid ${C.goalBorder}` : 'none', outlineOffset: '1px',
+                                }}
+                            >
+                                {pill}
+                            </button>
                         </div>
-                        {(goalControl || status) && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '5px', fontSize: '0.8em' }}>
-                                {goalControl}
-                                {status && <span style={{ fontSize: '0.9em', marginLeft: 'auto' }}>{status}</span>}
+                        {isShort && target! > 0 && (
+                            <div style={{ height: '2px', background: '#262626', borderRadius: '1px', overflow: 'hidden', marginTop: '3px' }}>
+                                <div style={{ width: `${Math.max(0, Math.min(1, total / target!)) * 100}%`, height: '100%', background: C.short }} />
                             </div>
                         )}
-                        {mode === 'goal' && pickedHint && <div style={{ fontSize: '0.7em', color: C.sub }}>{pickedHint}</div>}
-                        {progress !== null && (
-                            <div style={{ height: '3px', background: '#262626', borderRadius: '2px', overflow: 'hidden' }}>
-                                <div style={{ width: `${progress * 100}%`, height: '100%', background: progress >= 1 ? C.ok : C.short }} />
+                        {isOpen && (
+                            <div onKeyDown={(e) => e.stopPropagation()} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '5px', padding: '6px 0 2px' }}>
+                                <Option label="Off" dim selected={off} onClick={() => setOff(stat, true)} disabled={disabled} />
+                                <Option label="Max" selected={!off && target === null} onClick={chooseMax} disabled={disabled} />
+                                <span style={{ width: '1px', alignSelf: 'stretch', background: '#3a3a3a', margin: '0 2px' }} />
+                                {goalOptions}
                             </div>
                         )}
                     </div>
