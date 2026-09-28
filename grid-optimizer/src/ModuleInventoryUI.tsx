@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, qualityBreakpoints } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints } from './machineDefaults';
 import { runOptimizationEngine } from './hooks/useOptimizer';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
@@ -226,7 +226,7 @@ const MachineInstance = React.memo(forwardRef(({
     const machineIconUrl = machineIcon(machineType);
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
-    const breakpoints = qualityBreakpoints(machineType, hasBlast);
+    const breakpointsFor = (stat: 'Performance' | 'Quality' | 'Efficiency') => statBreakpoints(machineType, stat, hasBlast);
 
     // The stat cards are plain on/off switches: an enabled stat is maximized unless it has a target %.
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
@@ -688,16 +688,17 @@ const MachineInstance = React.memo(forwardRef(({
                                     }}
                                 >
                                     <span style={{ fontSize: '0.6em', color: '#ddd', textTransform: 'uppercase', fontWeight: 'bold', textAlign: 'center' }}>{stat}</span>
-                                    {stat === 'Quality' && breakpoints ? (() => {
-                                        const target = optimizer.targetStats.Quality;
+                                    {breakpointsFor(stat) ? (() => {
+                                        const breakpoints = breakpointsFor(stat)!;
+                                        const target = optimizer.targetStats[stat];
                                         const picked = breakpoints.find(b => b.value === target);
                                         return (
                                             <select
                                                 onClick={(e) => e.stopPropagation()}
                                                 value={target ?? ''}
-                                                onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, Quality: e.target.value === '' ? null : Number(e.target.value) }))}
+                                                onChange={(e) => optimizer.setTargetStats((prev: any) => ({ ...prev, [stat]: e.target.value === '' ? null : Number(e.target.value) }))}
                                                 disabled={currentSolving || !isOn}
-                                                title={picked ? `${picked.hint} (needs ${picked.value}% Quality)` : 'Pick the outcome you want; Quality only counts at these breakpoints'}
+                                                title={picked ? `${picked.hint} (needs ${picked.value}% ${stat})` : `Pick the outcome you want; ${stat} only counts at these breakpoints`}
                                                 style={{ width: '100%', maxWidth: '130px', padding: '2px', fontSize: '0.7em', backgroundColor: '#111', color: '#eee', border: '1px solid #444', borderRadius: '3px', textAlign: 'center' }}
                                             >
                                                 <option value="">Max</option>
