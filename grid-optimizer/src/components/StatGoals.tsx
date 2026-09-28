@@ -7,8 +7,8 @@ import {
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
-// limit: keep optimizing, but never past the value set (energy); auto: optimize; target: reach it and stop
-type Mode = 'auto' | 'limit' | 'target' | 'off';
+// auto: optimize; target: reach the value set (for energy, optionally as a ceiling that is still optimized under, see limitStats); off: ignore
+type Mode = 'auto' | 'target' | 'off';
 
 const C = {
     card: '#1a1a1a',
@@ -127,7 +127,7 @@ type Card = {
     gap: string | null;
 };
 
-const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', limit: 'Limit', target: 'Target', off: 'Off' };
+const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', target: 'Target', off: 'Off' };
 
 // One card per stat (the Mirage Projector's Performance and Quality share one): the stat's name, the result it gives this machine,
 // and its modes in a strip along the bottom. A mode that takes a value opens its choices under the cards
@@ -168,8 +168,9 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);
         const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
-        const limited = energy && (limitStats[stat] || target === null);
-        const mode: Mode = off ? 'off' : energy ? (limited ? 'limit' : 'target') : (target === null ? 'auto' : 'target');
+        const mode: Mode = off ? 'off' : target === null ? 'auto' : 'target';
+        // Energy only: the target is a ceiling (at most this much a day, and less if it can) rather than a value to reach and stop at
+        const limited = energy && limitStats[stat];
 
         // Chipset in use: the saved pick (Command until one is made) if the goal is one of its steps, else the first chipset the goal belongs to
         const work = (() => {
@@ -199,7 +200,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             : unit?.lowerIsBetter ? `${withUnit(round2(unit.fromPercent(total, totals) - unit.fromPercent(target, totals)), unit.unit)} over`
             : unit ? `${withUnit(round2(unit.fromPercent(target, totals) - unit.fromPercent(total, totals)), unit.unit)} short`
             : `${Math.ceil(target - total)}% short`;
-        const color = off ? C.muted : progress !== null ? colorFor(progress) : (mode === 'target' ? C.met : C.text);
+        const color = off ? C.muted : progress !== null ? colorFor(progress) : (mode === 'target' && !limited ? C.met : C.text);
 
         const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
         const defaultTarget = deseq ? nextStepAbove(desequencerDayOptions(work))
@@ -209,18 +210,22 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const choose = (m: Mode) => {
             if (m === 'off') { setOff(stat, true); setOpen(null); return; }
             setOff(stat, false);
-            if (m === 'auto') { setTarget(stat, null); setOpen(null); return; }
-            if (m === 'limit') { setLimit(stat, true); setOpen(open === stat && mode === 'limit' ? null : stat); return; }
-            if (energy) setLimit(stat, false);
+            if (m === 'auto') { setTarget(stat, null); if (energy) setLimit(stat, false); setOpen(null); return; }
             if (target === null) setTarget(stat, defaultTarget);
             setOpen(open === stat && mode === 'target' ? null : stat);
         };
 
         let panel: React.ReactNode = null;
-        if (mode === 'limit') {
-            panel = <TargetInput unit={unit} target={target} totals={totals} placeholder="no limit" onChange={(pct) => setTarget(stat, pct)} disabled={disabled} />;
-        } else if (mode === 'target') {
-            if (deseq) {
+        if (mode === 'target') {
+            if (energy) {
+                panel = (
+                    <>
+                        <Choice label="Exactly" selected={!limited} title="Reach this and stop spending modules on it" onClick={() => setLimit(stat, false)} disabled={disabled} />
+                        <Choice label="At most" selected={limited} title="Never use more than this a day, and less if the layout allows" onClick={() => setLimit(stat, true)} disabled={disabled} />
+                        <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />
+                    </>
+                );
+            } else if (deseq) {
                 panel = (
                     <>
                         <select value={work} disabled={disabled} style={selectStyle}
@@ -245,7 +250,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             key: stat, name: statName(machineType, stat), result, color, progress, gap, panel, mode, choose,
             tooltip: goal ? `${goal}${met ? ' ✓' : progress !== null ? ` · ${Math.floor(progress * 100)}%` : ''}` : undefined,
             noEffect: off && statHasNoEffect(machineType, stat),
-            modes: energy ? ['limit', 'target', 'off'] : ['auto', 'target', 'off'],
+            modes: ['auto', 'target', 'off'],
         };
     };
 
@@ -277,9 +282,10 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         };
     };
 
+    // A stat that does nothing on this machine gets no card at all
     const cards: Card[] = isMirage(machineType)
         ? [attractivenessCard(), statCard('Efficiency')]
-        : (['Performance', 'Quality', 'Efficiency'] as StatKey[]).map(statCard);
+        : (['Performance', 'Quality', 'Efficiency'] as StatKey[]).filter(stat => !statHasNoEffect(machineType, stat)).map(statCard);
     const openCard = cards.find(c => c.key === open && c.panel);
 
     return (
