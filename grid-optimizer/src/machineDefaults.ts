@@ -33,28 +33,49 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 
 // Quality only matters at fixed thresholds on some machines, so their Quality card picks an outcome instead of a number.
 // The pick becomes the Quality target, and since a target is a threshold, nothing is spent past it.
-// From the community water guide (Maslak):
+// From the community guides (Maslak):
 //   Moisture Farm  - every 50% steps the water it makes up a grade; 49% still makes ghostwater
-//   Water Purifier - lowers the contaminant floor at 50 / 75 / 100 / 200%; negative Quality does nothing
+//   Water Purifier - lowers the contaminant floor at 50 / 75 / 100 / 200%. A basic source needs 100% for pure (75% if
+//                    pitcher-filtered first), which puts its floor at 0.5-1.25%: basewater at 0%, high-quality by 50%
+//   Furnace        - every 100% raises the ingot one purity stage, and 100% also stops Flux being consumed.
+//                    With a Blast module the first 100% is ignored, so every step needs 100% more
 export type QualityBreakpoint = { value: number; label: string; hint: string };
 
-const QUALITY_BREAKPOINTS: [string, QualityBreakpoint[]][] = [
-    ['moisture farm', [
+const PURITIES = ['Low', 'Fair', 'High', 'Very high', 'Perfect'];
+
+const furnaceBreakpoints = (hasBlast: boolean): QualityBreakpoint[] => {
+    // Base purity of each recipe, by index into PURITIES
+    const recipes: [string, number][] = hasBlast
+        ? [['3 scrap', 0], ['2 scrap + 1 ore', 1], ['1 scrap + 2 ore', 2]]
+        : [['2 scrap', 0], ['1 scrap + 1 ore', 1], ['2 ore', 2]];
+    const offset = hasBlast ? 100 : 0;
+    return [1, 2, 3, 4].map(stages => ({
+        value: stages * 100 + offset,
+        label: `+${stages} purity${stages === 1 ? ', flux free' : ''}`,
+        hint: recipes.map(([recipe, base]) => `${recipe} → ${PURITIES[Math.min(base + stages, 4)]}`).join(' · ')
+            + (hasBlast ? ' (Blast: first 100% ignored)' : ''),
+    }));
+};
+
+const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => QualityBreakpoint[]][] = [
+    ['moisture farm', () => [
         { value: 0, label: 'Ghostwater', hint: '96-98% water. Pitcher: 75% high-quality, 25% basewater' },
         { value: 50, label: 'Basewater', hint: '98-99% water. Pitcher: always high-quality' },
         { value: 100, label: 'High-quality', hint: '99-99.9% water. Pitcher: 26% pure' },
         { value: 150, label: 'Pure', hint: '99.9%+ water, no filtering needed' },
     ]],
-    ['water purifier', [
-        { value: 50, label: 'Contaminants ÷3', hint: 'Contaminant floor divided by 3' },
-        { value: 75, label: 'Pure (pre-filtered)', hint: 'Pure water from a basic source filtered in a pitcher first (floor ÷5)' },
-        { value: 100, label: 'Pure', hint: 'Pure water from any basic source: traders, tap, moisture farm (floor ÷12.5)' },
+    ['water purifier', () => [
+        { value: 0, label: 'Basewater', hint: 'Any basic source already comes out basewater or better' },
+        { value: 50, label: 'High-quality', hint: 'High-quality from any basic source (pitcher-filtered water is already high-quality at 0%)' },
+        { value: 75, label: 'Pure (pre-filtered)', hint: 'Pure from a basic source filtered in a pitcher first' },
+        { value: 100, label: 'Pure', hint: 'Pure from any basic source: traders, tap, moisture farm' },
         { value: 200, label: '100% water', hint: 'Contaminant floor 0%: converts everything' },
     ]],
+    ['furnace', furnaceBreakpoints],
 ];
 
-export const qualityBreakpoints = (machineType: string): QualityBreakpoint[] | null => {
+export const qualityBreakpoints = (machineType: string, hasBlast = false): QualityBreakpoint[] | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     const hit = QUALITY_BREAKPOINTS.find(([keyword]) => name.includes(keyword));
-    return hit ? hit[1] : null;
+    return hit ? hit[1](hasBlast) : null;
 };
