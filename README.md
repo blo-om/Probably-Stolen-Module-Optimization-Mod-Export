@@ -20,6 +20,8 @@ The machine icons in `grid-optimizer/public/machines/` are item art from *Probab
 
 ## Mod export format
 
+**Making your own optimizer work with the mod?** See [MOD_COMPATIBILITY.md](MOD_COMPATIBILITY.md) for the full format, where every value comes from in the save, why module uids are required, a minimal encoder, and how to test.
+
 ```
 PSMOD1:<base64url(UTF-8 JSON)>
 ```
