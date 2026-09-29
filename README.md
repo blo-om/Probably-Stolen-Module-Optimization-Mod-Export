@@ -21,28 +21,28 @@ The machine icons in `grid-optimizer/public/machines/` are item art from *Probab
 ## Mod export format
 
 ```
-PSMOD2:<base64url(UTF-8 JSON)>
+PSMOD1:<base64url(UTF-8 JSON)>
 ```
 
 ```json
 {
+  "v": 2,
   "slot": 1,
+  "save": "save_1",
   "machines": [
     {
-      "uid": 174,
-      "modules": [
-        { "uid": 3585, "cells": [0, 1, 2, 8] },
-        { "like": 209, "cells": [14, 21] }
-      ]
+      "name": "Inv. > Machine Bay (Expanded) 1 > Furnace 2",
+      "code": "<solution code>",
+      "modules": [ { "uid": 3585, "cells": [0, 1, 2, 8] } ]
     }
   ]
 }
 ```
 
-- The prefix is the version. The mod refuses anything else (older `PSMOD1` exports, bare solution codes) as outdated.
-- `slot` is the imported save's `saveSlotId`. Item uids only mean something within one save, so the mod refuses an export from another slot.
-- A machine's `uid` is the machine item's `uniqueId` from the save, which the running game keeps. The mod finds the machine by it. A machine card made by hand on the site has no `uid`; its layout goes into whichever machine's window the import button was pressed on.
-- `modules` lists the board's modules with the cells (`y * 7 + x`) each covers: `uid` is that exact item; `like` means any module of the same kind as that item (copies of an "infinite" node, which are not real items). Modules added from the catalog are not in the save, so they are left out, and the Export button says how many.
+- `slot` / `save` identify the save that was imported (`saveSlotId` from the file, and its file name).
+- `name` is the machine name shown on the card. For machines added with **Import Save (.es3)** that is the full path the save importer builds; the mod rebuilds the same names in-game to find the machine.
+- `modules` lists every save module on the board by the game's own `uniqueId` (stored in the save and kept by the running game) with the board cells (`y * 7 + x`) it covers, so the mod moves exactly those items. Modules added from the catalog have no uid and are only in `code`.
+- `code` is the unchanged solution code from the card.
 - The string has no whitespace. Encoding is in `grid-optimizer/src/modExport.ts`.
 
 ## Development

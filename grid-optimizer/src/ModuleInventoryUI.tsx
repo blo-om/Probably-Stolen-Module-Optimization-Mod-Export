@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
-import { encodeModExport, boardModules, machineUidKey, readMachineUid } from './modExport';
+import { encodeModExport, boardModules } from './modExport';
 import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
@@ -209,10 +209,6 @@ const MachineInstance = React.memo(forwardRef(({
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [showPaths, setShowPaths] = useState(false);
-    // Short feedback on the Export button after copying
-    const [exportNote, setExportNote] = useState<string | null>(null);
-    // This card's layout for the mod: the save machine's uid (none for a card made by hand) and its save modules
-    const modExportEntry = () => ({ uid: readMachineUid(machineId), ...boardModules(optimizer.boardRef.current) });
     // Mouse position while over the machine icon, for its tooltip
     const [iconHover, setIconHover] = useState<{ x: number; y: number } | null>(null);
 
@@ -318,7 +314,9 @@ const MachineInstance = React.memo(forwardRef(({
         getBoard: () => optimizer.boardRef.current,
         applyUpdate: optimizer.applyUpdate,
         isLocked: () => isMachineLocked,
-        getModExport: () => modExportEntry()
+        getModExport: () => optimizer.solutionCode
+            ? { name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }
+            : null
     }), [optimizer, isMachineLocked, machineType]);
 
     useEffect(() => {
@@ -761,17 +759,12 @@ const MachineInstance = React.memo(forwardRef(({
                             Duplicate
                         </button>
                         <button
-                            onClick={() => {
-                                const entry = modExportEntry();
-                                navigator.clipboard.writeText(encodeModExport([{ uid: entry.uid, modules: entry.modules }]));
-                                setExportNote(entry.skipped > 0 ? `Copied - ${entry.skipped} left out` : 'Copied!');
-                                setTimeout(() => setExportNote(null), 2500);
-                            }}
+                            onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }]))}
                             disabled={!optimizer.solutionCode}
-                            title={`Copy this machine's layout for the Module Optimizer Import mod${exportNote && exportNote !== 'Copied!' ? '. Modules added from the catalog are not in your save, so they are left out' : ''}`}
+                            title="Copy this machine's layout for the Module Optimizer Import mod"
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer', opacity: !optimizer.solutionCode ? 0.5 : 1 }}
                         >
-                            {exportNote ?? 'Export'}
+                            Export
                         </button>
                     </div>
 
@@ -1302,7 +1295,7 @@ export default function ModuleInventoryUI() {
         ));
     };
 
-    const handleImportSave = useCallback((newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, tier: GridTier, uid?: number }[]) => {
+    const handleImportSave = useCallback((newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, tier: GridTier }[]) => {
         setInventory(newItems);
 
         newMachines.forEach(m => {
@@ -1310,7 +1303,6 @@ export default function ModuleInventoryUI() {
             const ignoreStats = defaultIgnoreStats(m.machineType);
             localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats: defaultMaximizeStats(ignoreStats) }));
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
-            if (m.uid !== undefined) localStorage.setItem(machineUidKey(m.id), String(m.uid));
         });
 
         setMachines(prev => {
@@ -1318,7 +1310,6 @@ export default function ModuleInventoryUI() {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_locked_${m.id}`);
-                localStorage.removeItem(machineUidKey(m.id));
             });
             return newMachines.length > 0
                 ? newMachines.map(m => ({ id: m.id }))
@@ -1552,12 +1543,11 @@ export default function ModuleInventoryUI() {
 
     const [copiedAllForMod, setCopiedAllForMod] = useState(false);
     const handleCopyAllForMod = () => {
-        const all = machines.map(m => machinesRef.current[m.id]?.getModExport?.()).filter((e: any) => e);
-        // Cards made by hand have no machine in the save to go into; they only make sense on their own (see the mod)
-        const fromSave = all.filter((e: any) => e.uid !== undefined);
-        const entries = fromSave.length > 0 ? fromSave : all;
+        const entries = machines
+            .map(m => machinesRef.current[m.id]?.getModExport?.())
+            .filter((e: any) => e && e.code);
         if (entries.length === 0) return;
-        navigator.clipboard.writeText(encodeModExport(entries.map((e: any) => ({ uid: e.uid, modules: e.modules }))));
+        navigator.clipboard.writeText(encodeModExport(entries));
         setCopiedAllForMod(true);
         setTimeout(() => setCopiedAllForMod(false), 2000);
     };
@@ -1585,7 +1575,6 @@ export default function ModuleInventoryUI() {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_locked_${m.id}`);
-                localStorage.removeItem(machineUidKey(m.id));
             }
         });
 
@@ -1627,7 +1616,6 @@ export default function ModuleInventoryUI() {
         localStorage.removeItem(`optimizer_machine_${machineId}`);
         localStorage.removeItem(`optimizer_machine_type_${machineId}`);
         localStorage.removeItem(`optimizer_machine_locked_${machineId}`);
-        localStorage.removeItem(machineUidKey(machineId));
     }, []);
 
     const handleSolvingChange = useCallback((id: string, solving: boolean) => {
