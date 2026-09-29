@@ -1941,7 +1941,7 @@ export default function ModuleInventoryUI() {
                 <div style={{ flex: '2', backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '8px', border: '1px solid #2c2c2e', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '15px', paddingBottom: '12px', borderBottom: '1px solid #333' }}>
                         <span style={{ color: '#eee', fontWeight: 'bold', fontSize: '1em' }}>Unused Module Storage</span>
-                        <span style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <span style={{ color: '#888', fontSize: '0.85em' }}>
                                 {unusedModules.length} of {inventory.length} module{inventory.length === 1 ? '' : 's'}
                             </span>
@@ -1952,11 +1952,12 @@ export default function ModuleInventoryUI() {
                                     ? `Take the ${storedIds.length} stored module${storedIds.length === 1 ? '' : 's'} back out of the machines`
                                     : 'Put unused modules into free machine cells, only where they lower none of that machine\'s stats (energy included)'}
                                 style={{
-                                    background: storedIds.length > 0 ? '#333' : 'transparent', border: '1px solid #555', borderRadius: '6px',
-                                    color: '#aaa', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.75em', padding: '4px 10px', fontWeight: 'bold'
+                                    background: '#4caf50', border: '1px solid #2e4a35', borderRadius: '6px', color: 'white',
+                                    cursor: isAnySolving ? 'not-allowed' : 'pointer', opacity: isAnySolving ? 0.5 : 1,
+                                    fontSize: '0.9em', padding: '6px 16px', fontWeight: 'bold'
                                 }}
                             >
-                                {storedIds.length > 0 ? 'Retrieve' : 'Store'}
+                                {storedIds.length > 0 ? '↓ Retrieve' : '↑ Store'}
                             </button>
                         </span>
                     </div>
