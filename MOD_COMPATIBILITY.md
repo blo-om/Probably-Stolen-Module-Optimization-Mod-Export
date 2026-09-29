@@ -50,6 +50,30 @@ base64url is standard base64 with `+` → `-`, `/` → `_`, and the trailing `=`
 | `code` | yes | The machine's solution code in the original optimizer's format (see [The solution code](#the-solution-code)). |
 | `modules` | yes | Every module on the board that is an item in the save: its `uid` (the item's `uniqueId`) and the board `cells` it covers. |
 
+### One machine or all of them
+
+An export holds one machine or many; the mod treats the two differently. On this site, a card's **Export** button makes the first kind and **Export All** the second (every card that has a layout).
+
+**One machine** (`machines` has one entry):
+
+- The layout goes into the machine whose import button was pressed, and only that machine is rearranged.
+- If `name` is a save path (starts with `Inv.`) for a *different* machine, the mod refuses: "This code is for "…", not "…". Open that machine's window instead." That way a layout can't land in the wrong Furnace by accident.
+- If `name` is not a save path (a machine card made by hand), the mod trusts the button that was pressed.
+- The modules come from wherever they are: already in this machine, loose in storage, or taken out of another machine. The last case is noted in the debug log ("Takes … out of …").
+
+**Several machines** ("Export All", `machines` has more than one entry):
+
+- Every machine in the export is rearranged in one go, whichever machine's button was pressed. Each entry finds its machine by `name`.
+- They are planned together, so no module is used twice. Modules can also move between these machines, including swaps: a module in the way steps aside into storage and is placed again.
+- An entry whose `name` matches no machine in the loaded save is skipped. So is one that can't be applied (e.g. a tier mismatch). The result lists what was skipped and why. If no entry matches, nothing is imported.
+- Machines not in the export are left alone, unless a listed module has to come out of one of them. That is noted in the debug log ("Takes … out of …"). Exporting every machine from one solve avoids that, because each module is then named by exactly one machine.
+- Two entries for the same machine block each other ("Another code already targets this machine.").
+
+**Both kinds:**
+
+- **Unused modules are taken out.** Modules already in a rearranged machine that its layout doesn't use go to the store inventory (the counter, then the main inventory), never the showcase. The result says how many, e.g. "took out 2 item(s) the layout doesn't use".
+- **Missing modules leave gaps.** Modules in the layout that the player no longer has leave their spots empty. The result says how many.
+
 ### Board cells
 
 The module grid is 7 wide and 5 tall. A cell is `y * 7 + x`, with `(0, 0)` the top-left: the top row is 0–6, the next row 7–13, and so on. List each module's cells in any order. The set has to be exactly the cells that module's piece covers in `code`, because the mod pairs every `modules` entry with the piece in `code` that covers the same cells.
