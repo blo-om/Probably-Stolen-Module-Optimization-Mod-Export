@@ -247,7 +247,10 @@ const MachineInstance = React.memo(forwardRef(({
     const targetSteps = () => {
         const steps: Partial<Record<'Performance' | 'Quality' | 'Efficiency', number[]>> = {};
         for (const stat of ['Performance', 'Quality', 'Efficiency'] as const) {
-            const list = stat === 'Performance' && isDesequencer(machineType) ? desequencerSteps() : statBreakpoints(machineType, stat, hasBlast)?.map(b => b.value);
+            const list = stat === 'Performance' && isDesequencer(machineType) ? desequencerSteps()
+                // Alarm: the stop chance is 50% + Performance and tops out at 100%, so +50% is its one breakpoint
+                : stat === 'Performance' && machineType.toLowerCase().includes('alarm') ? [50]
+                : statBreakpoints(machineType, stat, hasBlast)?.map(b => b.value);
             if (list && list.length > 0) steps[stat] = [...list].sort((a, b) => a - b);
         }
         return steps;

@@ -183,16 +183,28 @@ export const runParallelEngine = async (
             } else {
                 const lower = machines[mIdx].targetSteps![STATS[s]]!.filter(v => v < targets[mIdx][s]!);
                 targets[mIdx][s] = lower.length > 0 ? lower[lower.length - 1] : null;
+                // Same as the engine's lowerTarget: below the lowest step the stat is maximized, unless nothing below it counts
+                if (lower.length === 0) maximize[mIdx][s] = !machines[mIdx].worthlessBelowSteps?.[STATS[s]];
             }
             relaxGen++;
             workers.forEach(w => w.postMessage({ type: 'relax', order, gen: relaxGen } satisfies WorkerMessage));
         }
-        // An eased stat no longer counts towards the score, so the next record may score lower than what is on screen: it is compared afresh
-        display.rebase();
-        // Reports on the old scale are ignored from here; the next one from any worker starts the new record
+        // Reports on the old scale are ignored from here. The first report on the new one may come from a worker whose layout is worse
+        // than what is on screen, so the display waits until every worker has re-scored its record (or a second has passed) and
+        // then shows the best of them, compared afresh since the scale changed
         best = null;
         progressMark = null;
         progressAt = Date.now();
+        awaiting = new Set(workers.map((_, i) => i).filter(i => running.has(i)));
+        awaitingUntil = Date.now() + 1000;
+    };
+    let awaiting = new Set<number>();
+    let awaitingUntil = 0;
+    const running = new Set<number>();
+    const endWait = () => {
+        awaiting = new Set();
+        display.rebase();
+        if (bestUpdates && best) display.offer(rehydrate(bestUpdates), best);
     };
     try {
         for (let i = 0; i < count; i++) workers.push(new Worker(new URL('./engineWorker.ts', import.meta.url), { type: 'module' }));
@@ -208,25 +220,31 @@ export const runParallelEngine = async (
         worker.onmessage = (event: MessageEvent<WorkerReply>) => {
             const reply = event.data;
             if (reply.type === 'done') {
+                running.delete(i);
+                if (awaiting.delete(i) && awaiting.size === 0) endWait();
                 worker.terminate();
                 resolve();
                 return;
             }
             if (reply.gen !== relaxGen) return;
-            if (best !== null && !beats(reply.tiers, best)) return;
-            best = reply.tiers;
-            bestUpdates = reply.updates;
-            if (progressMark === null || significant(reply.tiers, progressMark, RELAX_TARGET_SHARE)) {
-                progressMark = reply.tiers;
-                progressAt = Date.now();
+            const lastAwaited = awaiting.delete(i) && awaiting.size === 0;
+            if (best === null || beats(reply.tiers, best)) {
+                best = reply.tiers;
+                bestUpdates = reply.updates;
+                if (progressMark === null || significant(reply.tiers, progressMark, RELAX_TARGET_SHARE)) {
+                    progressMark = reply.tiers;
+                    progressAt = Date.now();
+                }
+                if (awaiting.size === 0 && !lastAwaited) display.offer(rehydrate(reply.updates), reply.tiers);
             }
-            display.offer(rehydrate(reply.updates), reply.tiers);
+            if (lastAwaited) endWait();
         };
         worker.onerror = (event) => {
             console.warn('Solver worker failed', event.message);
             worker.terminate();
             resolve();
         };
+        running.add(i);
         worker.postMessage(startFor(i));
     }));
 
@@ -238,7 +256,8 @@ export const runParallelEngine = async (
             workers.forEach(w => w.postMessage({ type: 'stop' } satisfies WorkerMessage));
         }
         const t = Date.now();
-        if (!stopSent && t - progressAt >= Math.min(RELAX_MAX_MS, Math.max(RELAX_MIN_MS, (t - startedAt) * RELAX_AFTER_SHARE))) relaxLowestTarget();
+        if (awaiting.size > 0 && t > awaitingUntil) endWait();
+        if (!stopSent && awaiting.size === 0 && t - progressAt >= Math.min(RELAX_MAX_MS, Math.max(RELAX_MIN_MS, (t - startedAt) * RELAX_AFTER_SHARE))) relaxLowestTarget();
     }, 50);
     try {
         await Promise.all(finished);

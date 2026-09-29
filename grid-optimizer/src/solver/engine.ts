@@ -741,6 +741,9 @@ export const runOptimizationEngine = async (
         if (current === null || !steps) return;
         const lower = steps.filter(v => v < current);
         params[mIdx].target[s] = lower.length > 0 ? lower[lower.length - 1] : null;
+        // Below its lowest step the stat still counts (an Alarm's stop chance, Moisture Farm purity turning to Rust) unless nothing
+        // below that step does (worthlessBelowSteps): then it is maximized at its card's priority instead of dropped
+        if (lower.length === 0) params[mIdx].maximize[s] = !machines[mIdx].worthlessBelowSteps?.[STAT_KEYS[s]];
         tbGen++;
         scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
     };
