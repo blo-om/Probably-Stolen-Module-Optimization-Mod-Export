@@ -7,7 +7,7 @@ import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleCol
 import { COLOR_MAP, EFFECTS_LIST, MODULE_TEMPLATES } from './constants';
 import { formatStatValue, getStatColor, getBaseStats, PRECOMPUTED_OFFSETS } from './utils';
 import { createPortal } from 'react-dom';
-import { useOptimizer, calculateBoardStats, indexInventoryById } from './hooks/useOptimizer';
+import { useOptimizer, calculateBoardStats, indexInventoryById, generateCodeFromState } from './hooks/useOptimizer';
 import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
 
@@ -209,6 +209,23 @@ const MachineInstance = React.memo(forwardRef(({
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [showPaths, setShowPaths] = useState(false);
+    /* The layout for the mod. Its code lists only the modules on this board: the mod only uses placed pieces, and the card's own code
+     * lists every module owned, which the format caps at MAX_ENCODABLE_MODULES (255), so bigger saves had no code and could not export
+     */
+    const boardModulesList = (board: any[][]) => {
+        const list: InventoryItem[] = [];
+        const seen = new Set<string>();
+        board.forEach(row => row.forEach(c => { if (c && c !== 'Locked' && !seen.has(c.id)) { seen.add(c.id); list.push(c); } }));
+        return list;
+    };
+    const modExportEntry = () => {
+        const board = optimizer.boardRef.current;
+        const onBoard = boardModulesList(board);
+        if (onBoard.length === 0) return null;
+        const code = generateCodeFromState(optimizer.tier, optimizer.maximizeStats, optimizer.targetStats, onBoard, board);
+        return code ? { name: machineType, code, modules: boardModules(board) } : null;
+    };
+    const boardHasModules = optimizer.board.some((row: any[]) => row.some(c => c && c !== 'Locked'));
     // Mouse position while over the machine icon, for its tooltip
     const [iconHover, setIconHover] = useState<{ x: number; y: number } | null>(null);
 
@@ -334,9 +351,7 @@ const MachineInstance = React.memo(forwardRef(({
         getBoard: () => optimizer.boardRef.current,
         applyUpdate: optimizer.applyUpdate,
         isLocked: () => isMachineLocked,
-        getModExport: () => optimizer.solutionCode
-            ? { name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }
-            : null
+        getModExport: () => modExportEntry()
     }), [optimizer, isMachineLocked, machineType, typeKey]);
 
     useEffect(() => {
@@ -787,10 +802,10 @@ const MachineInstance = React.memo(forwardRef(({
                             Duplicate
                         </button>
                         <button
-                            onClick={() => navigator.clipboard.writeText(encodeModExport([{ name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }]))}
-                            disabled={!optimizer.solutionCode}
+                            onClick={() => { const entry = modExportEntry(); if (entry) navigator.clipboard.writeText(encodeModExport([entry])); }}
+                            disabled={!boardHasModules}
                             title="Copy this machine's layout for the Module Optimizer Import mod"
-                            style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !optimizer.solutionCode ? 'not-allowed' : 'pointer', opacity: !optimizer.solutionCode ? 0.5 : 1 }}
+                            style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !boardHasModules ? 'not-allowed' : 'pointer', opacity: !boardHasModules ? 0.5 : 1 }}
                         >
                             Export
                         </button>
