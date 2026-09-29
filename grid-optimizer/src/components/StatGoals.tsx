@@ -45,7 +45,8 @@ const POINTS: StatUnit = {
 };
 
 // Target typed in a machine's own unit (e.g. ml/day), stored as the % the solver works with
-// Keeps its own draft while typing, since converting every keystroke would rewrite a half-typed number
+// Saved on every keystroke (leaving the box is not needed: a click on the grid or a Run can skip the blur), while the box keeps
+// showing the text as typed, since converting every keystroke back for display would rewrite a half-typed number
 const TargetInput = ({ unit, target, onChange, disabled, totals, placeholder }: {
     unit: StatUnit | null; target: number | null; onChange: (pct: number | null) => void; disabled: boolean; totals: Stats; placeholder?: string;
 }) => {
@@ -63,7 +64,7 @@ const TargetInput = ({ unit, target, onChange, disabled, totals, placeholder }: 
                 step={unit ? unit.step : 1}
                 value={draft ?? shown}
                 placeholder={placeholder}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => { setDraft(e.target.value); commit(e.target.value); }}
                 onBlur={(e) => { commit(e.target.value); setDraft(null); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 disabled={disabled}
