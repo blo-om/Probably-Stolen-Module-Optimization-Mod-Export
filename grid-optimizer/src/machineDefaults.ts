@@ -162,6 +162,43 @@ export const worthlessBelowSteps = (machineType: string): Partial<Record<'Perfor
     return ['furnace', 'agewell', 'water purifier'].some(k => name.includes(k)) ? { Quality: true } : {};
 };
 
+export const isAgeWell = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('agewell');
+
+/* Stats that get no card of their own: the ones with no effect, and the AgeWell's Performance, which only lowers the machine's
+ * energy use exactly as Efficiency does (same ratio in the game), so both share the Efficiency card (MachineConfig.sumPE)
+ */
+export const hiddenStat = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency') =>
+    statHasNoEffect(machineType, stat) || (stat === 'Performance' && isAgeWell(machineType));
+
+// What each stat does on each machine, for the machine tooltip (numbers from the game code, see the notes above)
+const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][] = [
+    ['moisture farm', 'Performance', 'Water made: 1000 ml a day, +10 ml per 1%'],
+    ['moisture farm', 'Quality', 'Water grade: Ghost from 0%, Base 50%, High-quality 100%, Pure 150% (Rust and Gutterflow below 0)'],
+    ['moisture farm', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
+    ['water purifier', 'Performance', 'Cleaning speed: every contaminant removed faster (+0.02 ml a day per 1%)'],
+    ['water purifier', 'Quality', 'How clean it gets: Pure from 100% (75% for pitcher-filtered water), 100% water at 200%'],
+    ['water purifier', 'Efficiency', 'Energy use: 5 a day, 1 less per full 20%'],
+    ['furnace', 'Performance', 'No effect'],
+    ['furnace', 'Quality', 'Ingot purity: one stage up per full 100% (Blast module: one stage less)'],
+    ['furnace', 'Efficiency', 'Energy use: 8 a day, 1 less per full 12.5%'],
+    ['agewell', 'Performance', 'Energy use, the same as Efficiency (both are on the Efficiency card)'],
+    ['agewell', 'Quality', 'Aging: one more day per night for every full 125%'],
+    ['agewell', 'Efficiency', 'Energy use: 24 a day, 1 less per ~8.3% of Efficiency and Performance together'],
+    ['mirage', 'Performance', 'Attractiveness: 100 points, +1 per 1% (with Quality)'],
+    ['mirage', 'Quality', 'Attractiveness: 100 points, +1 per 1% (with Performance)'],
+    ['mirage', 'Efficiency', 'Energy use: 16 a day, 1 less per full 6.25%'],
+    ['desequencer', 'Performance', 'Decoding speed: 33 work a day, +0.33 per 1%'],
+    ['desequencer', 'Quality', 'No effect'],
+    ['desequencer', 'Efficiency', 'Energy use: 10 a day, 1 less per full 10%'],
+    ['alarm', 'Performance', 'Chance to stop a theft: 50%, +1% per 1%'],
+    ['alarm', 'Quality', 'No effect'],
+    ['alarm', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
+];
+export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string | null => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    return STAT_EFFECTS.find(([k, s]) => s === stat && name.includes(k))?.[2] ?? null;
+};
+
 export const isMoistureFarm = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('moisture farm');
 
 export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');
@@ -243,6 +280,22 @@ const energyUnit = (rule: EnergyRule): StatUnit => ({
     step: 1,
     lowerIsBetter: true,
 });
+/* AgeWell: Performance lowers energy the same way Efficiency does, so its card works on their sum (MachineConfig.sumPE). The
+ * machine's own reading is exact from both totals; a target (a sum) is converted as if it were all Efficiency, which the game's
+ * separate rounding of the two can put off by at most 1 energy a day
+ */
+const combinedEnergyUnit = (rule: EnergyRule): StatUnit => ({
+    unit: '/day',
+    fromPercent: (sum, totals) => totals && Math.abs(totals.Efficiency + totals.Performance - sum) < 1e-9
+        ? energyOf(rule, totals.Efficiency, totals.Performance)
+        : energyOf(rule, sum, 0),
+    toPercent: (value) => {
+        for (let sum = -500; sum <= 1000; sum++) if (energyOf(rule, sum, 0) <= value) return sum;
+        return 1000;
+    },
+    step: 1,
+    lowerIsBetter: true,
+});
 
 const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
     // Base energy and ratios from each machine's constructor in the game code
@@ -250,7 +303,7 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
     ['water purifier', 'Efficiency', energyUnit({ base: 5 })],
     ['furnace', 'Efficiency', energyUnit({ base: 8 })],
     ['desequencer', 'Efficiency', energyUnit({ base: 10 })],
-    ['agewell', 'Efficiency', energyUnit({ base: 24, effRatio: 2, perfRatio: 2 })],
+    ['agewell', 'Efficiency', combinedEnergyUnit({ base: 24, effRatio: 2, perfRatio: 2 })],
     ['mirage', 'Efficiency', energyUnit({ base: 16 })],
     ['alarm', 'Efficiency', energyUnit({ base: 4 })],
     // Alarm: chance to stop a theft = 50% + Performance (MachineAlarm.GetAlarmeStopRate), never below 0

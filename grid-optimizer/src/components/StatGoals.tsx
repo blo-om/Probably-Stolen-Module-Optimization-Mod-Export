@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Stats } from '../types';
 import {
-    statBreakpoints, statUnit, statName, statHasNoEffect,
+    statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, isAgeWell,
     isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerDaysAt,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
@@ -165,7 +165,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     const statCard = (stat: StatKey): Card => {
         const off = Boolean(ignoreStats[stat]);
         const target = targetStats[stat];
-        const total = totals[stat];
+        // AgeWell: Performance lowers energy like Efficiency, so this card covers both (MachineConfig.sumPE)
+        const total = stat === 'Efficiency' && isAgeWell(machineType) ? totals.Efficiency + totals.Performance : totals[stat];
         const unit = statUnit(machineType, stat);
         const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);
@@ -288,7 +289,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     // A stat that does nothing on this machine gets no card at all
     const cards: Card[] = isMirage(machineType)
         ? [attractivenessCard(), statCard('Efficiency')]
-        : (['Performance', 'Quality', 'Efficiency'] as StatKey[]).filter(stat => !statHasNoEffect(machineType, stat)).map(statCard);
+        : (['Performance', 'Quality', 'Efficiency'] as StatKey[]).filter(stat => !hiddenStat(machineType, stat)).map(statCard);
     const openCard = cards.find(c => c.key === open && c.panel);
 
     return (

@@ -109,19 +109,30 @@ const compareTiers = (a: Float64Array, b: Float64Array) => {
 const statIsIgnored = (m: MachineConfig, key: keyof Stats) => Boolean(m.ignoreStats?.[key]);
 const priorityOf = (m: MachineConfig, key: keyof Stats) => m.statPriority?.[key] ?? 1;
 
-// With sumPQ or water (see MachineConfig) Quality folds into Performance, so it is ignored as a stat of its own
+// With sumPQ or water (see MachineConfig) Quality folds into Performance, and with sumPE Performance folds into Efficiency,
+// so the folded stat is ignored as a stat of its own
 const foldsQuality = (m: MachineConfig) => Boolean(m.sumPQ || m.water);
+const folded = (m: MachineConfig, k: keyof Stats) => (foldsQuality(m) && k === 'Quality') || (Boolean(m.sumPE) && k === 'Performance');
 const paramsOf = (m: MachineConfig): MachineParams => ({
-    ignored: STAT_KEYS.map(k => statIsIgnored(m, k) || (foldsQuality(m) && k === 'Quality')),
-    target: STAT_KEYS.map(k => (foldsQuality(m) && k === 'Quality') ? null : m.targetStats[k]),
-    maximize: STAT_KEYS.map(k => !(foldsQuality(m) && k === 'Quality') && Boolean(m.maximizeStats?.[k])),
+    ignored: STAT_KEYS.map(k => statIsIgnored(m, k) || folded(m, k)),
+    target: STAT_KEYS.map(k => folded(m, k) ? null : m.targetStats[k]),
+    maximize: STAT_KEYS.map(k => !folded(m, k) && Boolean(m.maximizeStats?.[k])),
     sumPQ: Boolean(m.sumPQ),
     water: Boolean(m.water),
+    sumPE: Boolean(m.sumPE),
 });
 
-// A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value)
+// A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value),
+// and Efficiency on a sumPE machine (Efficiency + Performance)
 const statOf = (p: MachineParams, t: Totals, s: number) =>
-    s === 0 && p.water ? waterValue(t.p, t.q) : s === 0 && p.sumPQ ? t.p + t.q : totalOf(t, s);
+    s === 0 && p.water ? waterValue(t.p, t.q) : s === 0 && p.sumPQ ? t.p + t.q : s === 2 && p.sumPE ? t.e + t.p : totalOf(t, s);
+
+// How much a maximized point of each stat is worth: Efficiency half, so Performance and Quality always come first
+const MAXIMIZE_WEIGHT = [1, 1, 0.5];
+// An Auto stat with breakpoints can earn this many points on top for every step it has reached (see scoreInto). Off: A/B on
+// all-Auto scenarios (12 runs a side, 12 s, scored by the step each stat reaches in the game) found no gain at 10 or 20
+// (win rates 20-77% either way, totals within 2%): easing already stops Auto stats spending modules between steps
+const AUTO_STEP_BONUS = 0;
 
 // A scored board: its totals, and its tiebreak once worked out (tbGen says under which targets)
 type Scored = Totals & { tb: number; tbGen: number };
@@ -151,6 +162,7 @@ export type EngineTuning = {
     lateAcceptance?: number;
     polish?: number;
     ease?: number;
+    autoStepBonus?: number;
 };
 
 /* What a stalled search gives up, one at a time (see stallOrder):
@@ -178,7 +190,7 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
     let relax: { mIdx: number; s: number; rank: number } | null = null;
     machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
         const steps = m.targetSteps?.[key];
-        if (!steps || steps.length === 0 || statIsIgnored(m, key) || (foldsQuality(m) && key === 'Quality')) return;
+        if (!steps || steps.length === 0 || statIsIgnored(m, key) || folded(m, key)) return;
         const rank = priorityOf(m, key);
         const target = targets[mIdx][s];
         const value = valueOf(mIdx, s);
@@ -229,6 +241,7 @@ export const runOptimizationEngine = async (
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
     const LAHC = tuning.lateAcceptance ?? 0;
     const POLISH = tuning.polish ?? 1;
+    const AUTO_BONUS = tuning.autoStepBonus ?? AUTO_STEP_BONUS;
     const EASE = tuning.ease ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
@@ -327,7 +340,8 @@ export const runOptimizationEngine = async (
     };
 
     // What a module is worth to the machines that maximize (Nodes a little; specials and Overclocks nothing)
-    const maximized = [0, 1, 2].filter(s => params.some(p => (!p.ignored[s] && p.maximize[s]) || (s === 1 && (p.sumPQ || p.water) && p.maximize[0])));
+    const maximized = [0, 1, 2].filter(s => params.some(p => (!p.ignored[s] && p.maximize[s]) || (s === 1 && (p.sumPQ || p.water) && p.maximize[0])
+        || (s === 0 && p.sumPE && p.maximize[2])));
     const valueStats = maximized.length > 0 ? maximized : [0, 1, 2];
     const value = new Float64Array(N);
     for (let i = 0; i < N; i++) {
@@ -380,7 +394,16 @@ export const runOptimizationEngine = async (
                     tiers[ti] -= (target - v) * 10000;
                     if (stepsOf[mIdx][s]) tiers[ti] -= STEP_MISS_PENALTY * 10000;
                 }
-                if (p.maximize[s]) tiers[ti + RANK_OFFSET] += v * 10;
+                if (p.maximize[s]) {
+                    tiers[ti + RANK_OFFSET] += v * 10 * MAXIMIZE_WEIGHT[s];
+                    // Auto on a stat with breakpoints: a bonus per step reached (not for a folded water stat, already priced by grade)
+                    const steps = stepsOf[mIdx][s];
+                    if (AUTO_BONUS > 0 && target === null && steps && !(s === 0 && p.water)) {
+                        let reached = 0;
+                        for (const step of steps) if (v >= step) reached++;
+                        tiers[ti + RANK_OFFSET] += reached * AUTO_BONUS * 10 * MAXIMIZE_WEIGHT[s];
+                    }
+                }
             }
             // Only changes with the board (each scored board has its own Scored) and with the targets (tbGen)
             if (ps === params) {
@@ -409,7 +432,7 @@ export const runOptimizationEngine = async (
                     const avg = sum / members.length;
                     let mad = 0;
                     for (const mIdx of members) mad += Math.abs(statOf(ps[mIdx], statsFor(mIdx), s) - avg);
-                    tiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT;
+                    tiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT * MAXIMIZE_WEIGHT[s];
                 });
             }
         }
@@ -435,7 +458,7 @@ export const runOptimizationEngine = async (
     const baseWeights = params.map((p, mIdx) => [0, 1, 2].map(s => {
         if (p.ignored[s]) return 0;
         let w = 0;
-        if (p.maximize[s]) w += 10;
+        if (p.maximize[s]) w += 10 * MAXIMIZE_WEIGHT[s];
         if (p.target[s] !== null) w += 15;
         return w * boost(mIdx, s);
     }));
@@ -447,12 +470,13 @@ export const runOptimizationEngine = async (
         for (let mask = 0; mask < (1 << targeted.length); mask++) {
             const w = [0, 1, 2].map(s => {
                 if (p.ignored[s]) return 0;
-                let v = p.maximize[s] ? 10 : 0;
+                let v = p.maximize[s] ? 10 * MAXIMIZE_WEIGHT[s] : 0;
                 const ti = targeted.indexOf(s);
                 if (ti !== -1) v += 15 * ((mask & (1 << ti)) !== 0 ? TARGET_MET_DRAW_SCALE : 1);
                 return v * Math.pow(PRIORITY_WEIGHT_STEP, tierCount - 1 - tierOfStat[mIdx][s]);
             });
             if (p.sumPQ || p.water) w[1] = w[0];
+            if (p.sumPE) w[0] = w[2];
             const values = new Float64Array(P);
             const stated: number[] = [];
             for (let i = 0; i < P; i++) {

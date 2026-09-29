@@ -672,6 +672,8 @@ export type MachineConfig = {
     // Stats where nothing below the first of targetSteps counts (Furnace ingot purity under 100%...), so a stalled Auto stat there
     // can be dropped altogether (see solver/engine.ts stallOrders)
     worthlessBelowSteps?: Partial<Record<keyof Stats, boolean>>;
+    // Performance and Efficiency count as one stat, their sum, under Efficiency (AgeWell: Performance only lowers energy use, like Efficiency)
+    sumPE?: boolean;
 };
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
@@ -1106,7 +1108,7 @@ export function useOptimizer(
     }, [inventory, tier, maximizeStats, targetStats, ignoreStats, statPriority, machineId, getUsedItems, board, isSolving, isExternallySolving]);
 
     const runOptimization = async (targetSteps?: MachineConfig['targetSteps'], sumPQ?: boolean, water?: boolean,
-        worthlessBelowSteps?: MachineConfig['worthlessBelowSteps']) => {
+        worthlessBelowSteps?: MachineConfig['worthlessBelowSteps'], sumPE?: boolean) => {
         if (isSolving) {
             isSolvingRef.current = false;
             return;
@@ -1136,7 +1138,7 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps };
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps, sumPE };
 
         await runParallelEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
