@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -325,6 +325,7 @@ const MachineInstance = React.memo(forwardRef(({
             sumPQ: isMirage(typeKey),
             water: waterMode(),
             sumPE: isAgeWell(typeKey),
+            performanceCap: isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined,
             worthlessBelowSteps: worthlessBelowSteps(typeKey),
             machineType,
             machineKind: typeKey
@@ -756,7 +757,8 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey));
+                                    optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
+                                        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined);
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1459,9 +1461,23 @@ export default function ModuleInventoryUI() {
         });
         const engineInventory = expandedInventory.map(item => heldByLocked.has(item.id) ? { ...item, isLocked: true } : item);
 
+        /* Priority follows card order, except that neighbouring cards of the same kind of machine with the same settings share one:
+         * the solver then maximizes their combined output instead of filling the first before the next. On four Moisture Farms with
+         * four Neural Cores, sequential priority put all four cores in the first farm, past its 6000 ml cap (6000 ml of pure water);
+         * shared priority spread them and made 8560 ml of pure water (+7% total water value)
+         */
+        const states = active.map(m => machinesRef.current[m.id].getState());
+        const groupKey = (state: any) => JSON.stringify([
+            String(state.machineKind).split(' > ').pop()!.replace(/\s+\d+$/, '').trim().toLowerCase(),
+            state.ignoreStats, state.targetStats, state.maximizeStats, state.targetSteps,
+        ]);
+        const priorities: number[] = [];
+        states.forEach((state, i) => {
+            priorities.push(i === 0 ? 1 : groupKey(state) === groupKey(states[i - 1]) ? priorities[i - 1] : priorities[i - 1] + 1);
+        });
         const configs = active.map((m, rank) => {
-            const state = machinesRef.current[m.id].getState();
-            const priority = rank + 1;
+            const state = states[rank];
+            const priority = priorities[rank];
             return {
                 id: m.id,
                 tier: state.tier,
@@ -1473,6 +1489,7 @@ export default function ModuleInventoryUI() {
                 sumPQ: state.sumPQ,
                 water: state.water,
                 sumPE: state.sumPE,
+                performanceCap: state.performanceCap,
                 worthlessBelowSteps: state.worthlessBelowSteps
             };
         });

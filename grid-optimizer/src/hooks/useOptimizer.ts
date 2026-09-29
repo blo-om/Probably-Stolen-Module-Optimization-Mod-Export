@@ -674,6 +674,8 @@ export type MachineConfig = {
     worthlessBelowSteps?: Partial<Record<keyof Stats, boolean>>;
     // Performance and Efficiency count as one stat, their sum, under Efficiency (AgeWell: Performance only lowers energy use, like Efficiency)
     sumPE?: boolean;
+    // Performance past this counts for nothing (Moisture Farm: +500% = 6000 ml, the biggest water container)
+    performanceCap?: number;
 };
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
@@ -1108,7 +1110,7 @@ export function useOptimizer(
     }, [inventory, tier, maximizeStats, targetStats, ignoreStats, statPriority, machineId, getUsedItems, board, isSolving, isExternallySolving]);
 
     const runOptimization = async (targetSteps?: MachineConfig['targetSteps'], sumPQ?: boolean, water?: boolean,
-        worthlessBelowSteps?: MachineConfig['worthlessBelowSteps'], sumPE?: boolean) => {
+        worthlessBelowSteps?: MachineConfig['worthlessBelowSteps'], sumPE?: boolean, performanceCap?: number) => {
         if (isSolving) {
             isSolvingRef.current = false;
             return;
@@ -1138,7 +1140,7 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps, sumPE };
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps, sumPE, performanceCap };
 
         await runParallelEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
