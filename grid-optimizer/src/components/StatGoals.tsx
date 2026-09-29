@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Stats } from '../types';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, isAgeWell,
-    isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerDaysAt,
+    isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
+    desequencerChipsetKey, desequencerAutoDaysKey,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
 
@@ -144,13 +145,22 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         return () => document.removeEventListener('mousedown', close);
     }, [open]);
 
-    const chipsetKey = `optimizer_chipset_${machineId}`;
+    const chipsetKey = desequencerChipsetKey(machineId);
     const [chipset, setChipsetState] = useState<number | null>(() => {
         try { const v = Number(localStorage.getItem(chipsetKey)); return v ? v : null; } catch { return null; }
     });
     const setChipset = (work: number) => {
         setChipsetState(work);
         try { localStorage.setItem(chipsetKey, String(work)); } catch { /* per-viewer convenience only */ }
+    };
+    // Desequencer days on Auto: maximized, eased to the picked chipset's day breakpoints (read by the solve, see targetSteps)
+    const autoDaysKey = desequencerAutoDaysKey(machineId);
+    const [autoDays, setAutoDaysState] = useState<boolean>(() => {
+        try { return localStorage.getItem(autoDaysKey) === '1'; } catch { return false; }
+    });
+    const setAutoDays = (on: boolean) => {
+        setAutoDaysState(on);
+        try { if (on) localStorage.setItem(autoDaysKey, '1'); else localStorage.removeItem(autoDaysKey); } catch { /* per-viewer convenience only */ }
     };
 
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));
@@ -171,7 +181,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);
         const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
-        const mode: Mode = off ? 'off' : target === null ? 'auto' : 'target';
+        const mode: Mode = off ? 'off' : target === null && !(deseq && autoDays) ? 'auto' : 'target';
         // Energy only: the target is a ceiling (at most this much a day, and less if it can) rather than a value to reach and stop at
         const limited = energy && limitStats[stat];
 
@@ -188,11 +198,12 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
         const result = unit
             ? (unit.readout ? unit.readout(unit.fromPercent(total, totals)) : withUnit(unit.fromPercent(total, totals), unit.unit))
-            : deseq ? `${chip.short} ${desequencerDaysAt(work, total)}d`
+            : deseq ? `${desequencerSpeed(total)}/day`
             : breakpoints ? (reached ? stepName(reached) : belowFirst(breakpoints[0]))
             : fmtPct(total);
 
-        const goal = target === null ? null
+        const goal = deseq && autoDays && target === null ? `${chip.short}, days on Auto`
+            : target === null ? null
             : deseq ? (() => { const d = desequencerDayOptions(work).find(o => o.value === target)?.days; return d !== undefined ? `${chip.short} ${d}d` : `${target}%`; })()
             : breakpoints?.find(b => b.value === target) ? stepName(breakpoints.find(b => b.value === target)!)
             : unit ? withUnit(unit.fromPercent(target, totals), unit.unit)
@@ -213,8 +224,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const choose = (m: Mode) => {
             if (m === 'off') { setOff(stat, true); setOpen(null); return; }
             setOff(stat, false);
-            if (m === 'auto') { setTarget(stat, null); if (energy) setLimit(stat, false); setOpen(null); return; }
-            if (target === null) setTarget(stat, defaultTarget);
+            if (m === 'auto') { setTarget(stat, null); if (energy) setLimit(stat, false); if (deseq) setAutoDays(false); setOpen(null); return; }
+            if (target === null && !(deseq && autoDays)) setTarget(stat, defaultTarget);
             setOpen(open === stat && mode === 'target' ? null : stat);
         };
 
@@ -232,13 +243,19 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                 panel = (
                     <>
                         <select value={work} disabled={disabled} style={{ ...selectStyle, fontFamily: 'ui-monospace, Consolas, monospace' }}
-                            onChange={(e) => { const wk = Number(e.target.value); setChipset(wk); setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); }}>
+                            onChange={(e) => { const wk = Number(e.target.value); setChipset(wk); if (!autoDays) setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); }}>
                             {/* The work each card type needs, lined up on the right; a monospace font is the only way to align inside a native select */}
                             {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name.padEnd(CHIPSET_PAD, ' ')}{String(c.work).padStart(4, ' ')}</option>)}
                         </select>
-                        {desequencerDayOptions(work).map(o => (
-                            <Choice key={o.value} label={`${o.days}d`} selected={target === o.value} title={`${o.value}%`} onClick={() => setTarget(stat, o.value)} disabled={disabled} />
-                        ))}
+                        {/* The days on their own line under the chipset */}
+                        <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px' }}>
+                            <Choice label="Auto" selected={autoDays && target === null} title="As fast as the modules allow, counted in this chipset's whole days"
+                                onClick={() => { setAutoDays(true); setTarget(stat, null); }} disabled={disabled} />
+                            {desequencerDayOptions(work).map(o => (
+                                <Choice key={o.value} label={`${o.days}d`} selected={target === o.value} title={`${o.value}%`}
+                                    onClick={() => { setAutoDays(false); setTarget(stat, o.value); }} disabled={disabled} />
+                            ))}
+                        </div>
                     </>
                 );
             } else if (breakpoints) {

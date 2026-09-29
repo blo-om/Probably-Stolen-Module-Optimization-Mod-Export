@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -234,10 +234,20 @@ const MachineInstance = React.memo(forwardRef(({
     const waterMode = () => isMoistureFarm(machineType)
         && (['Performance', 'Quality'] as const).every(k => !optimizer.ignoreStats[k] && optimizer.maximizeStats[k] && optimizer.targetStats[k] === null);
     // The values where each stat changes something on this machine, for the solver (see MachineConfig.targetSteps)
+    // Desequencer: with its days on Auto, only the picked chipset's day breakpoints count; otherwise every chipset's
+    const desequencerSteps = () => {
+        try {
+            if (localStorage.getItem(desequencerAutoDaysKey(machineId)) === '1') {
+                const work = Number(localStorage.getItem(desequencerChipsetKey(machineId))) || 150;
+                return desequencerDayOptions(work).map(o => o.value);
+            }
+        } catch { /* storage unavailable: every chipset's */ }
+        return desequencerCutoffs();
+    };
     const targetSteps = () => {
         const steps: Partial<Record<'Performance' | 'Quality' | 'Efficiency', number[]>> = {};
         for (const stat of ['Performance', 'Quality', 'Efficiency'] as const) {
-            const list = stat === 'Performance' && isDesequencer(machineType) ? desequencerCutoffs() : statBreakpoints(machineType, stat, hasBlast)?.map(b => b.value);
+            const list = stat === 'Performance' && isDesequencer(machineType) ? desequencerSteps() : statBreakpoints(machineType, stat, hasBlast)?.map(b => b.value);
             if (list && list.length > 0) steps[stat] = [...list].sort((a, b) => a - b);
         }
         return steps;
@@ -537,7 +547,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     setMachineType(`${selected} ${max + 1}`);
                                     optimizer.setIgnoreStats(defaultIgnoreStats(selected));
                                     // Goals are in the old machine's terms, so a new type starts from Max
-                                    optimizer.setTargetStats({ Performance: null, Quality: null, Efficiency: null });
+                                    optimizer.setTargetStats(defaultTargetStats(selected));
                                     setLimitStats({ Performance: false, Quality: false, Efficiency: false });
                                 }}
                                 disabled={currentSolving}
@@ -1384,7 +1394,10 @@ export default function ModuleInventoryUI() {
         newMachines.forEach(m => {
             // Each imported machine starts with the stats that matter for its type switched on
             const ignoreStats = defaultIgnoreStats(m.machineType);
-            localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats: defaultMaximizeStats(ignoreStats) }));
+            const targetStats = defaultTargetStats(m.machineType);
+            const maximizeStats = defaultMaximizeStats(ignoreStats);
+            (['Performance', 'Quality', 'Efficiency'] as const).forEach(k => { if (targetStats[k] !== null) maximizeStats[k] = false; });
+            localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats, targetStats }));
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
         });
 
