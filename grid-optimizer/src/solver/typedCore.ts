@@ -28,6 +28,8 @@ export interface MachineParams {
     water?: boolean;
     // AgeWell: Performance and Efficiency count as one stat, their sum, under Efficiency; Performance is then ignored
     sumPE?: boolean;
+    // Performance past this counts for nothing (Moisture Farm: 6000 ml, the biggest water container)
+    capP?: number;
     // null when the stat has no target
     target: (number | null)[];
     maximize: boolean[];
@@ -315,13 +317,16 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         dp += roundStat(myP); dq += roundStat(myQ); de += roundStat(myE);
         delta[0] = dp; delta[1] = dq; delta[2] = de;
 
+        // Performance past the cap (if any) adds nothing
+        const cap = params.capP ?? Infinity;
+        const dpc = Math.min(c0 + dp, cap) - Math.min(c0, cap);
         const statScore = params.water
-            ? scoreStat(0, waterValueSmooth(c0 + dp, c1 + dq) - waterValueSmooth(c0, c1), 0, w0, params) + scoreStat(2, de, c2, w2, params)
+            ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), c1 + dq) - waterValueSmooth(Math.min(c0, cap), c1), 0, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPE
             ? scoreStat(1, dq, c1, w1, params) + scoreStat(2, de + dp, c2 + c0, w2, params)
-            : scoreStat(0, dp, c0, w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
+            : scoreStat(0, dpc, Math.min(c0, cap), w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
         const tiebreakers = (adj * 0.05) - (negativeContacts * 1000);
         if (statScore < 0 || (statScore === 0 && !zeroScoreOk)) return -10000 + tiebreakers;
         return statScore + tiebreakers;

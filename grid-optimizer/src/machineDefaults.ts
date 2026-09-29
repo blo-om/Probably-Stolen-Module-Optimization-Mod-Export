@@ -186,7 +186,7 @@ export const hiddenStat = (machineType: string, stat: 'Performance' | 'Quality' 
 
 // What each stat does on each machine, for the machine tooltip (numbers from the game code, see the notes above)
 const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][] = [
-    ['moisture farm', 'Performance', 'Water made: 1000 ml a day, +10 ml per 1%'],
+    ['moisture farm', 'Performance', 'Water made: 1000 ml a day, +10 ml per 1%, up to 6000 ml (the biggest water container)'],
     ['moisture farm', 'Quality', 'Water grade: Ghost from 0%, Base 50%, High-quality 100%, Pure 150% (Rust and Gutterflow below 0)'],
     ['moisture farm', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
     ['water purifier', 'Performance', 'Cleaning speed: every contaminant removed faster (+0.02 ml a day per 1%)'],
@@ -212,6 +212,9 @@ export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' 
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     return STAT_EFFECTS.find(([k, s]) => s === stat && name.includes(k))?.[2] ?? null;
 };
+
+// Moisture Farm Performance that still counts: +500% makes 6000 ml, as much as the biggest water container holds
+export const MOISTURE_FARM_CAP = 500;
 
 export const isMoistureFarm = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('moisture farm');
 
@@ -328,11 +331,12 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         step: 1,
         hint: 'Chance to stop a theft: 50% plus Performance',
     }],
+    // Up to 6000 ml: the biggest water container holds that much, so Performance past +500% fills nothing more (MOISTURE_FARM_CAP)
     ['moisture farm', 'Performance', {
         unit: 'ml/d',
-        fromPercent: pct => 1000 + 10 * pct,
+        fromPercent: pct => Math.min(6000, Math.max(0, 1000 + 10 * pct)),
         // Rounded up, so the target always reaches the volume asked for
-        toPercent: ml => Math.ceil((ml - 1000) / 10),
+        toPercent: ml => Math.ceil((Math.min(ml, 6000) - 1000) / 10),
         step: 10,
     }],
     /* Purifier: each contaminant is removed at its own base amount a day (2 ml heavy metals, 3 ml chemicals, 5 ml the rest) times

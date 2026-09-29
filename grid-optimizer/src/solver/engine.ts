@@ -107,12 +107,16 @@ const paramsOf = (m: MachineConfig): MachineParams => ({
     sumPQ: Boolean(m.sumPQ),
     water: Boolean(m.water),
     sumPE: Boolean(m.sumPE),
+    capP: m.performanceCap,
 });
 
 // A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value),
 // and Efficiency on a sumPE machine (Efficiency + Performance)
-const statOf = (p: MachineParams, t: Totals, s: number) =>
-    s === 0 && p.water ? waterValue(t.p, t.q) : s === 0 && p.sumPQ ? t.p + t.q : s === 2 && p.sumPE ? t.e + t.p : totalOf(t, s);
+// (Performance past capP counts for nothing: a Moisture Farm's container holds 6000 ml)
+const statOf = (p: MachineParams, t: Totals, s: number) => {
+    const tp = p.capP !== undefined ? Math.min(t.p, p.capP) : t.p;
+    return s === 0 && p.water ? waterValue(tp, t.q) : s === 0 && p.sumPQ ? tp + t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp : totalOf(t, s);
+};
 
 // How much a maximized point of each stat is worth: Efficiency half, so Performance and Quality always come first
 const MAXIMIZE_WEIGHT = [1, 1, 0.5];
