@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -307,6 +307,7 @@ const MachineInstance = React.memo(forwardRef(({
             targetSteps: targetSteps(),
             sumPQ: isMirage(machineType),
             water: waterMode(),
+            worthlessBelowSteps: worthlessBelowSteps(machineType),
             machineType
         }),
         isValidPlacement: optimizer.isValidPlacement,
@@ -729,7 +730,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization(targetSteps(), isMirage(machineType), waterMode());
+                                    optimizer.runOptimization(targetSteps(), isMirage(machineType), waterMode(), worthlessBelowSteps(machineType));
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1363,7 +1364,8 @@ export default function ModuleInventoryUI() {
                 statPriority: { Performance: priority, Quality: priority, Efficiency: priority },
                 targetSteps: state.targetSteps,
                 sumPQ: state.sumPQ,
-                water: state.water
+                water: state.water,
+                worthlessBelowSteps: state.worthlessBelowSteps
             };
         });
         const boards = active.map(m => machinesRef.current[m.id].getBoard());

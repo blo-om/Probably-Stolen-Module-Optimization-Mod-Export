@@ -153,6 +153,15 @@ export const desequencerCutoffs = (): number[] => DESEQUENCER_CUTOFFS.map(([valu
 export const isMirage = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('mirage');
 export const MIRAGE_BASE_POINTS = 100;
 
+/* Stats where nothing below the first breakpoint counts, checked against the game: Furnace stages = Quality / 100 (0 below 100),
+ * AgeWell days = max(0, Quality) / 125 + 1, Water Purifier floor multiplier 1 for all Quality under 15. Not the Moisture Farm (Rust and
+ * Gutterflow below 0) or the Desequencer (negative Performance works slower)
+ */
+export const worthlessBelowSteps = (machineType: string): Partial<Record<'Performance' | 'Quality' | 'Efficiency', boolean>> => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    return ['furnace', 'agewell', 'water purifier'].some(k => name.includes(k)) ? { Quality: true } : {};
+};
+
 export const isMoistureFarm = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('moisture farm');
 
 export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');

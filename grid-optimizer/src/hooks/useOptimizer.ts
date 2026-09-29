@@ -669,6 +669,9 @@ export type MachineConfig = {
     // Moisture Farm with Volume and Purity both on Auto: the two count as one stat, the value of the water it makes a day (volume times
     // its grade's price; see solver/typedCore.ts waterValue)
     water?: boolean;
+    // Stats where nothing below the first of targetSteps counts (Furnace ingot purity under 100%...), so a stalled Auto stat there
+    // can be dropped altogether (see solver/engine.ts stallOrders)
+    worthlessBelowSteps?: Partial<Record<keyof Stats, boolean>>;
 };
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
@@ -1102,7 +1105,8 @@ export function useOptimizer(
         }
     }, [inventory, tier, maximizeStats, targetStats, ignoreStats, statPriority, machineId, getUsedItems, board, isSolving, isExternallySolving]);
 
-    const runOptimization = async (targetSteps?: MachineConfig['targetSteps'], sumPQ?: boolean, water?: boolean) => {
+    const runOptimization = async (targetSteps?: MachineConfig['targetSteps'], sumPQ?: boolean, water?: boolean,
+        worthlessBelowSteps?: MachineConfig['worthlessBelowSteps']) => {
         if (isSolving) {
             isSolvingRef.current = false;
             return;
@@ -1132,7 +1136,7 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water };
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps };
 
         await runParallelEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);

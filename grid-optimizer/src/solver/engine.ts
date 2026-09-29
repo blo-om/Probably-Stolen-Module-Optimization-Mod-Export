@@ -158,20 +158,23 @@ export type EngineTuning = {
  *          so the modules pushing it towards a next step it cannot reach go where they count (points between steps do nothing in the game)
  *   relax  an unmet stepped target drops one step
  */
-export type StallOrder = { mIdx: number; s: number; ease?: number };
+// ease: the step to hold, or null to stop caring about the stat altogether (below its first step, where nothing it does counts)
+export type StallOrder = { mIdx: number; s: number; ease?: number | null };
 
 export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>;
 
 /* What a stalled search gives up next (see StallOrder); empty when nothing is left. Shared by the engine and the worker coordinator
  * (solver/parallel.ts), so both pick the same
- *   1. Auto stats with breakpoints at or past their lowest step (below it every point can still matter, e.g. Moisture Farm purity below 0):
- *      all that are less than EASE_BATCH_SHARE of the way to their next step go at once; otherwise the one with the least progress
+ *   1. Auto stats with breakpoints at or past their lowest step, and below it too where nothing below the first step counts
+ *      (MachineConfig.worthlessBelowSteps: a Furnace under 100% makes a +0 ingot however close it is; a Moisture Farm under 0 still
+ *      makes worse water, so it is left alone there). Such a stat is dropped altogether rather than held at a step.
+ *      All that are less than EASE_BATCH_SHARE of the way to their next step go at once; otherwise the one with the least progress
  *      (lowest priority on a tie), so a stat close to its next step keeps its chance longest
  *   2. then the unmet stepped target of the lowest priority, one step
  */
 const EASE_BATCH_SHARE = 0.5;
 export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number): StallOrder[] => {
-    const eases: { mIdx: number; s: number; rank: number; step: number; progress: number }[] = [];
+    const eases: { mIdx: number; s: number; rank: number; step: number | null; progress: number }[] = [];
     let relax: { mIdx: number; s: number; rank: number } | null = null;
     machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
         const steps = m.targetSteps?.[key];
@@ -182,7 +185,11 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
         if (target === null && maximize[mIdx][s]) {
             const sorted = [...steps].sort((a, b) => a - b);
             const reached = sorted.filter(v => v <= value);
-            if (reached.length === 0) return;
+            if (reached.length === 0) {
+                if (!m.worthlessBelowSteps?.[key]) return;
+                eases.push({ mIdx, s, rank, step: null, progress: sorted[0] > 0 ? Math.max(0, value) / sorted[0] : 0 });
+                return;
+            }
             const step = reached[reached.length - 1];
             const next = sorted.find(v => v > value);
             eases.push({ mIdx, s, rank, step, progress: next === undefined ? 1 : (value - step) / (next - step) });
