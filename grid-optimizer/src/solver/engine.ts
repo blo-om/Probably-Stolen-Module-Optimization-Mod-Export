@@ -12,7 +12,7 @@ import { applyInternalEffects } from '../utils';
 import type { Orientation } from '../utils';
 import { calculateBoardStats, indexInventoryById, isSpecialModule, buildSearchPool, generateCodeFromState } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
-import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf } from './typedCore';
+import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue } from './typedCore';
 import type { Board, MachineParams, Totals } from './typedCore';
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
@@ -109,16 +109,19 @@ const compareTiers = (a: Float64Array, b: Float64Array) => {
 const statIsIgnored = (m: MachineConfig, key: keyof Stats) => Boolean(m.ignoreStats?.[key]);
 const priorityOf = (m: MachineConfig, key: keyof Stats) => m.statPriority?.[key] ?? 1;
 
-// With sumPQ (see MachineConfig) Quality folds into Performance, so it is ignored as a stat of its own
+// With sumPQ or water (see MachineConfig) Quality folds into Performance, so it is ignored as a stat of its own
+const foldsQuality = (m: MachineConfig) => Boolean(m.sumPQ || m.water);
 const paramsOf = (m: MachineConfig): MachineParams => ({
-    ignored: STAT_KEYS.map(k => statIsIgnored(m, k) || (Boolean(m.sumPQ) && k === 'Quality')),
-    target: STAT_KEYS.map(k => (m.sumPQ && k === 'Quality') ? null : m.targetStats[k]),
-    maximize: STAT_KEYS.map(k => !(m.sumPQ && k === 'Quality') && Boolean(m.maximizeStats?.[k])),
+    ignored: STAT_KEYS.map(k => statIsIgnored(m, k) || (foldsQuality(m) && k === 'Quality')),
+    target: STAT_KEYS.map(k => (foldsQuality(m) && k === 'Quality') ? null : m.targetStats[k]),
+    maximize: STAT_KEYS.map(k => !(foldsQuality(m) && k === 'Quality') && Boolean(m.maximizeStats?.[k])),
     sumPQ: Boolean(m.sumPQ),
+    water: Boolean(m.water),
 });
 
-// A machine's value of stat s: its own total, except Performance on a sumPQ machine, which is Performance + Quality
-const statOf = (p: MachineParams, t: Totals, s: number) => (s === 0 && p.sumPQ ? t.p + t.q : totalOf(t, s));
+// A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value)
+const statOf = (p: MachineParams, t: Totals, s: number) =>
+    s === 0 && p.water ? waterValue(t.p, t.q) : s === 0 && p.sumPQ ? t.p + t.q : totalOf(t, s);
 
 // A scored board: its totals, and its tiebreak once worked out (tbGen says under which targets)
 type Scored = Totals & { tb: number; tbGen: number };
@@ -172,7 +175,7 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
     let relax: { mIdx: number; s: number; rank: number } | null = null;
     machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
         const steps = m.targetSteps?.[key];
-        if (!steps || steps.length === 0 || statIsIgnored(m, key) || (m.sumPQ && key === 'Quality')) return;
+        if (!steps || steps.length === 0 || statIsIgnored(m, key) || (foldsQuality(m) && key === 'Quality')) return;
         const rank = priorityOf(m, key);
         const target = targets[mIdx][s];
         const value = valueOf(mIdx, s);
@@ -317,7 +320,7 @@ export const runOptimizationEngine = async (
     };
 
     // What a module is worth to the machines that maximize (Nodes a little; specials and Overclocks nothing)
-    const maximized = [0, 1, 2].filter(s => params.some(p => (!p.ignored[s] && p.maximize[s]) || (s === 1 && p.sumPQ && p.maximize[0])));
+    const maximized = [0, 1, 2].filter(s => params.some(p => (!p.ignored[s] && p.maximize[s]) || (s === 1 && (p.sumPQ || p.water) && p.maximize[0])));
     const valueStats = maximized.length > 0 ? maximized : [0, 1, 2];
     const value = new Float64Array(N);
     for (let i = 0; i < N; i++) {
@@ -442,7 +445,7 @@ export const runOptimizationEngine = async (
                 if (ti !== -1) v += 15 * ((mask & (1 << ti)) !== 0 ? TARGET_MET_DRAW_SCALE : 1);
                 return v * Math.pow(PRIORITY_WEIGHT_STEP, tierCount - 1 - tierOfStat[mIdx][s]);
             });
-            if (p.sumPQ) w[1] = w[0];
+            if (p.sumPQ || p.water) w[1] = w[0];
             const values = new Float64Array(P);
             const stated: number[] = [];
             for (let i = 0; i < P; i++) {

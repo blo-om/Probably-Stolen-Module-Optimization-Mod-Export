@@ -160,7 +160,7 @@ export const runParallelEngine = async (
     const workers: Worker[] = [];
     // Relaxing: the targets as they stand, the orders sent so far, and the record at the last significant improvement
     const targets = machines.map(m => STATS.map(k => m.targetStats[k] ?? null));
-    const maximize = machines.map(m => STATS.map(k => Boolean(m.maximizeStats?.[k]) && !(m.sumPQ && k === 'Quality')));
+    const maximize = machines.map(m => STATS.map(k => Boolean(m.maximizeStats?.[k]) && !((m.sumPQ || m.water) && k === 'Quality')));
     let relaxGen = 0;
     let progressMark: number[] | null = null;
     const startedAt = Date.now();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -230,6 +230,9 @@ const MachineInstance = React.memo(forwardRef(({
     const machineIconUrl = machineIcon(machineType);
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
+    // A Moisture Farm with Volume and Purity both on Auto is scored on the value of its water (see MachineConfig.water)
+    const waterMode = () => isMoistureFarm(machineType)
+        && (['Performance', 'Quality'] as const).every(k => !optimizer.ignoreStats[k] && optimizer.maximizeStats[k] && optimizer.targetStats[k] === null);
     // The values where each stat changes something on this machine, for the solver (see MachineConfig.targetSteps)
     const targetSteps = () => {
         const steps: Partial<Record<'Performance' | 'Quality' | 'Efficiency', number[]>> = {};
@@ -303,6 +306,7 @@ const MachineInstance = React.memo(forwardRef(({
             statPriority: optimizer.statPriority,
             targetSteps: targetSteps(),
             sumPQ: isMirage(machineType),
+            water: waterMode(),
             machineType
         }),
         isValidPlacement: optimizer.isValidPlacement,
@@ -725,7 +729,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization(targetSteps(), isMirage(machineType));
+                                    optimizer.runOptimization(targetSteps(), isMirage(machineType), waterMode());
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1358,7 +1362,8 @@ export default function ModuleInventoryUI() {
                 ignoreStats: state.ignoreStats,
                 statPriority: { Performance: priority, Quality: priority, Efficiency: priority },
                 targetSteps: state.targetSteps,
-                sumPQ: state.sumPQ
+                sumPQ: state.sumPQ,
+                water: state.water
             };
         });
         const boards = active.map(m => machinesRef.current[m.id].getBoard());
