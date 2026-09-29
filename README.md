@@ -1,15 +1,20 @@
 # Probably Stolen Module Optimization — Mod Export
 
-A fork of [hoydoy/probably-stolen-module-optimization](https://github.com/hoydoy/probably-stolen-module-optimization), the module grid optimizer for *Probably Stolen*. All of the optimizer itself is the original author's work.
+A fork of [hoydoy/probably-stolen-module-optimization](https://github.com/hoydoy/probably-stolen-module-optimization), the module grid optimizer for *Probably Stolen*. See [Credits](#credits) for whose work it builds on.
 
 **Live site:** https://blo-om.github.io/Probably-Stolen-Module-Optimization-Mod-Export/
 
 ## What this fork changes
 
-- **Mod export.** Each machine card has an **Export** button, and the toolbar has **Copy All for Mod**. They copy the machine layout together with its name, so the *Module Optimizer Import* MelonLoader mod can put the modules into the right machine in-game.
+- **Mod export.** Each machine card has an **Export** button, and the toolbar has **Export All**. They copy the machine layout together with its name, so the *Module Optimizer Import* MelonLoader mod can put the modules into the right machine in-game.
 - **No leaderboard submissions.** Results are not sent to the original site's Supabase leaderboard, and the original site's analytics script is removed.
 - **Smarter targets.** A target (Tar %) is a hard minimum that outranks card order. A machine whose stats are all targets reaches them with the weakest modules that suffice, leaving strong modules for machines that maximize, and a clean-up pass swaps out any module a weaker same-shaped one can replace.
 - **Layout.** Machine cards show the machine's icon and short name in the header, stat cards toggle on/off with a click, and the page toolbar sits at the top.
+
+## Credits
+
+- **[hoydoy](https://github.com/hoydoy/probably-stolen-module-optimization)** made the original optimizer and site this fork starts from.
+- **[Razboy20](https://github.com/Razboy20/probably-stolen-module-optimization)** inspired the core of the current solver. His fork's rewritten solver, an iterated local search over placements run on one Web Worker per core, is the approach this solver follows. The code here is a separate implementation.
 
 The machine icons in `grid-optimizer/public/machines/` are item art from *Probably Stolen* © Questing Goose Studio, used to identify machines in this fan tool.
 
