@@ -273,6 +273,7 @@ export const runOptimizationEngine = async (
         return out;
     };
     const initialBoards = initialObjectBoards.map(toTyped);
+    const lockedMask = (b: Board) => { let m = ''; for (let c = 0; c < CELLS; c++) m += b[c] === LOCKED ? '1' : '0'; return m; };
 
     // ---- the search pool
     const searchPool = buildSearchPool(searchPoolInventory, internalById, machines).map(idx);
@@ -294,6 +295,20 @@ export const runOptimizationEngine = async (
     // Tier of each machine's stat, -1 when ignored
     const tierOfStat = machines.map((m, mIdx) => STAT_KEYS.map((k, s) => params[mIdx].ignored[s] ? -1 : tierOfRank.get(priorityOf(m, k))!));
     const stepsOf = machines.map(m => STAT_KEYS.map(k => m.targetSteps?.[k]));
+    /* Interchangeable machines: same priority for every stat, same settings, same locked cells (neighbouring identical cards share a
+     * priority in Run All). The same layout does the same on any of them, so reports hand the best layouts to the earliest cards
+     * (see orderGroups): they reach the better breakpoints first and get the scarce modules, and the total is unchanged
+     */
+    const groupOf = (() => {
+        const keys = machines.map((m, mIdx) => JSON.stringify([tierOfStat[mIdx], params[mIdx], stepsOf[mIdx], lockedMask(initialBoards[mIdx]),
+            m.performanceCap ?? null, m.worthlessBelowSteps ?? null]));
+        const groups: number[][] = [];
+        keys.forEach((k, mIdx) => {
+            const g = groups.find(gr => keys[gr[0]] === k);
+            if (g) g.push(mIdx); else groups.push([mIdx]);
+        });
+        return groups.filter(g => g.length > 1);
+    })();
 
     /* Tier layout, most important first:
      *   [0 .. tierCount)              target shortfall, one tier per priority rank (card order): every target outranks every maximized stat,
@@ -706,20 +721,43 @@ export const runOptimizationEngine = async (
         return generateCodeFromState(machines[mIdx].tier, machines[mIdx].maximizeStats, callerMachines[mIdx].targetStats, inventoryForCode, objectBoard);
     };
     let pendingUpdate = false;
+    // For each machine, whose layout it reports: within each interchangeable group the layouts sorted best first (the group's
+    // maximized value, Performance and Quality before Efficiency) go to the cards in order. A layout holding a machine's own
+    // special module (fixed) stays where it is
+    const orderGroups = (boards: Board[], stats: Scored[]) => {
+        const from = boards.map((_, mIdx) => mIdx);
+        for (const group of groupOf) {
+            const free = group.filter(mIdx => { const b = boards[mIdx]; for (let c = 0; c < CELLS; c++) if (b[c] >= 0 && fixed[b[c]]) return false; return true; });
+            // Only machines whose goals are still the same: easing or relaxing can have given them different targets since the start
+            const bySettings = new Map<string, number[]>();
+            for (const mIdx of free) { const k = JSON.stringify(params[mIdx]); bySettings.set(k, [...(bySettings.get(k) ?? []), mIdx]); }
+            bySettings.forEach(movable => {
+                if (movable.length < 2) return;
+                const worth = (j: number) => { let w = 0; for (let s = 0; s < 3; s++) if (params[j].maximize[s]) w += statOf(params[j], stats[j], s) * MAXIMIZE_WEIGHT[s]; return w; };
+                const sorted = [...movable].sort((a, b) => worth(b) - worth(a) || a - b);
+                movable.forEach((mIdx, i) => { from[mIdx] = sorted[i]; });
+            });
+        }
+        return from;
+    };
     const flushUpdate = () => {
         if (!pendingUpdate) return;
         pendingUpdate = false;
         const updates: EngineUpdates = new Map();
         const spare = withSpareLearningAlgorithms(bestBoards);
-        const boards = spare ? spare.boards : bestBoards;
-        const stats = spare ? boards.map((b, mIdx) => spare.changed.has(mIdx) ? score(b) : bestStats[mIdx]) : bestStats;
+        const unordered = spare ? spare.boards : bestBoards;
+        const unorderedStats = spare ? unordered.map((b, mIdx) => spare.changed.has(mIdx) ? score(b) : bestStats[mIdx]) : bestStats;
+        const from = orderGroups(unordered, unorderedStats);
+        const boards = from.map(j => unordered[j]);
+        const stats = from.map(j => unorderedStats[j]);
         for (let mIdx = 0; mIdx < machineCount; mIdx++) {
             const objectBoard = core.toObjectBoard(boards[mIdx]);
             // Totals and per-piece stats as the rest of the app computes them
             const full = calculateBoardStats(objectBoard, itemList, inventoryById, internalById);
             let code: string;
-            if (spare) {
+            if (spare || from[mIdx] !== mIdx) {
                 code = codeFor(mIdx, objectBoard);
+                codeIsStale[mIdx] = true;
             } else {
                 if (codeIsStale[mIdx]) { currentCodes[mIdx] = codeFor(mIdx, objectBoard); codeIsStale[mIdx] = false; }
                 code = currentCodes[mIdx];
