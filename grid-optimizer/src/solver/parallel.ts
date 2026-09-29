@@ -4,6 +4,7 @@ import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
 import type { EngineTuning } from './engine';
 import { stallOrders } from './engine';
+import { createStallClock, significant } from './stall';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
 
@@ -64,40 +65,16 @@ const beats = (a: number[], b: number[]) => {
  *
  * A record is shown when it changes some machine's Performance, Quality or Efficiency AND is a significant step from what is on screen:
  *   - any progress on a target is significant (target tiers come first in the score)
- *   - otherwise the first score tier that changed must have gained at least MIN_GAIN of the whole maximized score on screen (every card's
+ *   - otherwise the first score tier that changed must have gained at least MAX_PROGRESS_SHARE (solver/stall.ts) of the whole maximized score on screen (every card's
  *     maximized tiers together), so a point on a low-priority card does not count as much as the same point would on its own small tier
  * A smaller gain is not dropped: the next record is compared with what is still on screen, so small gains add up until they count
  * When the solve ends the page keeps the last significant record rather than switching to a layout that barely differs;
  * only a solve that never showed anything shows its best
  */
-const MIN_GAIN = 0.005;
-
-// The first score tier that changed moved up by enough: `targetShare` of what a target tier was missing (0: any progress on a target),
-// or MIN_GAIN of the whole maximized score. Tier layout from the engine: target tiers per rank, maximized tiers per rank, the tiebreak
-const significant = (tiers: number[], reference: number[], targetShare: number) => {
-    const targetTiers = (tiers.length - 1) / 2;
-    for (let i = 0; i < tiers.length; i++) {
-        if (tiers[i] === reference[i]) continue;
-        if (i === tiers.length - 1 || tiers[i] < reference[i]) return false;
-        if (i < targetTiers) return tiers[i] - reference[i] >= targetShare * Math.abs(reference[i]);
-        let whole = 0;
-        for (let k = targetTiers; k < tiers.length - 1; k++) whole += Math.abs(reference[k]);
-        return (tiers[i] - reference[i]) >= MIN_GAIN * Math.max(whole, 1);
-    }
-    return false;
-};
-
-/* Stepped targets that cannot be met are lowered one step at a time, so the modules chasing them go where they count
- * The search decides for itself when it runs alone; with workers the coordinator decides for all of them together (their reports are
- * ranked on one scale): once the record has gone half the run so far (RELAX_AFTER_SHARE, between RELAX_MIN_MS and RELAX_MAX_MS) without a
- * significant improvement, the unmet stepped target of the
- * lowest priority (last card) drops a step. Creeping towards a target counts only as a fifth of what it was missing (in practice
- * meeting it), so a search stuck just short of one no longer holds the relax off
+/* Stepped targets that cannot be met are lowered one step at a time (and Auto stats eased, see stallOrders), so the modules chasing
+ * them go where they count. The search decides for itself when it runs alone; with workers the coordinator decides for all of them
+ * together, since their reports are ranked on one scale. Both use the same stall rule (solver/stall.ts)
  */
-const RELAX_AFTER_SHARE = 0.5;
-const RELAX_MIN_MS = 2000;
-const RELAX_MAX_MS = 5000;
-const RELAX_TARGET_SHARE = 0.2;
 const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
 
 const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
@@ -162,9 +139,7 @@ export const runParallelEngine = async (
     const targets = machines.map(m => STATS.map(k => m.targetStats[k] ?? null));
     const maximize = machines.map(m => STATS.map(k => Boolean(m.maximizeStats?.[k]) && !((m.sumPQ || m.water) && k === 'Quality') && !(m.sumPE && k === 'Performance')));
     let relaxGen = 0;
-    let progressMark: number[] | null = null;
-    const startedAt = Date.now();
-    let progressAt = startedAt;
+    const stall = createStallClock(Date.now);
     const relaxLowestTarget = () => {
         const record = bestUpdates;
         if (!record) return;
@@ -193,8 +168,7 @@ export const runParallelEngine = async (
         // than what is on screen, so the display waits until every worker has re-scored its record (or a second has passed) and
         // then shows the best of them, compared afresh since the scale changed
         best = null;
-        progressMark = null;
-        progressAt = Date.now();
+        stall.reset(null);
         awaiting = new Set(workers.map((_, i) => i).filter(i => running.has(i)));
         awaitingUntil = Date.now() + 1000;
     };
@@ -231,10 +205,7 @@ export const runParallelEngine = async (
             if (best === null || beats(reply.tiers, best)) {
                 best = reply.tiers;
                 bestUpdates = reply.updates;
-                if (progressMark === null || significant(reply.tiers, progressMark, RELAX_TARGET_SHARE)) {
-                    progressMark = reply.tiers;
-                    progressAt = Date.now();
-                }
+                stall.observe(reply.tiers);
                 if (awaiting.size === 0 && !lastAwaited) display.offer(rehydrate(reply.updates), reply.tiers);
             }
             if (lastAwaited) endWait();
@@ -257,7 +228,7 @@ export const runParallelEngine = async (
         }
         const t = Date.now();
         if (awaiting.size > 0 && t > awaitingUntil) endWait();
-        if (!stopSent && awaiting.size === 0 && t - progressAt >= Math.min(RELAX_MAX_MS, Math.max(RELAX_MIN_MS, (t - startedAt) * RELAX_AFTER_SHARE))) relaxLowestTarget();
+        if (!stopSent && awaiting.size === 0 && stall.due()) relaxLowestTarget();
     }, 50);
     try {
         await Promise.all(finished);
