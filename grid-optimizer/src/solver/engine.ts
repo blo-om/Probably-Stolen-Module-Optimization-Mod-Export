@@ -163,6 +163,7 @@ export type EngineTuning = {
     polish?: number;
     ease?: number;
     autoStepBonus?: number;
+    easeOrder?: number;
 };
 
 /* What a stalled search gives up, one at a time (see stallOrder):
@@ -185,7 +186,8 @@ export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceSt
  *   2. then the unmet stepped target of the lowest priority, one step
  */
 const EASE_BATCH_SHARE = 0.5;
-export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number): StallOrder[] => {
+export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number,
+    easeByPriority = false): StallOrder[] => {
     const eases: { mIdx: number; s: number; rank: number; step: number | null; progress: number }[] = [];
     let relax: { mIdx: number; s: number; rank: number } | null = null;
     machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
@@ -209,6 +211,13 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
             if (relax === null || rank > relax.rank || (rank === relax.rank && mIdx > relax.mIdx)) relax = { mIdx, s, rank };
         }
     }));
+    // Alternative order (EngineTuning.easeOrder = 1): one per stall, lowest priority first. Off: A/B on six scenarios (12 runs a side,
+    // 20 s, scored by the step each stat reaches) it won where a few top cards matter most (78-88%) but lost total in-game value in
+    // three all-Auto or mixed saves (1837 -> 1784, 1716 -> 1671, 1152 -> 1110): one ease per stall leaves wasted modules stuck longer
+    if (easeByPriority && eases.length > 0) {
+        eases.sort((a, b) => b.rank - a.rank || b.mIdx - a.mIdx);
+        return [{ mIdx: eases[0].mIdx, s: eases[0].s, ease: eases[0].step }];
+    }
     const batch = eases.filter(e => e.progress < EASE_BATCH_SHARE);
     if (batch.length > 0) return batch.map(e => ({ mIdx: e.mIdx, s: e.s, ease: e.step }));
     if (eases.length > 0) {
@@ -242,6 +251,7 @@ export const runOptimizationEngine = async (
     const LAHC = tuning.lateAcceptance ?? 0;
     const POLISH = tuning.polish ?? 1;
     const AUTO_BONUS = tuning.autoStepBonus ?? AUTO_STEP_BONUS;
+    const EASE_ORDER = tuning.easeOrder ?? 0;
     const EASE = tuning.ease ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
@@ -711,7 +721,7 @@ export const runOptimizationEngine = async (
 
     // The lowest-priority unmet stepped target drops one step (or is dropped below its lowest), and the record is re-scored against that
     const relaxLowestTarget = () => {
-        const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s));
+        const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s), EASE_ORDER === 1);
         for (const order of orders) applyOrder(order);
         return orders.length > 0;
     };
