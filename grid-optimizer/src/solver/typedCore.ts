@@ -26,6 +26,8 @@ export interface MachineParams {
     sumPQ?: boolean;
     // Moisture Farm on Auto for both: Performance and Quality count as one stat, the value of the water made a day (see waterValue)
     water?: boolean;
+    // AgeWell: Performance and Efficiency count as one stat, their sum, under Efficiency; Performance is then ignored
+    sumPE?: boolean;
     // null when the stat has no target
     target: (number | null)[];
     maximize: boolean[];
@@ -317,6 +319,8 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
             ? scoreStat(0, waterValueSmooth(c0 + dp, c1 + dq) - waterValueSmooth(c0, c1), 0, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
+            : params.sumPE
+            ? scoreStat(1, dq, c1, w1, params) + scoreStat(2, de + dp, c2 + c0, w2, params)
             : scoreStat(0, dp, c0, w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
         const tiebreakers = (adj * 0.05) - (negativeContacts * 1000);
         if (statScore < 0 || (statScore === 0 && !zeroScoreOk)) return -10000 + tiebreakers;

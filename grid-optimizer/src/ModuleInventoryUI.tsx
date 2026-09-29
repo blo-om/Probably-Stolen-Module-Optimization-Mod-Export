@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -255,7 +255,7 @@ const MachineInstance = React.memo(forwardRef(({
 
     // A stat that does nothing on this machine has no card, so it must not be left on from an older setup either
     useEffect(() => {
-        const stray = (['Performance', 'Quality', 'Efficiency'] as const).filter(k => statHasNoEffect(machineType, k) && !optimizer.ignoreStats[k]);
+        const stray = (['Performance', 'Quality', 'Efficiency'] as const).filter(k => hiddenStat(machineType, k) && !optimizer.ignoreStats[k]);
         if (stray.length > 0) optimizer.setIgnoreStats((prev: any) => ({ ...prev, ...Object.fromEntries(stray.map(k => [k, true])) }));
     }, [machineType, optimizer.ignoreStats]);
 
@@ -307,6 +307,7 @@ const MachineInstance = React.memo(forwardRef(({
             targetSteps: targetSteps(),
             sumPQ: isMirage(machineType),
             water: waterMode(),
+            sumPE: isAgeWell(machineType),
             worthlessBelowSteps: worthlessBelowSteps(machineType),
             machineType
         }),
@@ -454,12 +455,19 @@ const MachineInstance = React.memo(forwardRef(({
                         <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#eee' }}>{machineType.split(' > ').pop()}</div>
                         <div style={{ fontSize: '0.75em', color: '#4fb3bf', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>[Machine]</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9em' }}>
-                            {([['Perf', 'Performance'], ['Qual', 'Quality'], ['Effic', 'Efficiency']] as const).map(([label, stat]) => (
-                                <div key={stat} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                                    <span style={{ color: '#aaa' }}>{label}:</span>
-                                    <span style={{ color: getStatColor(optimizer.bestTotals[stat]) }}>{formatStatValue(optimizer.bestTotals[stat])}</span>
-                                </div>
-                            ))}
+                            {([['Perf', 'Performance'], ['Qual', 'Quality'], ['Effic', 'Efficiency']] as const).map(([label, stat]) => {
+                                const effect = statEffect(machineType, stat);
+                                const none = statHasNoEffect(machineType, stat);
+                                return (
+                                    <div key={stat} style={{ opacity: none ? 0.5 : 1 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                            <span style={{ color: '#aaa' }}>{label}:</span>
+                                            <span style={{ color: getStatColor(optimizer.bestTotals[stat]) }}>{formatStatValue(optimizer.bestTotals[stat])}</span>
+                                        </div>
+                                        {effect && <div style={{ fontSize: '0.8em', color: '#777', maxWidth: '240px', lineHeight: 1.3 }}>{effect}</div>}
+                                    </div>
+                                );
+                            })}
                         </div>
                         {isImportedMachine && (
                             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #333', fontSize: '0.75em', color: '#888', wordBreak: 'break-word', maxWidth: '250px' }}>
@@ -730,7 +738,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization(targetSteps(), isMirage(machineType), waterMode(), worthlessBelowSteps(machineType));
+                                    optimizer.runOptimization(targetSteps(), isMirage(machineType), waterMode(), worthlessBelowSteps(machineType), isAgeWell(machineType));
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1365,6 +1373,7 @@ export default function ModuleInventoryUI() {
                 targetSteps: state.targetSteps,
                 sumPQ: state.sumPQ,
                 water: state.water,
+                sumPE: state.sumPE,
                 worthlessBelowSteps: state.worthlessBelowSteps
             };
         });
