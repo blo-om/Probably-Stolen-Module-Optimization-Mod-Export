@@ -164,6 +164,7 @@ export type EngineTuning = {
     ease?: number;
     autoStepBonus?: number;
     easeOrder?: number;
+    polishAuto?: number;
 };
 
 /* What a stalled search gives up, one at a time (see stallOrder):
@@ -252,6 +253,7 @@ export const runOptimizationEngine = async (
     const POLISH = tuning.polish ?? 1;
     const AUTO_BONUS = tuning.autoStepBonus ?? AUTO_STEP_BONUS;
     const EASE_ORDER = tuning.easeOrder ?? 0;
+    const POLISH_AUTO = tuning.polishAuto ?? 0;
     const EASE = tuning.ease ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
@@ -936,6 +938,7 @@ export const runOptimizationEngine = async (
      * in the game, and taking modules for that cost the targets below it. Repeats while it finds something, within POLISH_BUDGET_MS a record
      */
     const POLISH_NEAR = 0.25;
+    const POLISH_AUTO_NEAR = 0.25;
     const POLISH_TOP = 24;
     const POLISH_BUDGET_MS = 60;
     const polishOwner = new Int16Array(N);
@@ -1013,7 +1016,8 @@ export const runOptimizationEngine = async (
         }
     };
     const valueOf = (k: number, s: number, t: Totals) => statOf(params[k], t, s);
-    const polishTarget = (k: number, s: number, deadline: number) => {
+    // `reach`: the breakpoint a move must reach (a stepped target's own value when left out)
+    const polishTarget = (k: number, s: number, deadline: number, reach: number | null = null) => {
         polishOwner.fill(-1);
         for (let m = 0; m < machineCount; m++) for (let c = 0; c < CELLS; c++) { const a = bestBoards[m][c]; if (a >= 0) polishOwner[a] = m; }
         const reps: number[] = [];
@@ -1034,7 +1038,7 @@ export const runOptimizationEngine = async (
             pieces.push(a);
         }
         const valueNow = valueOf(k, s, bestStats[k]);
-        const mustReach = stepsOf[k][s] ? params[k].target[s] : null;
+        const mustReach = reach ?? (stepsOf[k][s] ? params[k].target[s] : null);
         polishMoves.length = 0;
         const two: PolishMove = { a: -1, it: -1, x: 0, y: 0, o: null as any, it2: -1, x2: 0, y2: 0, o2: null, gain: 0 };
         for (const a of pieces) {
@@ -1050,9 +1054,21 @@ export const runOptimizationEngine = async (
             const g2 = bestAdd(k, s, polishBoard, reps, two.it, two, true);
             if (g2 !== -Infinity && baseValue + g1 + g2 > valueNow) keepMove({ ...two, a, gain: baseValue + g1 + g2 - valueNow });
         }
-        // Full scores for the shortlist
+        // Full scores for the shortlist. With polishAuto, moves that take nothing a donor needs come first: a donor between
+        // breakpoints gives up modules that buy it nothing in the game, one that drops a breakpoint really loses something
         polishBestTiers.set(bestTiers);
         let pick: PolishMove | null = null;
+        let pickDrops = Infinity;
+        const stepsReached = (j: number, st: Scored) => {
+            let n = 0;
+            for (let s2 = 0; s2 < 3; s2++) {
+                const steps = stepsOf[j][s2];
+                if (!steps || params[j].ignored[s2]) continue;
+                const v2 = statOf(params[j], st, s2);
+                for (const step of steps) if (v2 >= step) n++;
+            }
+            return n;
+        };
         for (const mv of polishMoves) {
             polishBoard.set(bestBoards[k]);
             if (mv.a >= 0) lift(polishBoard, mv.a);
@@ -1079,7 +1095,11 @@ export const runOptimizationEngine = async (
             // A stepped target only counts once reached: points towards a step it still misses do nothing in the game
             if (mustReach !== null && valueOf(k, s, mine) < mustReach) continue;
             scoreInto(polishTiers, (m) => m === k ? mine : otherStats.get(m) ?? bestStats[m], (m) => m === k ? polishBoard : otherBoards.get(m) ?? bestBoards[m]);
-            if (compareTiers(polishTiers, polishBestTiers) > 0) {
+            if (compareTiers(polishTiers, bestTiers) <= 0) continue;
+            let drops = 0;
+            if (POLISH_AUTO) otherStats.forEach((st, j) => { drops += Math.max(0, stepsReached(j, bestStats[j]) - stepsReached(j, st)); });
+            if (drops < pickDrops || (drops === pickDrops && compareTiers(polishTiers, polishBestTiers) > 0)) {
+                pickDrops = drops;
                 polishBestTiers.set(polishTiers);
                 pick = mv;
                 polishOther.set(polishBoard);
@@ -1110,6 +1130,24 @@ export const runOptimizationEngine = async (
                     if (v >= target || target - v > POLISH_NEAR * Math.max(Math.abs(target), 100)) continue;
                     if (polishTarget(k, s, deadline)) improved = true;
                     // Out of time: this record is left as it is, not tried again every frame
+                    else if (now() > deadline) { polishMark.set(bestTiers); return; }
+                }
+            }
+            // Auto stats with breakpoints within POLISH_AUTO_NEAR of the gap to their next one: the same look, for a move that crosses it,
+            // taking first from donors that stay on their breakpoint (EngineTuning.polishAuto). Off: it fires and crosses 5-25 steps a run,
+            // but A/B on eight Auto and mixed scenarios (12 runs a side, 12 s) came out level (37-65% wins, totals within 2%): the
+            // ordinary search reaches the same crossings shortly after
+            for (let k = 0; k < machineCount && !improved && POLISH_AUTO; k++) {
+                for (let s = 0; s < 3 && !improved; s++) {
+                    const steps = stepsOf[k][s];
+                    if (!steps || params[k].ignored[s] || params[k].target[s] !== null || !params[k].maximize[s] || (s === 0 && params[k].water)) continue;
+                    const v = valueOf(k, s, bestStats[k]);
+                    const sorted = [...steps].sort((a, b) => a - b);
+                    const next = sorted.find(step => step > v);
+                    if (next === undefined) continue;
+                    const last = sorted.filter(step => step <= v).pop() ?? Math.min(0, v);
+                    if (next - v > POLISH_AUTO_NEAR * (next - last)) continue;
+                    if (polishTarget(k, s, deadline, next)) improved = true;
                     else if (now() > deadline) { polishMark.set(bestTiers); return; }
                 }
             }
