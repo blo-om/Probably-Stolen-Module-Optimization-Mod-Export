@@ -14,6 +14,7 @@ import { calculateBoardStats, indexInventoryById, isSpecialModule, buildSearchPo
 import type { MachineConfig } from '../hooks/useOptimizer';
 import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue } from './typedCore';
 import type { Board, MachineParams, Totals } from './typedCore';
+import { createStallClock } from './stall';
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 
@@ -51,25 +52,11 @@ const STAGNATION_LIMIT = 150;
 
 // A missed stepped target costs this much on top of the distance, so reaching one fully always beats getting close on two
 const STEP_MISS_PENALTY = 50;
-// How long the record may go without a significant improvement before the lowest-priority unmet stepped target is lowered one step:
-// half the run so far, never under 2 s or over 5 s (the same rule as solver/parallel.ts)
-const RELAX_AFTER_SHARE = 0.5;
-const RELAX_MIN_MS = 2000;
-const RELAX_MAX_MS = 5000;
-// A significant improvement, judged on the first tier that changed:
-//   a target tier closed at least this share of what it was missing (a stepped target's miss penalty included, so in practice
-//   meeting a target, or a big jump while still far off)
-const TARGET_PROGRESS_SHARE = 0.2;
-//   a maximized tier gained at least this share of the whole maximized score (the same rule as the live display)
-const MAX_PROGRESS_SHARE = 0.005;
-// Creeping closer 1% at a time near an equilibrium is not significant, so it can no longer hold the relax off forever
 
 // Every so many restarts one board goes back to its initial state instead of the record
 const FRESH_START_EVERY = 4;
 // One iteration in so many offers the rebuilt board one module off another board of the set
 const STEAL_ONE_IN = 4;
-// How hard the score pushes machines maximizing the same stat at the same rank towards each other (must stay well under 20)
-const BALANCE_PENALTY_WEIGHT = 5;
 
 const NODE_VALUE = 3;
 
@@ -129,10 +116,6 @@ const statOf = (p: MachineParams, t: Totals, s: number) =>
 
 // How much a maximized point of each stat is worth: Efficiency half, so Performance and Quality always come first
 const MAXIMIZE_WEIGHT = [1, 1, 0.5];
-// An Auto stat with breakpoints can earn this many points on top for every step it has reached (see scoreInto). Off: A/B on
-// all-Auto scenarios (12 runs a side, 12 s, scored by the step each stat reaches in the game) found no gain at 10 or 20
-// (win rates 20-77% either way, totals within 2%): easing already stops Auto stats spending modules between steps
-const AUTO_STEP_BONUS = 0;
 
 // A scored board: its totals, and its tiebreak once worked out (tbGen says under which targets)
 type Scored = Totals & { tb: number; tbGen: number };
@@ -144,7 +127,6 @@ type Scored = Totals & { tb: number; tbGen: number };
  *   repackOneIn      REPACK_ONE_IN
  *   swapOneIn        one iteration in so many is a same-shape swap instead of a rebuild (0: never; default 6)
  *   relayoutOneIn    one iteration in so many re-lays one board's own modules in a new order instead of a rebuild (0: never)
- *   lateAcceptance   history length of late-acceptance hill climbing (0: plain hill climbing; measured no better at 100 and worse at 500, so off)
  *   ease             Auto stats with breakpoints may be eased when the search stalls (see StallOrder; 0: never). On by default: on
  *                    all-Auto A/B scenarios (12 runs a side, 20 s, scored by the step each stat reaches in the game) the total rose 2-7%,
  *                    the priority order held level, and targets elsewhere were met as often or more
@@ -159,12 +141,14 @@ export type EngineTuning = {
     repackOneIn?: number;
     swapOneIn?: number;
     relayoutOneIn?: number;
-    lateAcceptance?: number;
     polish?: number;
     ease?: number;
-    autoStepBonus?: number;
-    easeOrder?: number;
 };
+
+/* Tried on the A/B benches and dropped (details in the git history): late-acceptance hill climbing, relaxing the farthest target
+ * first, sharing records between workers, a bonus per breakpoint reached on Auto, easing in card order, polishing Auto stats near a
+ * breakpoint (with modules from donors that stay on theirs), scoring Auto stats by the breakpoint reached, and a GPU search
+ */
 
 /* What a stalled search gives up, one at a time (see stallOrder):
  *   ease   an Auto stat with breakpoints stops at the step it has reached (see stallOrders): it becomes a target at that step and is no longer maximized,
@@ -186,8 +170,7 @@ export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceSt
  *   2. then the unmet stepped target of the lowest priority, one step
  */
 const EASE_BATCH_SHARE = 0.5;
-export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number,
-    easeByPriority = false): StallOrder[] => {
+export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number): StallOrder[] => {
     const eases: { mIdx: number; s: number; rank: number; step: number | null; progress: number }[] = [];
     let relax: { mIdx: number; s: number; rank: number } | null = null;
     machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
@@ -211,13 +194,6 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
             if (relax === null || rank > relax.rank || (rank === relax.rank && mIdx > relax.mIdx)) relax = { mIdx, s, rank };
         }
     }));
-    // Alternative order (EngineTuning.easeOrder = 1): one per stall, lowest priority first. Off: A/B on six scenarios (12 runs a side,
-    // 20 s, scored by the step each stat reaches) it won where a few top cards matter most (78-88%) but lost total in-game value in
-    // three all-Auto or mixed saves (1837 -> 1784, 1716 -> 1671, 1152 -> 1110): one ease per stall leaves wasted modules stuck longer
-    if (easeByPriority && eases.length > 0) {
-        eases.sort((a, b) => b.rank - a.rank || b.mIdx - a.mIdx);
-        return [{ mIdx: eases[0].mIdx, s: eases[0].s, ease: eases[0].step }];
-    }
     const batch = eases.filter(e => e.progress < EASE_BATCH_SHARE);
     if (batch.length > 0) return batch.map(e => ({ mIdx: e.mIdx, s: e.s, ease: e.step }));
     if (eases.length > 0) {
@@ -248,10 +224,7 @@ export const runOptimizationEngine = async (
     // On by default: measured better or level on every benchmark scenario at 1 in 6 (1 in 3 cost the all-Auto case)
     const SWAP_EVERY = tuning.swapOneIn ?? 6;
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
-    const LAHC = tuning.lateAcceptance ?? 0;
     const POLISH = tuning.polish ?? 1;
-    const AUTO_BONUS = tuning.autoStepBonus ?? AUTO_STEP_BONUS;
-    const EASE_ORDER = tuning.easeOrder ?? 0;
     const EASE = tuning.ease ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
@@ -406,13 +379,6 @@ export const runOptimizationEngine = async (
                 }
                 if (p.maximize[s]) {
                     tiers[ti + RANK_OFFSET] += v * 10 * MAXIMIZE_WEIGHT[s];
-                    // Auto on a stat with breakpoints: a bonus per step reached (not for a folded water stat, already priced by grade)
-                    const steps = stepsOf[mIdx][s];
-                    if (AUTO_BONUS > 0 && target === null && steps && !(s === 0 && p.water)) {
-                        let reached = 0;
-                        for (const step of steps) if (v >= step) reached++;
-                        tiers[ti + RANK_OFFSET] += reached * AUTO_BONUS * 10 * MAXIMIZE_WEIGHT[s];
-                    }
                 }
             }
             // Only changes with the board (each scored board has its own Scored) and with the targets (tbGen)
@@ -421,29 +387,6 @@ export const runOptimizationEngine = async (
                 tiers[TIEBREAK_TIER] -= st.tb;
             } else {
                 tiers[TIEBREAK_TIER] -= tiebreakOf(mIdx, boardFor(mIdx), st);
-            }
-        }
-        // Machines maximizing the same stat at the same rank are pulled towards each other
-        if (machineCount > 1) {
-            for (let s = 0; s < 3; s++) {
-                const byTier = new Map<number, number[]>();
-                for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                    const p = ps[mIdx];
-                    if (p.ignored[s] || !p.maximize[s] || p.target[s] !== null) continue;
-                    const ti = tierOfStat[mIdx][s];
-                    let members = byTier.get(ti);
-                    if (members === undefined) { members = []; byTier.set(ti, members); }
-                    members.push(mIdx);
-                }
-                byTier.forEach((members, ti) => {
-                    if (members.length < 2) return;
-                    let sum = 0;
-                    for (const mIdx of members) sum += statOf(ps[mIdx], statsFor(mIdx), s);
-                    const avg = sum / members.length;
-                    let mad = 0;
-                    for (const mIdx of members) mad += Math.abs(statOf(ps[mIdx], statsFor(mIdx), s) - avg);
-                    tiers[ti + RANK_OFFSET] -= (mad / members.length) * BALANCE_PENALTY_WEIGHT * MAXIMIZE_WEIGHT[s];
-                });
             }
         }
     };
@@ -721,7 +664,7 @@ export const runOptimizationEngine = async (
 
     // The lowest-priority unmet stepped target drops one step (or is dropped below its lowest), and the record is re-scored against that
     const relaxLowestTarget = () => {
-        const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s), EASE_ORDER === 1);
+        const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s));
         for (const order of orders) applyOrder(order);
         return orders.length > 0;
     };
@@ -786,58 +729,33 @@ export const runOptimizationEngine = async (
     let stagnationCounter = 0;
     let stagnationRuns = 0;
     let restarts = 0;
-    // The record's tiers at the last significant improvement (see TARGET_PROGRESS_SHARE / MAX_PROGRESS_SHARE)
-    const progressMark = new Float64Array(TIER_LENGTH).fill(-Infinity);
-    const significantlyImproved = () => {
-        for (let i = 0; i < TIEBREAK_TIER; i++) {
-            if (bestTiers[i] === progressMark[i]) continue;
-            if (bestTiers[i] < progressMark[i]) return false;
-            if (progressMark[i] === -Infinity) return true;
-            if (i < tierCount) return bestTiers[i] - progressMark[i] >= TARGET_PROGRESS_SHARE * Math.abs(progressMark[i]);
-            let whole = 0;
-            for (let k = RANK_OFFSET; k < TIEBREAK_TIER; k++) whole += Math.abs(progressMark[k]);
-            return bestTiers[i] - progressMark[i] >= MAX_PROGRESS_SHARE * Math.max(whole, 1);
-        }
-        return false;
-    };
-    const startedAt = now();
-    let progressAt = startedAt;
     // Checked on the clock (every yield), not only at restarts, which can be far apart on big sets; the clock runs from the last
-    // significant improvement, so a search still making real gains is left alone however long it takes
+    // significant improvement (solver/stall.ts), so a search still making real gains is left alone however long it takes
+    const stall = createStallClock(now);
     const checkRelax = () => {
         let relaxed = false;
         if (relaxOrders) {
             const orders = relaxOrders();
             for (const order of orders) applyOrder(order);
             relaxed = orders.length > 0;
-        } else if (significantlyImproved()) {
-            progressAt = now();
-            progressMark.set(bestTiers);
-        } else if (now() - progressAt >= Math.min(RELAX_MAX_MS, Math.max(RELAX_MIN_MS, (now() - startedAt) * RELAX_AFTER_SHARE))) {
-            relaxed = relaxLowestTarget();
+        } else {
+            stall.observe(bestTiers);
+            if (stall.due()) relaxed = relaxLowestTarget();
         }
         if (relaxed) {
             // The record was re-scored against the lowered target; progress is measured from there, and it is reported on the new scale
             pendingUpdate = true;
-            progressAt = now();
-            progressMark.set(bestTiers);
+            stall.reset(bestTiers);
             for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                 currentBoards[mIdx].set(bestBoards[mIdx]);
                 currentStats[mIdx] = bestStats[mIdx];
             }
             epochTiers.fill(-Infinity);
-            acceptedTiers.fill(-Infinity);
         }
     };
 
     const cur = [0, 0, 0];
     const w = [0, 0, 0];
-
-    // Late acceptance: the tiers of the layout being worked on, and of the layouts it was on the last LAHC iterations
-    const acceptedTiers = new Float64Array(TIER_LENGTH).fill(-Infinity);
-    const lahcHistory = new Float64Array(Math.max(1, LAHC) * TIER_LENGTH).fill(-Infinity);
-    let lahcStep = 0;
-    let lahcFresh = true;
 
     const beginMove = (boards: number[]) => {
         rebuiltMachines.length = 0;
@@ -1332,26 +1250,9 @@ export const runOptimizationEngine = async (
             if (!isSolvingRef.current) break;
 
             // Judged against the best of this attempt, so a restart can climb from a deliberately worse board
-            // Late acceptance also takes a step that is no worse than the current layout, or than the layout LAHC iterations ago
             const ordering = compareTiers(currentTiers, epochTiers);
             const improved = ordering > 0;
-            let accept = improved || (ordering === 0 && Math.random() > 0.5);
-            let slot = 0;
-            if (LAHC > 0 && !accept) {
-                slot = lahcStep % LAHC;
-                const past = lahcHistory.subarray(slot * TIER_LENGTH, (slot + 1) * TIER_LENGTH);
-                accept = !lahcFresh && (compareTiers(currentTiers, acceptedTiers) >= 0 || compareTiers(currentTiers, past) >= 0);
-            }
-            if (LAHC > 0) {
-                slot = lahcStep++ % LAHC;
-                if (accept) acceptedTiers.set(currentTiers);
-                // A fresh history starts full of the first layout accepted, not empty: an empty one would accept anything for LAHC steps
-                if (lahcFresh && accept) {
-                    for (let i = 0; i < LAHC; i++) lahcHistory.set(acceptedTiers, i * TIER_LENGTH);
-                    lahcFresh = false;
-                }
-                lahcHistory.set(acceptedTiers, slot * TIER_LENGTH);
-            }
+            const accept = improved || (ordering === 0 && Math.random() > 0.5);
             if (accept) {
                 if (improved) epochTiers.set(currentTiers);
                 for (const mIdx of rebuiltMachines) {
@@ -1386,9 +1287,6 @@ export const runOptimizationEngine = async (
                 if (++stagnationRuns >= RESTART_AFTER_STAGNATIONS) {
                     stagnationRuns = 0;
                     epochTiers.fill(-Infinity);
-                    acceptedTiers.fill(-Infinity);
-                    lahcHistory.fill(-Infinity);
-                    lahcFresh = true;
                     for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                         currentBoards[mIdx].set(bestBoards[mIdx]);
                         currentStats[mIdx] = bestStats[mIdx];
