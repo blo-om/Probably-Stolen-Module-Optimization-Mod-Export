@@ -1,56 +1,64 @@
-// Export format read by the Module Optimizer Import MelonLoader mod.
+// Export format read by the Module Optimizer Import MelonLoader mod (ModExport.cs in the mod).
 //
-//   PSMOD1:<base64url(UTF-8 JSON)>
+//   PSMOD2:<base64url(UTF-8 JSON)>
 //   JSON: {
-//     "v": 2,
-//     "slot": 1,               // saveSlotId of the imported save (null if none was imported)
-//     "save": "save_1",        // that save's file name, for messages only
+//     "slot": 1,                                  // saveSlotId of the imported save (left out if none was imported)
 //     "machines": [ {
-//       "name": "Inv. > Machine Bay (Expanded) 1 > Furnace 2",
-//       "code": "<solution code>",
-//       "modules": [ { "uid": 3585, "cells": [0, 1, 7, 8] }, ... ]
+//       "uid": 812,                               // the machine item's uniqueId (left out for a card made by hand)
+//       "modules": [
+//         { "uid": 3585, "cells": [0, 1, 7, 8] }, // this exact item, covering these cells (y * 7 + x)
+//         { "like": 209, "cells": [14, 21] }      // any module of the same kind as item 209 (an "infinite" node copy)
+//       ]
 //     } ]
 //   }
 //
-// `name` is the machine's name as shown on its card. For machines from Import Save it is the full path the save
-// importer builds, which the mod rebuilds in-game to find the machine.
-// `modules` lists every module on the board that came from the save, by the game's own uniqueId, with the board
-// cells (y * 7 + x) it covers - so the mod moves exactly those items. Modules added from the catalog have no uid;
-// they only appear in `code`, and the mod matches them by type.
-// `code` is the unchanged solution code, so it still imports on this site. v1 exports had no slot/save/modules.
+// The prefix is the version: the mod refuses anything else as outdated. Machines are found by uid, which is what the
+// game itself keys items by, so nothing depends on names. Item uids only mean something within one save, hence `slot`.
+// Modules added from the catalog are not items in the save, so they are left out (see boardModules).
 // The whole string contains no whitespace, so it survives being pasted anywhere.
 
 import type { InventoryItem } from './types';
 
-export const MOD_EXPORT_PREFIX = 'PSMOD1:';
+export const MOD_EXPORT_PREFIX = 'PSMOD2:';
 export const SAVE_NAME_KEY = 'optimizer_save_name';
 export const SAVE_SLOT_KEY = 'optimizer_save_slot';
+// Per machine card: the uniqueId of the save machine it was imported from
+export const machineUidKey = (machineId: string) => `optimizer_machine_uid_${machineId}`;
 
-export interface ModExportModule {
-    uid: number;
-    cells: number[];
-}
+export type ModExportModule = { uid: number; cells: number[] } | { like: number; cells: number[] };
 
 export interface ModExportMachine {
-    name: string;
-    code: string;
+    uid?: number;
     modules: ModExportModule[];
 }
 
-// Save-imported modules on a board, with the cells each one covers. Clones of "infinite" nodes copy their
-// source's uid but are not real items, so they are left to the code.
-export const boardModules = (board: (InventoryItem | 'Locked' | null)[][]): ModExportModule[] => {
-    const byId = new Map<string, { uid: number; cells: number[] }>();
+// The board's modules with the cells each covers. Save modules go by their uid; copies of an "infinite" node are not
+// real items, so they ask for any module like their source; modules added from the catalog have no item behind them
+// and are counted in `skipped` instead
+export const boardModules = (board: (InventoryItem | 'Locked' | null)[][]): { modules: ModExportModule[]; skipped: number } => {
+    const byId = new Map<string, { uid: number; clone: boolean; cells: number[] }>();
+    const skippedIds = new Set<string>();
     board.forEach((row, y) => row.forEach((cell, x) => {
-        if (!cell || cell === 'Locked' || typeof cell.uid !== 'number' || cell.id.includes('_clone_')) return;
+        if (!cell || cell === 'Locked') return;
+        if (typeof cell.uid !== 'number') { skippedIds.add(cell.id); return; }
         let entry = byId.get(cell.id);
         if (entry === undefined) {
-            entry = { uid: cell.uid, cells: [] };
+            entry = { uid: cell.uid, clone: cell.id.includes('_clone_'), cells: [] };
             byId.set(cell.id, entry);
         }
         entry.cells.push(y * 7 + x);
     }));
-    return [...byId.values()];
+    const modules = [...byId.values()].map(e => e.clone ? { like: e.uid, cells: e.cells } : { uid: e.uid, cells: e.cells });
+    return { modules, skipped: skippedIds.size };
+};
+
+export const readMachineUid = (machineId: string): number | undefined => {
+    try {
+        const v = localStorage.getItem(machineUidKey(machineId));
+        return v !== null && v !== '' && !isNaN(Number(v)) ? Number(v) : undefined;
+    } catch {
+        return undefined;
+    }
 };
 
 const toBase64Url = (text: string) => {
@@ -61,8 +69,10 @@ const toBase64Url = (text: string) => {
 };
 
 export const encodeModExport = (machines: ModExportMachine[]) => {
-    const slotText = localStorage.getItem(SAVE_SLOT_KEY);
-    const slot = slotText !== null && slotText !== '' && !isNaN(Number(slotText)) ? Number(slotText) : null;
-    const save = localStorage.getItem(SAVE_NAME_KEY);
-    return MOD_EXPORT_PREFIX + toBase64Url(JSON.stringify({ v: 2, slot, save, machines }));
+    let slot: number | undefined;
+    try {
+        const slotText = localStorage.getItem(SAVE_SLOT_KEY);
+        if (slotText !== null && slotText !== '' && !isNaN(Number(slotText))) slot = Number(slotText);
+    } catch { /* storage unavailable: no slot check in the mod */ }
+    return MOD_EXPORT_PREFIX + toBase64Url(JSON.stringify(slot === undefined ? { machines } : { slot, machines }));
 };
