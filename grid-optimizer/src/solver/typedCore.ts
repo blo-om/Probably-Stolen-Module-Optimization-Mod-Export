@@ -24,6 +24,8 @@ export interface MachineParams {
     ignored: boolean[];
     // Performance and Quality count as one stat, their sum, scored under Performance (Mirage Projector attractiveness); Quality is then ignored
     sumPQ?: boolean;
+    // Moisture Farm on Auto for both: Performance and Quality count as one stat, the value of the water made a day (see waterValue)
+    water?: boolean;
     // null when the stat has no target
     target: (number | null)[];
     maximize: boolean[];
@@ -37,6 +39,37 @@ export interface Totals {
 }
 
 export const totalOf = (t: Totals, s: number) => (s === 0 ? t.p : s === 1 ? t.q : t.e);
+
+/* Moisture Farm water value. The farm makes (100 + Performance) * 10 ml a day, of a grade set by Quality, and each grade changes the
+ * water's price (ItemConditionList.Create*Water in the game): Gutterflow -90%, Rust -75%, Ghost -33%, Base 0, High-quality +50%, Pure +100%
+ * So a farm is worth its volume times its grade's price: 100 ml more of pure water counts twice 100 ml more of basewater
+ */
+// [lowest Quality of the grade, price multiplier]
+const WATER_GRADES: [number, number][] = [[-Infinity, 0.10], [-50, 0.25], [0, 0.67], [50, 1.0], [100, 1.5], [150, 2.0]];
+export const waterMultiplier = (q: number) => {
+    let m = WATER_GRADES[0][1];
+    for (const [from, v] of WATER_GRADES) if (q >= from) m = v;
+    return m;
+};
+// The same rising smoothly from each grade to the next, so the search can tell it is getting closer to a better grade
+const waterMultiplierSmooth = (q: number) => {
+    if (q < -100) return WATER_GRADES[0][1];
+    if (q >= 150) return 2.0;
+    const points: [number, number][] = [[-100, 0.10], [-50, 0.25], [0, 0.67], [50, 1.0], [100, 1.5], [150, 2.0]];
+    for (let i = 0; i < points.length - 1; i++) {
+        const [q0, m0] = points[i], [q1, m1] = points[i + 1];
+        if (q < q1) return m0 + (m1 - m0) * (q - q0) / (q1 - q0);
+    }
+    return 2.0;
+};
+// How much of the smooth progress towards the next grade the score counts (the rest is the real, stepped price)
+const WATER_PROGRESS_SHARE = 0.1;
+// In points of basewater: 1 point = 10 ml of basewater a day
+export const waterValue = (p: number, q: number) => {
+    const m = waterMultiplier(q);
+    return Math.max(0, 100 + p) * (m + WATER_PROGRESS_SHARE * (waterMultiplierSmooth(q) - m));
+};
+const waterValueSmooth = (p: number, q: number) => Math.max(0, 100 + p) * waterMultiplierSmooth(q);
 
 const isPureNegative = (p: number, q: number, e: number) => p <= 0 && q <= 0 && e <= 0 && (p < 0 || q < 0 || e < 0);
 
@@ -280,7 +313,9 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         dp += roundStat(myP); dq += roundStat(myQ); de += roundStat(myE);
         delta[0] = dp; delta[1] = dq; delta[2] = de;
 
-        const statScore = params.sumPQ
+        const statScore = params.water
+            ? scoreStat(0, waterValueSmooth(c0 + dp, c1 + dq) - waterValueSmooth(c0, c1), 0, w0, params) + scoreStat(2, de, c2, w2, params)
+            : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : scoreStat(0, dp, c0, w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
         const tiebreakers = (adj * 0.05) - (negativeContacts * 1000);

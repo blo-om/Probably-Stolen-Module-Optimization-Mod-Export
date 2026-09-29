@@ -153,6 +153,8 @@ export const desequencerCutoffs = (): number[] => DESEQUENCER_CUTOFFS.map(([valu
 export const isMirage = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('mirage');
 export const MIRAGE_BASE_POINTS = 100;
 
+export const isMoistureFarm = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('moisture farm');
+
 export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');
 
 // What each stat does on a machine, in the machine's own words. Falls back to the stat's name
