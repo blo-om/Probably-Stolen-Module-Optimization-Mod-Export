@@ -120,6 +120,8 @@ type Card = {
     result: string;
     color: string;
     progress: number | null;
+    // The progress bar's colour when it differs from the result's (Auto: plain result, bar coloured by closeness)
+    barColor?: string;
     tooltip?: string;
     noEffect: boolean;
     modes: Mode[];
@@ -216,6 +218,17 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             : `${Math.ceil(target - total)}% short`;
         const color = off ? C.muted : progress !== null ? colorFor(progress) : (mode === 'target' && !limited ? C.met : C.text);
 
+        // Auto on a stat with breakpoints (and the Desequencer's days on Auto): how far from the last step reached to the next one
+        const autoSteps = off || target !== null ? null
+            : deseq ? desequencerDayOptions(work).map(o => ({ value: o.value, name: `${chip.short} ${o.days}d` }))
+            : mode === 'auto' && breakpoints ? breakpoints.map(b => ({ value: b.value, name: stepName(b) }))
+            : null;
+        const nextStep = autoSteps ? [...autoSteps].sort((a, b) => a.value - b.value).find(s => s.value > total) : undefined;
+        const lastStep = autoSteps ? [...autoSteps].sort((a, b) => a.value - b.value).filter(s => s.value <= total).pop() : undefined;
+        const autoProgress = !nextStep ? null
+            : lastStep ? Math.max(0, Math.min(0.99, (total - lastStep.value) / (nextStep.value - lastStep.value)))
+            : closeness(total, nextStep.value);
+
         const nextStepAbove = (steps: { value: number }[]) => (steps.find(s => s.value > total) ?? steps[steps.length - 1]).value;
         const defaultTarget = deseq ? nextStepAbove(desequencerDayOptions(work))
             : breakpoints ? nextStepAbove(breakpoints)
@@ -268,8 +281,12 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         }
 
         return {
-            key: stat, name: statName(machineType, stat), result, color, progress, gap, panel, mode, choose,
-            tooltip: goal ? `${goal}${met ? ' ✓' : progress !== null ? ` · ${Math.floor(progress * 100)}%` : ''}` : undefined,
+            key: stat, name: statName(machineType, stat), result, color, gap, panel, mode, choose,
+            progress: progress ?? autoProgress,
+            barColor: progress === null && autoProgress !== null ? colorFor(autoProgress) : undefined,
+            tooltip: autoProgress !== null && nextStep
+                ? `${goal ? `${goal} · ` : ''}Next: ${nextStep.name} · ${Math.floor(autoProgress * 100)}%`
+                : goal ? `${goal}${met ? ' ✓' : progress !== null ? ` · ${Math.floor(progress * 100)}%` : ''}` : undefined,
             noEffect: off && statHasNoEffect(machineType, stat),
             modes: ['auto', 'target', 'off'],
         };
@@ -331,7 +348,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                         </div>
                                         {card.progress !== null && (
                                             <div style={{ height: '3px', margin: '2px 4px 0', background: '#2a2a2a', borderRadius: '2px', overflow: 'hidden' }}>
-                                                <div style={{ width: `${card.progress * 100}%`, height: '100%', background: card.color }} />
+                                                <div style={{ width: `${card.progress * 100}%`, height: '100%', background: card.barColor ?? card.color }} />
                                             </div>
                                         )}
                                     </>
