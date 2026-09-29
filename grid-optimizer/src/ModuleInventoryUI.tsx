@@ -227,11 +227,15 @@ const MachineInstance = React.memo(forwardRef(({
     // Save-imported machines are named by their path in the save ("Inv. > ..."); their name and tier come from
     // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
     const isImportedMachine = machineType.startsWith('Inv.');
-    const machineIconUrl = machineIcon(machineType);
+    // What kind of machine this is, for its icon, stats, defaults and breakpoints: the save item's own name, kept apart from the
+    // card's name, which may be one the player gave it ("CMD Card" for a Desequencer). Cards added by hand are named by their type
+    const [machineKind] = useState<string | null>(() => localStorage.getItem(`optimizer_machine_kind_${machineId}`));
+    const typeKey = machineKind ?? machineType;
+    const machineIconUrl = machineIcon(typeKey);
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
     // A Moisture Farm with Volume and Purity both on Auto is scored on the value of its water (see MachineConfig.water)
-    const waterMode = () => isMoistureFarm(machineType)
+    const waterMode = () => isMoistureFarm(typeKey)
         && (['Performance', 'Quality'] as const).every(k => !optimizer.ignoreStats[k] && optimizer.maximizeStats[k] && optimizer.targetStats[k] === null);
     // The values where each stat changes something on this machine, for the solver (see MachineConfig.targetSteps)
     // Desequencer: with its days on Auto, only the picked chipset's day breakpoints count; otherwise every chipset's
@@ -247,10 +251,10 @@ const MachineInstance = React.memo(forwardRef(({
     const targetSteps = () => {
         const steps: Partial<Record<'Performance' | 'Quality' | 'Efficiency', number[]>> = {};
         for (const stat of ['Performance', 'Quality', 'Efficiency'] as const) {
-            const list = stat === 'Performance' && isDesequencer(machineType) ? desequencerSteps()
+            const list = stat === 'Performance' && isDesequencer(typeKey) ? desequencerSteps()
                 // Alarm: the stop chance is 50% + Performance and tops out at 100%, so +50% is its one breakpoint
-                : stat === 'Performance' && machineType.toLowerCase().includes('alarm') ? [50]
-                : statBreakpoints(machineType, stat, hasBlast)?.map(b => b.value);
+                : stat === 'Performance' && typeKey.toLowerCase().includes('alarm') ? [50]
+                : statBreakpoints(typeKey, stat, hasBlast)?.map(b => b.value);
             if (list && list.length > 0) steps[stat] = [...list].sort((a, b) => a - b);
         }
         return steps;
@@ -268,9 +272,9 @@ const MachineInstance = React.memo(forwardRef(({
 
     // A stat that does nothing on this machine has no card, so it must not be left on from an older setup either
     useEffect(() => {
-        const stray = (['Performance', 'Quality', 'Efficiency'] as const).filter(k => hiddenStat(machineType, k) && !optimizer.ignoreStats[k]);
+        const stray = (['Performance', 'Quality', 'Efficiency'] as const).filter(k => hiddenStat(typeKey, k) && !optimizer.ignoreStats[k]);
         if (stray.length > 0) optimizer.setIgnoreStats((prev: any) => ({ ...prev, ...Object.fromEntries(stray.map(k => [k, true])) }));
-    }, [machineType, optimizer.ignoreStats]);
+    }, [typeKey, optimizer.ignoreStats]);
 
     // An enabled stat is maximized unless it has a target, or when its target is a limit it stays under
     // maximizeStats is derived from that, so the optimizer and the solution code see the same settings as before.
@@ -318,11 +322,12 @@ const MachineInstance = React.memo(forwardRef(({
             ignoreStats: optimizer.ignoreStats,
             statPriority: optimizer.statPriority,
             targetSteps: targetSteps(),
-            sumPQ: isMirage(machineType),
+            sumPQ: isMirage(typeKey),
             water: waterMode(),
-            sumPE: isAgeWell(machineType),
-            worthlessBelowSteps: worthlessBelowSteps(machineType),
-            machineType
+            sumPE: isAgeWell(typeKey),
+            worthlessBelowSteps: worthlessBelowSteps(typeKey),
+            machineType,
+            machineKind: typeKey
         }),
         isValidPlacement: optimizer.isValidPlacement,
         getBoard: () => optimizer.boardRef.current,
@@ -331,7 +336,7 @@ const MachineInstance = React.memo(forwardRef(({
         getModExport: () => optimizer.solutionCode
             ? { name: machineType, code: optimizer.solutionCode, modules: boardModules(optimizer.boardRef.current) }
             : null
-    }), [optimizer, isMachineLocked, machineType]);
+    }), [optimizer, isMachineLocked, machineType, typeKey]);
 
     useEffect(() => {
         if (dragState && dragState.sourceMachineId === machineId && dragState.initialTarget && localHover === null) {
@@ -469,8 +474,8 @@ const MachineInstance = React.memo(forwardRef(({
                         <div style={{ fontSize: '0.75em', color: '#4fb3bf', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>[Machine]</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9em' }}>
                             {([['Perf', 'Performance'], ['Qual', 'Quality'], ['Effic', 'Efficiency']] as const).map(([label, stat]) => {
-                                const effect = statEffect(machineType, stat);
-                                const none = statHasNoEffect(machineType, stat);
+                                const effect = statEffect(typeKey, stat);
+                                const none = statHasNoEffect(typeKey, stat);
                                 return (
                                     <div key={stat} style={{ opacity: none ? 0.5 : 1 }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
@@ -729,7 +734,7 @@ const MachineInstance = React.memo(forwardRef(({
                     )}
 
                     <StatGoals
-                        machineType={machineType}
+                        machineType={typeKey}
                         machineId={machineId}
                         totals={optimizer.bestTotals}
                         ignoreStats={optimizer.ignoreStats}
@@ -751,7 +756,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onSolvingChange(machineId, false);
                                     onStopAll();
                                 } else {
-                                    optimizer.runOptimization(targetSteps(), isMirage(machineType), waterMode(), worthlessBelowSteps(machineType), isAgeWell(machineType));
+                                    optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey));
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1310,7 +1315,7 @@ export default function ModuleInventoryUI() {
                 if (stored.includes(item.id) || performance.now() > deadline) continue;
                 for (const { id, card } of cards) {
                     const board: any[][] = card.getBoard();
-                    const next = storeOn(board, card.getState().machineType, item, moves);
+                    const next = storeOn(board, card.getState().machineKind, item, moves);
                     if (!next) continue;
                     if (moves > 0 && !layouts[id]) layouts[id] = { before: idGrid(board), after: [] };
                     const { totals, pieceStats } = calculateBoardStats(next, expandedInventory, byId);
@@ -1391,24 +1396,27 @@ export default function ModuleInventoryUI() {
         ));
     };
 
-    const handleImportSave = useCallback((newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, tier: GridTier }[]) => {
+    const handleImportSave = useCallback((newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[]) => {
         setInventory(newItems);
 
         newMachines.forEach(m => {
             // Each imported machine starts with the stats that matter for its type switched on
-            const ignoreStats = defaultIgnoreStats(m.machineType);
-            const targetStats = defaultTargetStats(m.machineType);
+            // Defaults by what the machine is, not by the name the player gave it
+            const kind = m.kind ?? m.machineType;
+            const ignoreStats = defaultIgnoreStats(kind);
+            const targetStats = defaultTargetStats(kind);
             const maximizeStats = defaultMaximizeStats(ignoreStats);
             (['Performance', 'Quality', 'Efficiency'] as const).forEach(k => { if (targetStats[k] !== null) maximizeStats[k] = false; });
             localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats, targetStats }));
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
+            if (m.kind) localStorage.setItem(`optimizer_machine_kind_${m.id}`, m.kind);
         });
 
         setMachines(prev => {
             prev.forEach(m => {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
-                localStorage.removeItem(`optimizer_machine_locked_${m.id}`);
+                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`);
             });
             return newMachines.length > 0
                 ? newMachines.map(m => ({ id: m.id }))
@@ -1674,7 +1682,7 @@ export default function ModuleInventoryUI() {
             } else {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
-                localStorage.removeItem(`optimizer_machine_locked_${m.id}`);
+                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`);
             }
         });
 
@@ -1715,7 +1723,7 @@ export default function ModuleInventoryUI() {
         });
         localStorage.removeItem(`optimizer_machine_${machineId}`);
         localStorage.removeItem(`optimizer_machine_type_${machineId}`);
-        localStorage.removeItem(`optimizer_machine_locked_${machineId}`);
+        localStorage.removeItem(`optimizer_machine_locked_${machineId}`); localStorage.removeItem(`optimizer_machine_kind_${machineId}`);
     }, []);
 
     const handleSolvingChange = useCallback((id: string, solving: boolean) => {

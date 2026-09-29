@@ -4,7 +4,7 @@ import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
 interface SaveFileImporterProps {
-    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, tier: GridTier }[]) => void;
+    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[]) => void;
 }
 
 export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
@@ -112,7 +112,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 });
 
                 const parsedInventory: InventoryItem[] = [];
-                const newMachines: { id: string, boardIds: (string | null)[][], machineType: string, tier: GridTier }[] = [];
+                const newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[] = [];
                 const machineContents = new Map<number, { invId: string, modifiedShape: any }[]>();
                 const machineDataMap = new Map<number, any>();
 
@@ -440,6 +440,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         id: `m_${Math.random().toString(36).substring(2, 8)}`,
                         boardIds,
                         machineType: dropdownName,
+                        // The item's own name ("Furnace", "AgeWell"...): the path above may carry a name the player gave it instead
+                        kind: typeof parentItem?.name === 'string' ? parentItem.name : undefined,
                         tier: machineTier
                     });
                 });
