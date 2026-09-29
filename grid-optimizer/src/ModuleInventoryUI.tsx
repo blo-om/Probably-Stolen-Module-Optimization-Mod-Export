@@ -1825,8 +1825,11 @@ export default function ModuleInventoryUI() {
                 </div>
             )}
 
-            {/* Toolbar */}
-            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '10px', marginBottom: '34px', width: '100%', flexWrap: 'wrap' }}>
+            {/* Toolbar: stays pinned to the top of the window while the page scrolls */}
+            <div style={{
+                display: 'flex', gap: '15px', justifyContent: 'center', padding: '10px 0', marginBottom: '24px', width: '100%', flexWrap: 'wrap',
+                position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
+            }}>
                 <button
                     onClick={handleRunAll}
                     disabled={inventory.length === 0 && !isAnySolving}
