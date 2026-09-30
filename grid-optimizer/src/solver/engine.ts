@@ -12,7 +12,7 @@ import { applyInternalEffects } from '../utils';
 import type { Orientation } from '../utils';
 import { calculateBoardStats, indexInventoryById, isSpecialModule, buildSearchPool, generateCodeFromState } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
-import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue } from './typedCore';
+import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue, cheapEfficiency } from './typedCore';
 import type { Board, MachineParams, Totals } from './typedCore';
 import { createStallClock } from './stall';
 
@@ -108,6 +108,7 @@ const paramsOf = (m: MachineConfig): MachineParams => ({
     water: Boolean(m.water),
     sumPE: Boolean(m.sumPE),
     capP: m.performanceCap,
+    cheapE: m.cheapEnergyAt,
 });
 
 // A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value),
@@ -120,6 +121,8 @@ const statOf = (p: MachineParams, t: Totals, s: number) => {
 
 // How much a maximized point of each stat is worth: Efficiency half, so Performance and Quality always come first
 const MAXIMIZE_WEIGHT = [1, 1, 0.5];
+// What a maximized stat at `v` is worth: its weight, and Efficiency past the machine's 4 energy a day much less (see cheapEfficiency)
+const maximizedWorth = (p: MachineParams, v: number, s: number) => (s === 2 ? cheapEfficiency(v, p.cheapE) : v) * MAXIMIZE_WEIGHT[s];
 
 // A scored board: its totals, and its tiebreak once worked out (tbGen says under which targets)
 type Scored = Totals & { tb: number; tbGen: number };
@@ -400,7 +403,7 @@ export const runOptimizationEngine = async (
                     if (stepsOf[mIdx][s]) tiers[ti] -= STEP_MISS_PENALTY * 10000;
                 }
                 if (p.maximize[s]) {
-                    tiers[ti + RANK_OFFSET] += v * 10 * MAXIMIZE_WEIGHT[s];
+                    tiers[ti + RANK_OFFSET] += maximizedWorth(p, v, s) * 10;
                 }
             }
             // Only changes with the board (each scored board has its own Scored) and with the targets (tbGen)
@@ -736,7 +739,7 @@ export const runOptimizationEngine = async (
             for (const mIdx of free) { const k = JSON.stringify(params[mIdx]); bySettings.set(k, [...(bySettings.get(k) ?? []), mIdx]); }
             bySettings.forEach(movable => {
                 if (movable.length < 2) return;
-                const worth = (j: number) => { let w = 0; for (let s = 0; s < 3; s++) if (params[j].maximize[s]) w += statOf(params[j], stats[j], s) * MAXIMIZE_WEIGHT[s]; return w; };
+                const worth = (j: number) => { let w = 0; for (let s = 0; s < 3; s++) if (params[j].maximize[s]) w += maximizedWorth(params[j], statOf(params[j], stats[j], s), s); return w; };
                 const sorted = [...movable].sort((a, b) => worth(b) - worth(a) || a - b);
                 movable.forEach((mIdx, i) => { from[mIdx] = sorted[i]; });
             });

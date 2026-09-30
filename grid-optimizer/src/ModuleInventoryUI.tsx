@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
-import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, FilterGroup, ItemEffect, ModuleColor, Point } from './types';
@@ -344,6 +344,7 @@ const MachineInstance = React.memo(forwardRef(({
             sumPE: isAgeWell(typeKey),
             performanceCap: isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined,
             worthlessBelowSteps: worthlessBelowSteps(typeKey),
+            cheapEnergyAt: cheapEnergyAt(typeKey),
             machineType,
             machineKind: typeKey
         }),
@@ -773,7 +774,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onStopAll();
                                 } else {
                                     optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
-                                        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined);
+                                        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined, cheapEnergyAt(typeKey));
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1505,7 +1506,8 @@ export default function ModuleInventoryUI() {
                 water: state.water,
                 sumPE: state.sumPE,
                 performanceCap: state.performanceCap,
-                worthlessBelowSteps: state.worthlessBelowSteps
+                worthlessBelowSteps: state.worthlessBelowSteps,
+                cheapEnergyAt: state.cheapEnergyAt
             };
         });
         const boards = active.map(m => machinesRef.current[m.id].getBoard());
