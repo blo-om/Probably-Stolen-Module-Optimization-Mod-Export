@@ -1152,7 +1152,7 @@ export function useOptimizer(
                 setBestPieceStats(myUpdate.pieceStats);
                 setSolutionCode(myUpdate.code);
             }
-        }, { giveUp: false });
+        });
 
         setIsSolving(false);
     };
