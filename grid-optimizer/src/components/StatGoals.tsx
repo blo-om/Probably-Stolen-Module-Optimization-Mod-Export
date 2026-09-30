@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Stats } from '../types';
+import { rememberSaveSettings } from '../saveSettings';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, isAgeWell,
     isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
@@ -154,6 +155,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     const setChipset = (work: number) => {
         setChipsetState(work);
         try { localStorage.setItem(chipsetKey, String(work)); } catch { /* per-viewer convenience only */ }
+        rememberSaveSettings();
     };
     // Desequencer days on Auto: maximized, eased to the picked chipset's day breakpoints (read by the solve, see targetSteps)
     const autoDaysKey = desequencerAutoDaysKey(machineId);
@@ -163,6 +165,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     const setAutoDays = (on: boolean) => {
         setAutoDaysState(on);
         try { if (on) localStorage.setItem(autoDaysKey, '1'); else localStorage.removeItem(autoDaysKey); } catch { /* per-viewer convenience only */ }
+        rememberSaveSettings();
     };
 
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));
