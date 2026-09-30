@@ -362,3 +362,9 @@ export const statUnit = (machineType: string, stat: 'Performance' | 'Quality' | 
     const hit = STAT_UNITS.find(([keyword, s]) => s === stat && name.includes(keyword));
     return hit ? hit[2] : null;
 };
+
+// Energy a day at which a machine counts as cheap to run: Efficiency past that is worth much less on Auto (MachineConfig.cheapEnergyAt)
+export const CHEAP_ENERGY = 4;
+// The Efficiency (AgeWell: Efficiency + Performance) that gets a machine down to CHEAP_ENERGY a day. Machines that start there
+// (Moisture Farm, Alarm: 4 a day) get a value below 0, so all their Efficiency counts less
+export const cheapEnergyAt = (machineType: string): number | undefined => statUnit(machineType, 'Efficiency')?.toPercent(CHEAP_ENERGY);

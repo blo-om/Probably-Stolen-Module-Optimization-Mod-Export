@@ -30,6 +30,8 @@ export interface MachineParams {
     sumPE?: boolean;
     // Performance past this counts for nothing (Moisture Farm: 6000 ml, the biggest water container)
     capP?: number;
+    // Maximized Efficiency past this (energy down to 4 a day) is worth only CHEAP_EFFICIENCY_WEIGHT a point (see cheapEfficiency)
+    cheapE?: number;
     // null when the stat has no target
     target: (number | null)[];
     maximize: boolean[];
@@ -73,6 +75,11 @@ export const waterValue = (p: number, q: number) => {
     const m = waterMultiplier(q);
     return Math.max(0, 100 + p) * (m + WATER_PROGRESS_SHARE * (waterMultiplierSmooth(q) - m));
 };
+// A maximized point of Efficiency past `cheapE` (the machine already uses 4 energy a day or less) is worth this much of one before it
+export const CHEAP_EFFICIENCY_WEIGHT = 0.2;
+export const cheapEfficiency = (e: number, cheapE: number | undefined) =>
+    cheapE === undefined || e <= cheapE ? e : cheapE + (e - cheapE) * CHEAP_EFFICIENCY_WEIGHT;
+
 const waterValueSmooth = (p: number, q: number) => Math.max(0, 100 + p) * waterMultiplierSmooth(q);
 
 const isPureNegative = (p: number, q: number, e: number) => p <= 0 && q <= 0 && e <= 0 && (p < 0 || q < 0 || e < 0);
@@ -248,7 +255,7 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
             if (current >= target) return d * w;
             return after <= target ? d * w * 10 : ((target - current) * w * 10) + ((after - target) * w);
         } else if (maximize) {
-            return d * w;
+            return s === 2 && params.cheapE !== undefined ? (cheapEfficiency(current + d, params.cheapE) - cheapEfficiency(current, params.cheapE)) * w : d * w;
         }
         return 0;
     };
