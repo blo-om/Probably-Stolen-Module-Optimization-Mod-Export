@@ -147,6 +147,8 @@ export type EngineTuning = {
     relayoutOneIn?: number;
     polish?: number;
     ease?: number;
+    // 0: a stalled search running on its own never gives anything up (no relax, no ease); with workers the coordinator decides
+    stall?: number;
 };
 
 /* Tried on the A/B benches and dropped (details in the git history): late-acceptance hill climbing, relaxing the farthest target
@@ -230,6 +232,7 @@ export const runOptimizationEngine = async (
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
     const POLISH = tuning.polish ?? 1;
     const EASE = tuning.ease ?? 1;
+    const STALL = tuning.stall ?? 1;
     // Targets can be relaxed during the run, so the engine works on copies; codes are always written with the targets as they were set
     const machines: MachineConfig[] = callerMachines.map(m => ({ ...m, targetStats: { ...m.targetStats } }));
     const machineCount = machines.length;
@@ -780,7 +783,7 @@ export const runOptimizationEngine = async (
             const orders = relaxOrders();
             for (const order of orders) applyOrder(order);
             relaxed = orders.length > 0;
-        } else {
+        } else if (STALL) {
             stall.observe(bestTiers);
             if (stall.due()) relaxed = relaxLowestTarget();
         }
