@@ -108,11 +108,11 @@ export const runParallelEngine = async (
     searchPoolInventory: InventoryItem[],
     fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
-    onUpdate: (updates: Updates, tiers: number[]) => void,
-    // false: a stalled search never gives anything up (no relaxed targets, no eased Auto stats). Run All relaxes to share
-    // modules across many machines; a single machine run is a benchmark and keeps its targets as set
-    { giveUp = true }: { giveUp?: boolean } = {}
+    onUpdate: (updates: Updates, tiers: number[]) => void
 ): Promise<void> => {
+    // A stalled search relaxes targets and eases Auto stats only when several machines share the modules; a single machine run
+    // (its own Run, or Run All with one machine) is a benchmark and keeps its targets as set
+    const giveUp = machines.length > 1;
     const display = createDisplay(machines, onUpdate);
     const solveOnPage = async () => {
         try {
