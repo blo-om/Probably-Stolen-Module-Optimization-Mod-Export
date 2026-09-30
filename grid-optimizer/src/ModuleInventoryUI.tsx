@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
+import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
@@ -285,6 +286,7 @@ const MachineInstance = React.memo(forwardRef(({
     });
     useEffect(() => {
         try { localStorage.setItem(limitKey, JSON.stringify(limitStats)); } catch { /* per-viewer convenience only */ }
+        rememberSaveSettings();
     }, [limitKey, limitStats]);
 
     // A stat that does nothing on this machine has no card, so it must not be left on from an older setup either
@@ -313,6 +315,7 @@ const MachineInstance = React.memo(forwardRef(({
 
     useEffect(() => {
         localStorage.setItem(`optimizer_machine_locked_${machineId}`, String(isMachineLocked));
+        rememberSaveSettings();
     }, [isMachineLocked, machineId]);
 
     const uniqueModules = useMemo(() => {
@@ -875,6 +878,7 @@ export default function ModuleInventoryUI() {
 
     useEffect(() => {
         localStorage.setItem('optimizer_machine_list', JSON.stringify(machines));
+        rememberSaveSettings();
     }, [machines]);
 
     const machinesRef = useRef<Record<string, any>>({});
@@ -1414,18 +1418,20 @@ export default function ModuleInventoryUI() {
         ));
     };
 
-    const handleImportSave = useCallback((newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[]) => {
+    const handleImportSave = useCallback((newItems: InventoryItem[], importedMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[], save: string) => {
         setInventory(newItems);
 
-        newMachines.forEach(m => {
-            // Each imported machine starts with the stats that matter for its type switched on
-            // Defaults by what the machine is, not by the name the player gave it
+        // Each imported machine gets the settings remembered for it in this save (and the remembered card order); a machine new
+        // to the save starts with the stats that matter for its type switched on, by what the machine is, not the name the player gave it
+        const newMachines = restoreSaveSettings(save, importedMachines, m => {
             const kind = m.kind ?? m.machineType;
             const ignoreStats = defaultIgnoreStats(kind);
             const targetStats = defaultTargetStats(kind);
             const maximizeStats = defaultMaximizeStats(ignoreStats);
             (['Performance', 'Quality', 'Efficiency'] as const).forEach(k => { if (targetStats[k] !== null) maximizeStats[k] = false; });
-            localStorage.setItem(`optimizer_machine_${m.id}`, JSON.stringify({ boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats, targetStats }));
+            return { boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats, targetStats };
+        });
+        newMachines.forEach(m => {
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
             if (m.kind) localStorage.setItem(`optimizer_machine_kind_${m.id}`, m.kind);
         });

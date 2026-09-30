@@ -4,6 +4,7 @@ import type { Orientation } from '../utils';
 import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS, roundStat } from '../utils';
 import { MODULE_TEMPLATES } from '../constants';
 import { runParallelEngine } from '../solver/parallel';
+import { rememberSaveSettings } from '../saveSettings';
 
 
 const SHAPE_MAP: ModuleShape[] = ['Node1x2', 'L3', 'L4_Base', 'T4_Base', 'Square4_Base', 'L4_High', 'T4_High', 'Square4_High', 'P5', 'C5', 'Line4'];
@@ -1089,6 +1090,7 @@ export function useOptimizer(
             localStorage.setItem(`optimizer_machine_${machineId}`, JSON.stringify({
                 tier, maximizeStats, targetStats, ignoreStats, statPriority, boardIds
             }));
+            rememberSaveSettings();
 
             if (inventory.length > 0) {
                 // Remove unused infinite clones to avoid super long solution code

@@ -1,10 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { SAVE_NAME_KEY, SAVE_SLOT_KEY } from '../modExport';
+import { flushSaveSettings } from '../saveSettings';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
 interface SaveFileImporterProps {
-    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[]) => void;
+    // `save` is the save's file name, which its remembered machine settings are kept under (see saveSettings.ts)
+    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[], save: string) => void;
 }
 
 export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
@@ -446,8 +448,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     });
                 });
 
-                onImport(parsedInventory, newMachines);
                 const importedName = file.name.replace(/\.es3$/i, '');
+                // Settings still waiting to be remembered belong to the save loaded until now
+                flushSaveSettings();
+                onImport(parsedInventory, newMachines, importedName);
                 localStorage.setItem(SAVE_NAME_KEY, importedName);
                 // The save's own slot number, which the mod compares with the loaded game before trusting module uids
                 const slotMatch = /"saveSlotId"\s*:\s*(\d+)/.exec(text);
