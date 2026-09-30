@@ -108,12 +108,15 @@ export const runParallelEngine = async (
     searchPoolInventory: InventoryItem[],
     fullInventory: InventoryItem[],
     isSolvingRef: { current: boolean },
-    onUpdate: (updates: Updates, tiers: number[]) => void
+    onUpdate: (updates: Updates, tiers: number[]) => void,
+    // false: a stalled search never gives anything up (no relaxed targets, no eased Auto stats). Run All relaxes to share
+    // modules across many machines; a single machine run is a benchmark and keeps its targets as set
+    { giveUp = true }: { giveUp?: boolean } = {}
 ): Promise<void> => {
     const display = createDisplay(machines, onUpdate);
     const solveOnPage = async () => {
         try {
-            await runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, display.offer);
+            await runOptimizationEngine(machines, initialBoards, searchPoolInventory, fullInventory, isSolvingRef, display.offer, giveUp ? {} : { stall: 0 });
         } finally {
             display.final();
         }
@@ -228,7 +231,7 @@ export const runParallelEngine = async (
         }
         const t = Date.now();
         if (awaiting.size > 0 && t > awaitingUntil) endWait();
-        if (!stopSent && awaiting.size === 0 && stall.due()) relaxLowestTarget();
+        if (giveUp && !stopSent && awaiting.size === 0 && stall.due()) relaxLowestTarget();
     }, 50);
     try {
         await Promise.all(finished);
