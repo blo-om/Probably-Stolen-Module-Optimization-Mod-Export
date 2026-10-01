@@ -216,6 +216,27 @@ export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' 
 // Moisture Farm Performance that still counts: +500% makes 6000 ml, as much as the biggest water container holds
 export const MOISTURE_FARM_CAP = 500;
 
+/* What a Moisture Farm's water sells for a day, from the game (checked against the decompiled game):
+ *   MachineMoistureFarm.GetOutputVolume = (100 + Performance) * 1,000,000 / 100 liquid parts, 1000 parts to the ml
+ *   WaterFeatureHelper.GetWaterPrice(parts) = parts / 1000 * 40 / 1000, so 40 for 1000 ml of basewater
+ *   and the grade changes the price (ItemConditionList: Gutterflow -90%, Rust -75%, Ghost -33%, High-quality +50%, Pure +100%)
+ * Volume stops at 6000 ml, the biggest water container
+ */
+export const WATER_PRICE_PER_1000_ML = 40;
+export const WATER_GRADES: { name: string; from: number; price: number }[] = [
+    { name: 'Gutterflow', from: -Infinity, price: 0.10 },
+    { name: 'Rustwater', from: -50, price: 0.25 },
+    { name: 'Ghostwater', from: 0, price: 0.67 },
+    { name: 'Basewater', from: 50, price: 1.0 },
+    { name: 'High-quality', from: 100, price: 1.5 },
+    { name: 'Pure', from: 150, price: 2.0 },
+];
+export const moistureFarmOutput = (performance: number, quality: number) => {
+    const ml = Math.min(6000, Math.max(0, (100 + Math.trunc(performance)) * 10));
+    const grade = [...WATER_GRADES].reverse().find(g => quality >= g.from)!;
+    return { ml, grade: grade.name, value: Math.trunc((ml * WATER_PRICE_PER_1000_ML) / 1000) * grade.price };
+};
+
 export const isMoistureFarm = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('moisture farm');
 
 export const isDesequencer = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('desequencer');
