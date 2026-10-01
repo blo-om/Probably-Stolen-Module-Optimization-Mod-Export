@@ -46,6 +46,16 @@ const REPACK_STEP_LIMIT = 1024;
 // How much of a target's pull on the draw survives once the board already meets it; never zero, or a met target could not be defended
 const TARGET_MET_DRAW_SCALE = 0.25;
 
+/* Moisture Farm water (Auto for both stats) is priced by grade, and a grade only goes up when several Quality modules replace volume at
+ * once: every single swap on the way loses volume without reaching the grade, so the search never takes it. One water farm fill in
+ * WATER_AIM_SHARE aims at the next grade instead: the farm's unlocked volume modules come off, Quality modules go on until that grade's
+ * Quality, then the rest is filled as usual. Kept only if the water is worth more. On the lock benchmark (11 machines, farms first or
+ * farms only, equal or card-order priority) 0.5 made 5% more farm value from scratch and 4% more after locking and clearing; 0.9 cost
+ */
+const WATER_AIM_SHARE = 0.5;
+// Lowest Quality of each water grade above the worst (typedCore.ts WATER_GRADES)
+const WATER_GRADE_QUALITY = [-50, 0, 50, 100, 150];
+
 // How many big ruins may come back empty-handed before the search goes back to the record
 const RESTART_AFTER_STAGNATIONS = 8;
 const STAGNATION_LIMIT = 150;
@@ -140,6 +150,7 @@ type Scored = Totals & { tb: number; tbGen: number };
  *   polish           near-target polish (see polishNearTargets; 0: off). On by default: on A/B scenarios with most machines on targets near
  *                    what they reach (28 runs a side, 8 s), the hardest near miss (AgeWell 250, reached ~245) was met 16 times against 7;
  *                    other targets and the overall score within noise; ~3% of the search time
+ *   waterAim         share of water farm fills that aim at the next grade (WATER_AIM_SHARE; 0: never)
  */
 export type EngineTuning = {
     tournament?: number;
@@ -150,6 +161,7 @@ export type EngineTuning = {
     relayoutOneIn?: number;
     polish?: number;
     ease?: number;
+    waterAim?: number;
     // 0: a stalled search running on its own never gives anything up (no relax, no ease); with workers the coordinator decides
     stall?: number;
 };
@@ -230,6 +242,7 @@ export const runOptimizationEngine = async (
     const RUIN_MAX = tuning.ruinMax ?? 3;
     const STAGNATION = tuning.stagnationLimit ?? STAGNATION_LIMIT;
     const REPACK_EVERY = tuning.repackOneIn ?? REPACK_ONE_IN;
+    const WATER_AIM = tuning.waterAim ?? WATER_AIM_SHARE;
     // On by default: measured better or level on every benchmark scenario at 1 in 6 (1 in 3 cost the all-Auto case)
     const SWAP_EVERY = tuning.swapOneIn ?? 6;
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
@@ -1203,6 +1216,20 @@ export const runOptimizationEngine = async (
                 }
 
                 const board = testBoards[fillMIdx];
+                // A water farm aims at its next grade now and then (see WATER_AIM_SHARE): its unlocked volume modules make room for Quality
+                if (p.water && Math.random() < WATER_AIM) {
+                    const q = currentStats[fillMIdx].q;
+                    const next = WATER_GRADE_QUALITY.find(g => g > q);
+                    if (next !== undefined) {
+                        p.aimQ = next;
+                        for (let c = 0; c < CELLS; c++) {
+                            const a = board[c];
+                            if (a < 0 || fixed[a] || core.white[a] || core.IP[a] <= core.IQ[a]) continue;
+                            board[c] = EMPTY;
+                            if (poolOf[a] >= 0) placedMark[poolOf[a]] = 0;
+                        }
+                    }
+                }
                 rebuildFreeCells(board);
                 let boardIsEmpty = freeCells.length === openCellCount[fillMIdx];
                 let t = core.boardTotals(board);
@@ -1248,6 +1275,8 @@ export const runOptimizationEngine = async (
 
                 infeasible.clear();
                 for (const shape of poolShapes) if (!shapeFitsAnywhere(shape, board)) infeasible.add(shape);
+                // Aiming at a grade: a first pass places only modules that add Quality, until the grade is reached
+                for (let pass = p.aimQ !== undefined ? 0 : 1; pass < 2; pass++) {
                 let drawn = 0;
                 while (drawn < P && drawn < MAX_DRAWS && infeasible.size < poolShapeCount) {
                     // Best of DRAW_TOURNAMENT random candidates; the losers stay in the undrawn region of the permutation
@@ -1264,6 +1293,7 @@ export const runOptimizationEngine = async (
 
                     if (placedMark[pi] === markGen || consumedMark[pi] === consumedGen) continue;
                     const it = searchPool[pi];
+                    if (pass === 0 && (core.IQ[it] <= 0 || cur[1] >= p.aimQ!)) continue;
                     const shape = core.shape[it];
                     if (infeasible.has(shape)) continue;
                     if (freeCells.length < core.size[it]) { infeasible.add(shape); continue; }
@@ -1278,7 +1308,9 @@ export const runOptimizationEngine = async (
                         infeasible.add(shape);
                     }
                 }
+                }
             }
+            for (const mIdx of rebuiltMachines) delete params[mIdx].aimQ;
 
             // The fill took the offered module: lift it off its owner, which is then judged along with the rebuilt board
             if (offered !== -1 && consumedMark[offered] === consumedGen) {

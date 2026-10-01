@@ -30,6 +30,8 @@ export interface MachineParams {
     sumPE?: boolean;
     // Performance past this counts for nothing (Moisture Farm: 6000 ml, the biggest water container)
     capP?: number;
+    // Water farm, during one fill only: the Quality of the next grade up, which the fill reaches before it adds volume (engine.ts WATER_AIM_SHARE)
+    aimQ?: number;
     // Maximized Efficiency past this (energy down to 4 a day) is worth only CHEAP_EFFICIENCY_WEIGHT a point (see cheapEfficiency)
     cheapE?: number;
     // null when the stat has no target
@@ -327,8 +329,11 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         // Performance past the cap (if any) adds nothing
         const cap = params.capP ?? Infinity;
         const dpc = Math.min(c0 + dp, cap) - Math.min(c0, cap);
+        // Aiming at a grade: each point of Quality still short of it outweighs any volume (a point of Performance is worth about one)
+        const aim = params.aimQ !== undefined && c1 < params.aimQ
+            ? (Math.min(c1 + dq, params.aimQ) - Math.min(c1, params.aimQ)) * Math.max(100, 100 + Math.min(c0, cap)) * 0.05 * w0 : 0;
         const statScore = params.water
-            ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), c1 + dq) - waterValueSmooth(Math.min(c0, cap), c1), 0, w0, params) + scoreStat(2, de, c2, w2, params)
+            ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), c1 + dq) - waterValueSmooth(Math.min(c0, cap), c1), 0, w0, params) + scoreStat(2, de, c2, w2, params) + aim
             : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPE
