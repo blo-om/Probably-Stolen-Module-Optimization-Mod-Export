@@ -51,12 +51,13 @@ export interface Totals {
 
 export const totalOf = (t: Totals, s: number) => (s === 0 ? t.p : s === 1 ? t.q : t.e);
 
-/* Moisture Farm water value. The farm makes (100 + Performance) * 10 ml a day, of a grade set by Quality, and each grade changes the
- * water's price (ItemConditionList.Create*Water in the game): Gutterflow -90%, Rust -75%, Ghost -33%, Base 0, High-quality +50%, Pure +100%
- * So a farm is worth its volume times its grade's price: 100 ml more of pure water counts twice 100 ml more of basewater
+/* Moisture Farm water value. The farm makes (100 + Performance) * 10 ml a day, of a grade set by Quality, and each grade has its own price
+ * (WaterFeatureHelper.WATER_PRICES in the game, per 100 ml: Gutterflow 10, Rust 20, Ghost 27, Base 40, High-quality 100, Pure 200; the
+ * page's counter uses the same, machineDefaults.ts WATER_GRADES). Here relative to basewater: 100 ml of pure water counts five times
+ * 100 ml of basewater
  */
-// [lowest Quality of the grade, price multiplier]
-const WATER_GRADES: [number, number][] = [[-Infinity, 0.10], [-50, 0.25], [0, 0.67], [50, 1.0], [100, 1.5], [150, 2.0]];
+// [lowest Quality of the grade, price relative to basewater]
+const WATER_GRADES: [number, number][] = [[-Infinity, 0.25], [-50, 0.5], [0, 0.675], [50, 1.0], [100, 2.5], [150, 5.0]];
 export const waterMultiplier = (q: number) => {
     let m = WATER_GRADES[0][1];
     for (const [from, v] of WATER_GRADES) if (q >= from) m = v;
@@ -65,13 +66,13 @@ export const waterMultiplier = (q: number) => {
 // The same rising smoothly from each grade to the next, so the search can tell it is getting closer to a better grade
 const waterMultiplierSmooth = (q: number) => {
     if (q < -100) return WATER_GRADES[0][1];
-    if (q >= 150) return 2.0;
-    const points: [number, number][] = [[-100, 0.10], [-50, 0.25], [0, 0.67], [50, 1.0], [100, 1.5], [150, 2.0]];
+    if (q >= 150) return WATER_GRADES[WATER_GRADES.length - 1][1];
+    const points: [number, number][] = [[-100, 0.25], [-50, 0.5], [0, 0.675], [50, 1.0], [100, 2.5], [150, 5.0]];
     for (let i = 0; i < points.length - 1; i++) {
         const [q0, m0] = points[i], [q1, m1] = points[i + 1];
         if (q < q1) return m0 + (m1 - m0) * (q - q0) / (q1 - q0);
     }
-    return 2.0;
+    return WATER_GRADES[WATER_GRADES.length - 1][1];
 };
 // What the water made a day is worth, at its real grade's price. In points of basewater: 1 point = 10 ml of basewater a day
 export const waterValue = (p: number, q: number) => Math.max(0, 100 + p) * waterMultiplier(q);
