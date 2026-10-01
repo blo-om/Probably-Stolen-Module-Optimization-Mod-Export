@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, WATER_PRICE_PER_1000_ML } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, ItemEffect, ModuleColor, Point } from './types';
@@ -1110,22 +1110,37 @@ export default function ModuleInventoryUI() {
         }, 150);
     }, []);
 
-    // Water value: what every Moisture Farm's water sells for a day, as its board stands (see moistureFarmOutput)
-    const waterValue = useMemo(() => {
-        let value = 0, farms = 0;
+    /* Store stats at the top of the page, from the boards as they stand:
+     *   water     what every Moisture Farm makes a day, by grade, and what it is worth (moistureFarmOutput)
+     *   attract   last night's base attractiveness from the save plus the best Mirage Projector's 100 + Performance + Quality
+     *             (projectors do not stack: the game takes the highest)
+     *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
+     *             (alarms do not stack either)
+     */
+    const storeStats = useMemo(() => {
+        let water = 0, farms = 0, projector: number | null = null, stop: number | null = null;
         const mlByGrade = new Map<string, number>();
         for (const { id } of machines) {
             const card = machinesRef.current[id];
             if (!card) continue;
             const state = card.getState();
-            if (!isMoistureFarm(state.machineKind ?? state.machineType ?? '')) continue;
+            const kind: string = state.machineKind ?? state.machineType ?? '';
+            const farm = isMoistureFarm(kind), mirage = isMirage(kind), alarm = kind.toLowerCase().includes('alarm');
+            if (!farm && !mirage && !alarm) continue;
             const { totals } = calculateBoardStats(card.getBoard(), expandedInventory);
-            const out = moistureFarmOutput(totals.Performance, totals.Quality);
-            value += out.value;
-            farms++;
-            mlByGrade.set(out.grade, (mlByGrade.get(out.grade) ?? 0) + out.ml);
+            const p = Math.trunc(totals.Performance), q = Math.trunc(totals.Quality);
+            if (farm) {
+                const out = moistureFarmOutput(p, q);
+                water += out.value;
+                farms++;
+                mlByGrade.set(out.grade, (mlByGrade.get(out.grade) ?? 0) + out.ml);
+            }
+            if (mirage) projector = Math.max(projector ?? -Infinity, MIRAGE_BASE_POINTS + p + q);
+            if (alarm) stop = Math.max(stop ?? -Infinity, Math.min(100, Math.max(0, 50 + p)));
         }
-        return { value: Math.round(value), farms, mlByGrade };
+        let base: number | null = null;
+        try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
+        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null };
     }, [boardVersion, machines, expandedInventory]);
 
     const unusedModules = useMemo(() => {
@@ -1707,23 +1722,57 @@ export default function ModuleInventoryUI() {
                     border: 1px solid #444;
                     border-radius: 4px;
                 }
-                .toolbar .water-stat {
-                    position: absolute;
-                    right: 16px;
-                    top: 50%;
-                    transform: translateY(-50%);
+                .toolbar .store-stats {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px 22px;
+                    align-items: center;
+                    min-width: 0;
+                }
+                .toolbar .store-stat {
                     display: flex;
                     flex-direction: column;
-                    align-items: flex-end;
-                    line-height: 1.2;
+                    line-height: 1.25;
                     cursor: help;
                 }
-                @media (max-width: 1250px) {
-                    .toolbar .water-stat {
-                        position: static;
-                        transform: none;
-                        align-items: center;
+                .toolbar .store-stat-label {
+                    font-size: 0.68em;
+                    color: #888;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                }
+                .toolbar .store-stat-value {
+                    font-size: 1.1em;
+                    font-weight: bold;
+                    font-variant-numeric: tabular-nums;
+                }
+                .toolbar .store-stat-unit {
+                    font-size: 0.62em;
+                    color: #888;
+                    font-weight: normal;
+                }
+                .toolbar .store-stat-grades {
+                    display: flex;
+                    flex-direction: column;
+                    font-size: 0.75em;
+                    color: #aaa;
+                }
+                .toolbar .store-stat-grades b {
+                    color: #ddd;
+                    font-variant-numeric: tabular-nums;
+                }
+                .toolbar .toolbar-buttons {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    justify-content: flex-end;
+                    margin-left: auto;
+                }
+                @media (max-width: 700px) {
+                    .toolbar .store-stats, .toolbar .toolbar-buttons {
                         justify-content: center;
+                        width: 100%;
+                        margin-left: 0;
                     }
                 }
                 .bottom-layout {
@@ -1853,9 +1902,53 @@ export default function ModuleInventoryUI() {
 
             {/* Toolbar: stays pinned to the top of the window while the page scrolls */}
             <div className="toolbar" style={{
-                display: 'flex', gap: '15px', justifyContent: 'center', padding: '10px 0', marginBottom: '24px', width: '100%', flexWrap: 'wrap',
-                position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
+                display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', marginBottom: '24px', width: '100%', flexWrap: 'wrap',
+                boxSizing: 'border-box', position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
             }}>
+                <div className="store-stats">
+                    {storeStats.farms > 0 && (
+                        <div className="store-stat" title={[
+                            `What ${storeStats.farms} Moisture Farm${storeStats.farms === 1 ? '' : 's'} make a day, as the boards stand, at the game's price per grade`,
+                            '(credits per 100 ml: ' + WATER_GRADES.slice().reverse().map(g => `${g.name} ${g.price}`).join(', ') + ')',
+                            'A farm makes 1000 ml a day, +10 ml per 1% Performance, up to 6000 ml',
+                        ].join('\n')}>
+                            <span className="store-stat-label">Water value</span>
+                            <span className="store-stat-value" style={{ color: '#4fb3bf' }}>{storeStats.water.toLocaleString()}<span className="store-stat-unit"> credits / day</span></span>
+                        </div>
+                    )}
+                    {storeStats.farms > 0 && (
+                        <div className="store-stat" title="Water made a day by all Moisture Farms, by grade">
+                            <span className="store-stat-label">Water a day</span>
+                            <span className="store-stat-grades">
+                                {WATER_GRADES.slice().reverse().filter(g => storeStats.mlByGrade.has(g.name)).map(g => (
+                                    <span key={g.name}>{g.name} <b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} ml</b></span>
+                                ))}
+                            </span>
+                        </div>
+                    )}
+                    {(storeStats.base !== null || storeStats.projector !== null) && (
+                        <div className="store-stat" title={[
+                            'Projected store attractiveness:',
+                            `  last night's base, without bonuses (from the save): ${storeStats.base ?? 'import a save to see it'}`,
+                            `  best Mirage Projector: ${storeStats.projector === null ? 'none' : `+${storeStats.projector}`} (100 + Performance + Quality; projectors do not stack)`,
+                        ].join('\n')}>
+                            <span className="store-stat-label">Attractiveness</span>
+                            <span className="store-stat-value" style={{ color: '#c58af9' }}>
+                                {storeStats.base === null ? '?' : (storeStats.base + (storeStats.projector ?? 0)).toLocaleString()}
+                                {storeStats.projector !== null && <span className="store-stat-unit"> (+{storeStats.projector} projector)</span>}
+                            </span>
+                        </div>
+                    )}
+                    {storeStats.farms + (storeStats.alarms ? 1 : 0) + (storeStats.projector !== null ? 1 : 0) > 0 && (
+                        <div className="store-stat" title={storeStats.alarms
+                            ? "Chance a theft goes through: 100% minus the best Alarm System's stop chance (50% + Performance, up to 100%; alarms do not stack)"
+                            : 'No Alarm System: nothing stops a theft'}>
+                            <span className="store-stat-label">Theft chance</span>
+                            <span className="store-stat-value" style={{ color: storeStats.theft > 0 ? '#ff4d4d' : '#4caf50' }}>{storeStats.theft}%</span>
+                        </div>
+                    )}
+                </div>
+                <div className="toolbar-buttons">
                 <button
                     onClick={handleRunAll}
                     disabled={inventory.length === 0 && !isAnySolving}
@@ -1896,24 +1989,6 @@ export default function ModuleInventoryUI() {
                     {copiedAllForMod ? 'Copied!' : 'Export All'}
                 </button>
                 <SaveFileImporter onImport={handleImportSave} />
-                {waterValue.farms > 0 && (
-                    <div
-                        className="water-stat"
-                        title={[
-                            `${waterValue.farms} Moisture Farm${waterValue.farms === 1 ? '' : 's'}, as they stand now:`,
-                            ...WATER_GRADES.slice().reverse().filter(g => waterValue.mlByGrade.has(g.name))
-                                .map(g => `  ${g.name}: ${waterValue.mlByGrade.get(g.name)!.toLocaleString()} ml a day`),
-                            '',
-                            `Sell price from the game: ${WATER_PRICE_PER_1000_ML} per 1000 ml of basewater, changed by its grade`,
-                            '(Gutterflow -90%, Rust -75%, Ghost -33%, High-quality +50%, Pure +100%), up to 6000 ml a farm',
-                        ].join('\n')}
-                    >
-                        <span style={{ fontSize: '0.7em', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Water value</span>
-                        <span style={{ fontSize: '1.15em', fontWeight: 'bold', color: '#4fb3bf', fontVariantNumeric: 'tabular-nums' }}>
-                            {waterValue.value.toLocaleString()}<span style={{ fontSize: '0.65em', color: '#888', fontWeight: 'normal' }}> / day</span>
-                        </span>
-                    </div>
-                )}
                 <button
                     onClick={handleClearAllMachines}
                     disabled={isAnySolving}
@@ -1921,6 +1996,7 @@ export default function ModuleInventoryUI() {
                 >
                     Delete All
                 </button>
+                </div>
             </div>
 
             {/* Main Grid & Controls */}

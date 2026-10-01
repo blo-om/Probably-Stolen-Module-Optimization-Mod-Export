@@ -216,26 +216,27 @@ export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' 
 // Moisture Farm Performance that still counts: +500% makes 6000 ml, as much as the biggest water container holds
 export const MOISTURE_FARM_CAP = 500;
 
-/* What a Moisture Farm's water sells for a day, from the game (checked against the decompiled game):
- *   MachineMoistureFarm.GetOutputVolume = (100 + Performance) * 1,000,000 / 100 liquid parts, 1000 parts to the ml
- *   WaterFeatureHelper.GetWaterPrice(parts) = parts / 1000 * 40 / 1000, so 40 for 1000 ml of basewater
- *   and the grade changes the price (ItemConditionList: Gutterflow -90%, Rust -75%, Ghost -33%, High-quality +50%, Pure +100%)
- * Volume stops at 6000 ml, the biggest water container
+/* What a Moisture Farm's water is worth a day, from the game (checked against the decompiled game):
+ *   MachineMoistureFarm.GetOutputVolume: (100 + Performance) * 10 ml a day, never below 0; a farm fills up to 6000 ml, the biggest container
+ *   WaterFeatureHelper.WATER_PRICES, the price of each grade (WATER_PURITIES gives the grades), taken as credits per 100 ml
  */
-export const WATER_PRICE_PER_1000_ML = 40;
 export const WATER_GRADES: { name: string; from: number; price: number }[] = [
-    { name: 'Gutterflow', from: -Infinity, price: 0.10 },
-    { name: 'Rustwater', from: -50, price: 0.25 },
-    { name: 'Ghostwater', from: 0, price: 0.67 },
-    { name: 'Basewater', from: 50, price: 1.0 },
-    { name: 'High-quality', from: 100, price: 1.5 },
-    { name: 'Pure', from: 150, price: 2.0 },
+    { name: 'Gutterflow', from: -Infinity, price: 10 },
+    { name: 'Rustwater', from: -50, price: 20 },
+    { name: 'Ghostwater', from: 0, price: 27 },
+    { name: 'Basewater', from: 50, price: 40 },
+    { name: 'High-quality', from: 100, price: 100 },
+    { name: 'Pure', from: 150, price: 200 },
 ];
 export const moistureFarmOutput = (performance: number, quality: number) => {
     const ml = Math.min(6000, Math.max(0, (100 + Math.trunc(performance)) * 10));
     const grade = [...WATER_GRADES].reverse().find(g => quality >= g.from)!;
-    return { ml, grade: grade.name, value: Math.trunc((ml * WATER_PRICE_PER_1000_ML) / 1000) * grade.price };
+    return { ml, grade: grade.name, value: (ml * grade.price) / 100 };
 };
+
+// Store attractiveness: last night's base (the save's baseStoreAttractiveness, no bonuses) plus the best Mirage Projector's; projectors
+// do not stack, the game takes the highest. Kept per save (localStorage) by the save importer
+export const STORE_BASE_ATTRACTIVENESS_KEY = 'optimizer_store_base_attractiveness';
 
 export const isMoistureFarm = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('moisture farm');
 
