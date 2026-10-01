@@ -257,9 +257,9 @@ export const runOptimizationEngine = async (
     const N = core.count;
     const idx = (item: InventoryItem) => core.indexOf.get(item.id)!;
 
-    // A special (Alarm / Junk Processing / Blast), or a module that came in locked on a board, belongs to its board: it moves around it but never leaves
+    // A module that came in locked on a board (right-click; the specials, Alarm / Junk Processing / Blast, start locked) belongs to its
+    // board: it moves around it but never leaves. An unlocked special may be taken off; it is never put on another board (see buildSearchPool)
     const fixed = new Uint8Array(N);
-    itemList.forEach((item, i) => { if (isSpecialModule(item)) fixed[i] = 1; });
     initialObjectBoards.forEach(b => b.forEach((row: any[]) => row.forEach(cell => { if (cell && cell !== 'Locked' && cell.isLocked) fixed[idx(cell)] = 1; })));
     const overclock = new Uint8Array(N);
     const ocBonus = new Float64Array(N);

@@ -909,11 +909,11 @@ export function useOptimizer(
             isSolvingRef.current = false;
             setIsSolving(false);
         }
-        // Special modules (Alarm Transmitter, Blast, Junk Processing) and modules locked to this machine (right-click) belong to it,
-        // so clearing the board leaves them where they are - the solver only ever moves them around within this board.
+        // Modules locked to this machine (right-click; the specials start locked) belong to it, so clearing the board leaves them
+        // where they are - the solver only ever moves them around within this board.
         const cleared = initializeBoard(tier);
         boardRef.current.forEach((row, y) => row.forEach((cell, x) => {
-            if (cell && cell !== 'Locked' && (isSpecialModule(cell) || cell.isLocked) && cleared[y][x] !== 'Locked') cleared[y][x] = cell;
+            if (cell && cell !== 'Locked' && cell.isLocked && cleared[y][x] !== 'Locked') cleared[y][x] = cell;
         }));
         setBoardSync(cleared);
         setBestTotals({ Performance: 0, Quality: 0, Efficiency: 0 });

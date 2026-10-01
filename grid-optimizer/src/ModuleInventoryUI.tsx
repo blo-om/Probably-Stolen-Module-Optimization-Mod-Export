@@ -11,8 +11,47 @@ import { createPortal } from 'react-dom';
 import { useOptimizer, calculateBoardStats, indexInventoryById, generateCodeFromState, isSpecialModule } from './hooks/useOptimizer';
 import AddModuleMenu from './components/AddModuleMenu';
 
-// Kept on its machine by the solver and by dragging: the specials always, any other module once right-clicked (isLocked)
-const lockedToMachine = (item: InventoryItem) => Boolean(item.isLocked) || isSpecialModule(item);
+// Kept on its machine by the solver and by dragging once right-clicked (isLocked). The specials (Alarm Transmitter, Furnace Blast and
+// Junk Processing) start locked, and can be unlocked the same way
+const lockedToMachine = (item: InventoryItem) => Boolean(item.isLocked);
+
+// Padlock drawn black, keyhole cut out so the module shows through
+const LockIcon = ({ size }: { size: number }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
+        <path d="M7 10V7.5a5 5 0 0 1 10 0V10" fill="none" stroke="#000" strokeWidth="2.6" />
+        <path fillRule="evenodd" fill="#000"
+            d="M5.5 10h13a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 20.5v-9A1.5 1.5 0 0 1 5.5 10Z
+               M12 13.6a1.9 1.9 0 0 0-1 3.5V19h2v-1.9a1.9 1.9 0 0 0-1-3.5Z" />
+    </svg>
+);
+
+/* Where a module's lock goes: the middle of the piece. When that point is inside the piece (a square's centre, between the middle
+ * cells of a line...) exactly there; otherwise (the corner of an L) the centre of the piece's cell nearest to it. Returns the cell
+ * the icon is drawn in and its offset from that cell's centre, in cells
+ */
+const lockSpot = (cells: Point[]) => {
+    const cx = cells.reduce((s, c) => s + c.x + 0.5, 0) / cells.length;
+    const cy = cells.reduce((s, c) => s + c.y + 0.5, 0) / cells.length;
+    const has = (x: number, y: number) => cells.some(c => c.x === x && c.y === y);
+    const eps = 1e-6;
+    const xs = Math.abs(cx - Math.round(cx)) < eps ? [Math.round(cx) - 1, Math.round(cx)] : [Math.floor(cx)];
+    const ys = Math.abs(cy - Math.round(cy)) < eps ? [Math.round(cy) - 1, Math.round(cy)] : [Math.floor(cy)];
+    if (xs.every(x => ys.every(y => has(x, y)))) {
+        const cell = { x: xs[0], y: ys[0] };
+        let dx = cx - (cell.x + 0.5), dy = cy - (cell.y + 0.5);
+        // Inside one cell: keep the icon (half a cell wide) off a side of the piece that is open (a C's gap)
+        const room = 0.25;
+        if (xs.length === 1) { if (!has(cell.x + 1, cell.y)) dx = Math.min(dx, room); if (!has(cell.x - 1, cell.y)) dx = Math.max(dx, -room); }
+        if (ys.length === 1) { if (!has(cell.x, cell.y + 1)) dy = Math.min(dy, room); if (!has(cell.x, cell.y - 1)) dy = Math.max(dy, -room); }
+        return { cell, dx, dy };
+    }
+    let best = cells[0], bestD = Infinity;
+    for (const c of cells) {
+        const d = (c.x + 0.5 - cx) ** 2 + (c.y + 0.5 - cy) ** 2;
+        if (d < bestD - eps) { bestD = d; best = c; }
+    }
+    return { cell: best, dx: 0, dy: 0 };
+};
 import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
 
@@ -105,13 +144,14 @@ const MachineInstance = React.memo(forwardRef(({
                                                }: any, ref) => {
     // Machine state loading handles fallback defaults from localStorage automatically
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
-    // One lock per locked module, on its first cell (top row, leftmost)
-    const lockCells = new Set<number>();
+    // One lock per locked module, in the middle of the piece (see lockSpot): cell index -> offset from that cell's centre
+    const lockCells = new Map<number, { dx: number; dy: number }>();
     {
-        const seen = new Set<string>();
+        const pieces = new Map<string, Point[]>();
         optimizer.board.forEach((row: any[], y: number) => row.forEach((c: any, x: number) => {
-            if (c && c !== 'Locked' && !seen.has(c.id)) { seen.add(c.id); if (lockedToMachine(c)) lockCells.add(y * 7 + x); }
+            if (c && c !== 'Locked' && lockedToMachine(c)) { const list = pieces.get(c.id) ?? []; list.push({ x, y }); pieces.set(c.id, list); }
         }));
+        pieces.forEach(cells => { const { cell, dx, dy } = lockSpot(cells); lockCells.set(cell.y * 7 + cell.x, { dx, dy }); });
     }
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [showPaths, setShowPaths] = useState(false);
@@ -564,7 +604,7 @@ const MachineInstance = React.memo(forwardRef(({
                                     onContextMenu={(e) => {
                                         if (!cell || cell === 'Locked') return;
                                         e.preventDefault();
-                                        if (isAnySolving || isSpecialModule(cell)) return;
+                                        if (isAnySolving) return;
                                         onToggleLock(cell.id);
                                     }}
                                     onMouseDown={(e) => {
@@ -629,14 +669,18 @@ const MachineInstance = React.memo(forwardRef(({
                                         position: 'relative'
                                     }}
                                 >
-                                    {lockCells.has(y * 7 + x) && (
-                                        <span
-                                            title={isSpecialModule(cell) ? 'Belongs to this machine' : 'Locked to this machine (right-click to unlock)'}
-                                            style={{ position: 'absolute', top: '1px', right: '2px', fontSize: `${Math.max(9, Math.round(cellSize * 0.28))}px`, lineHeight: 1, color: '#9a9a9a', pointerEvents: 'none', filter: 'grayscale(1)', opacity: 0.9 }}
-                                        >
-                                            🔒
-                                        </span>
-                                    )}
+                                    {lockCells.has(y * 7 + x) && (() => {
+                                        const { dx, dy } = lockCells.get(y * 7 + x)!;
+                                        const size = Math.max(12, Math.round(cellSize * 0.5));
+                                        return (
+                                            <span style={{
+                                                position: 'absolute', left: `calc(50% + ${dx * cellSize}px)`, top: `calc(50% + ${dy * cellSize}px)`,
+                                                transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 5, opacity: 0.85
+                                            }}>
+                                                <LockIcon size={size} />
+                                            </span>
+                                        );
+                                    })()}
                                     {isPreviewCell && (
                                         <div style={{
                                             position: 'absolute', inset: 0,
@@ -776,7 +820,15 @@ export default function ModuleInventoryUI() {
     const [inventory, setInventory] = useState<InventoryItem[]>(() => {
         const savedInventory = localStorage.getItem('optimizer_inventory');
         if (savedInventory) {
-            try { return JSON.parse(savedInventory); } catch (e) { return []; }
+            try {
+                const items: InventoryItem[] = JSON.parse(savedInventory);
+                // Saved before specials could be unlocked, when they were always locked: lock them once
+                if (localStorage.getItem('optimizer_specials_locked') !== '1') {
+                    localStorage.setItem('optimizer_specials_locked', '1');
+                    return items.map(i => isSpecialModule(i) ? { ...i, isLocked: true } : i);
+                }
+                return items;
+            } catch (e) { return []; }
         }
         return [];
     });
@@ -899,8 +951,8 @@ export default function ModuleInventoryUI() {
                                 }
                             });
                             machine.place(currentDrag.item, targetX, targetY, currentDrag.offsets);
-                            if (currentDrag.sourceMachineId === null && currentDrag.item.isLocked) {
-                                setInventory(prev => prev.map(i => i.id === currentDrag.item.id ? { ...i, isLocked: false } : i));
+                            if (currentDrag.sourceMachineId === null && Boolean(currentDrag.item.isLocked) !== isSpecialModule(currentDrag.item)) {
+                                setInventory(prev => prev.map(i => i.id === currentDrag.item.id ? { ...i, isLocked: isSpecialModule(i) } : i));
                             }
                         }
                     }
@@ -1210,9 +1262,8 @@ export default function ModuleInventoryUI() {
             const maximizeStats = defaultMaximizeStats(ignoreStats);
             (['Performance', 'Quality', 'Efficiency'] as const).forEach(k => { if (targetStats[k] !== null) maximizeStats[k] = false; });
             return { boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats, targetStats };
-        }, newItems, ids => {
-            const locked = new Set(ids);
-            if (locked.size > 0) setInventory(newItems.map(it => locked.has(it.id) ? { ...it, isLocked: true } : it));
+        }, newItems, locks => {
+            if (locks.size > 0) setInventory(newItems.map(it => locks.has(it.id) ? { ...it, isLocked: locks.get(it.id) } : it));
         });
         newMachines.forEach(m => {
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
@@ -1750,7 +1801,7 @@ export default function ModuleInventoryUI() {
 
                     {lockedToMachine(hoveredItem) && (
                         <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#9a9a9a' }}>
-                            🔒 {isSpecialModule(hoveredItem) ? 'Belongs to its machine' : 'Locked to this machine · right-click to unlock'}
+                            Locked to this machine · right-click to unlock
                         </div>
                     )}
                     {!lockedToMachine(hoveredItem) && (

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { SAVE_NAME_KEY, SAVE_SLOT_KEY } from '../modExport';
 import { flushSaveSettings } from '../saveSettings';
+import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
@@ -346,7 +347,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         effects: [eff1, eff2],
                         effectValues: [eff1Val, eff2Val],
                         isInfinite: false,
-                        isLocked: false,
+                        // Alarm Transmitter, Furnace Blast and Junk Processing start locked to their machine
+                        isLocked: isSpecialModule({ shape, color, displayName: name } as InventoryItem),
                         originalPath: pathStr,
                         uid: typeof item.uniqueId === 'number' ? item.uniqueId : undefined
                     } as any);
