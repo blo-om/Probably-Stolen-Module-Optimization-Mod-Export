@@ -1,5 +1,6 @@
 // Machine settings remembered per save (localStorage), so importing the same save again (after playing on, or in a later visit)
-// brings back each card's Auto / target / off choices, its Limit and Desequencer choices, its lock and the card order (priority).
+// brings back each card's Auto / target / off choices, its Limit and Desequencer choices, its lock, the modules locked to it (by
+// the game's module uid, and only while the module is still in that machine) and the card order (priority).
 // A save is known by its file name (save_14); a machine by its name in the save ("Inv. > Machine Bay 1 > Furnace 2"), plus
 // how many cards before it have the same name
 import { SAVE_NAME_KEY } from './modExport';
@@ -14,6 +15,7 @@ type MachineSettings = {
     chipset: string | null;
     autoDays: string | null;
     locked: string | null;
+    lockedUids?: number[];
 };
 type SaveSettings = { order: string[]; machines: Record<string, MachineSettings> };
 
@@ -41,15 +43,27 @@ const snapshot = () => {
     const fallback = keyed(ids.map(id => get(`optimizer_machine_type_${id}`)!));
     const keys = ids.map((id, i) => get(cardKey(id)) ?? fallback[i]);
     const settings: SaveSettings = { order: keys, machines: {} };
+    // Modules locked to a machine (right-click), by uid
+    const lockedUid = new Map<string, number>();
+    try {
+        for (const item of JSON.parse(get('optimizer_inventory') || '[]')) if (item.isLocked && typeof item.uid === 'number') lockedUid.set(item.id, item.uid);
+    } catch { /* none */ }
     ids.forEach((id, i) => {
         let state: Record<string, unknown> | null = null;
-        try { const { boardIds: _board, ...rest } = JSON.parse(get(`optimizer_machine_${id}`) || 'null') ?? {}; state = rest; } catch { /* keep null */ }
+        let lockedUids: number[] = [];
+        try {
+            const { boardIds, ...rest } = JSON.parse(get(`optimizer_machine_${id}`) || 'null') ?? {};
+            state = rest;
+            const onBoard = new Set<string>((boardIds ?? []).flat());
+            lockedUids = [...onBoard].filter(c => lockedUid.has(c)).map(c => lockedUid.get(c)!);
+        } catch { /* keep null */ }
         settings.machines[keys[i]] = {
             state,
             limit: get(`optimizer_limit_${id}`),
             chipset: get(desequencerChipsetKey(id)),
             autoDays: get(desequencerAutoDaysKey(id)),
             locked: get(`optimizer_machine_locked_${id}`),
+            lockedUids,
         };
     });
     set(settingsKey(save), JSON.stringify(settings));
@@ -69,16 +83,20 @@ export const flushSaveSettings = () => {
     snapshot();
 };
 
-type Imported = { id: string; machineType: string; tier: unknown };
+type Imported = { id: string; machineType: string; tier: unknown; boardIds: (string | null)[][] };
 
 /* For a save being imported: puts back what was remembered for its machines (under their new card ids) and returns them in the
  * remembered card order, machines new to the save last. `defaults` is each machine's fresh state, used for anything not remembered
- * (and always for the tier and board, which come from the save)
+ * (and always for the tier and board, which come from the save). `lock` gets the ids of the save's modules (`items`) to lock again
  */
-export const restoreSaveSettings = <M extends Imported>(save: string, machines: M[], defaults: (m: M) => Record<string, unknown>): M[] => {
+export const restoreSaveSettings = <M extends Imported>(save: string, machines: M[], defaults: (m: M) => Record<string, unknown>,
+    items: { id: string; uid?: number }[], lock: (moduleIds: string[]) => void): M[] => {
+    const uids = new Map(items.map(it => [it.id, it.uid]));
+    const uidOf = (id: string) => uids.get(id);
     let settings: SaveSettings | null = null;
     try { settings = JSON.parse(get(settingsKey(save)) || 'null'); } catch { /* nothing remembered */ }
     const keys = keyed(machines.map(m => m.machineType));
+    const lockOnBoard: string[] = [];
     machines.forEach((m, i) => {
         const fresh = defaults(m);
         const s = settings?.machines[keys[i]];
@@ -88,7 +106,9 @@ export const restoreSaveSettings = <M extends Imported>(save: string, machines: 
         set(desequencerAutoDaysKey(m.id), s?.autoDays ?? null);
         set(`optimizer_machine_locked_${m.id}`, s?.locked ?? null);
         set(cardKey(m.id), keys[i]);
+        if (s?.lockedUids?.length) lockOnBoard.push(...m.boardIds.flat().filter((c): c is string => !!c && s.lockedUids!.includes(uidOf(c) ?? -1)));
     });
+    lock(lockOnBoard);
     if (!settings) return machines;
     const rank = new Map(settings.order.map((k, i) => [k, i]));
     return machines
