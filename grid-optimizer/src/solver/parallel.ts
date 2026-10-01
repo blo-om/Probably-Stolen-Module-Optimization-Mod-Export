@@ -4,7 +4,7 @@ import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
 import type { EngineTuning } from './engine';
 import { stallOrders } from './engine';
-import { createStallClock, significant } from './stall';
+import { createStallClock, significant, EASE_STALL, RELAX_STALL } from './stall';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
 
@@ -156,6 +156,8 @@ export const runParallelEngine = async (
             return m.sumPQ && s === 0 ? t.Performance + t.Quality : t[STATS[s]];
         });
         if (orders.length === 0) return;
+        // Easing comes after EASE_STALL of the stall time, relaxing a target after RELAX_STALL (see solver/stall.ts)
+        if (orders[0].ease === undefined && !stall.due(RELAX_STALL)) return;
         for (const order of orders) {
             const { mIdx, s } = order;
             if (order.ease !== undefined) {
@@ -234,7 +236,7 @@ export const runParallelEngine = async (
         }
         const t = Date.now();
         if (awaiting.size > 0 && t > awaitingUntil) endWait();
-        if (giveUp && !stopSent && awaiting.size === 0 && stall.due()) relaxLowestTarget();
+        if (giveUp && !stopSent && awaiting.size === 0 && stall.due(EASE_STALL)) relaxLowestTarget();
     }, 50);
     try {
         await Promise.all(finished);
