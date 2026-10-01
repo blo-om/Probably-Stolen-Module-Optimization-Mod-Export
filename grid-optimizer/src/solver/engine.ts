@@ -257,6 +257,25 @@ export const runOptimizationEngine = async (
     const STAGNATION = tuning.stagnationLimit ?? STAGNATION_LIMIT;
     const REPACK_EVERY = tuning.repackOneIn ?? REPACK_ONE_IN;
     const WATER_AIM = tuning.waterAim ?? WATER_AIM_SHARE;
+    /* Which machine a rebuild works on: weighted by priority, 1 / (rank + 1) (the first priority group 1, the next 1/2, ...), and a
+     * machine with a target it does not meet yet at full weight whatever its rank, since targets come before everything maximized.
+     * Picked uniformly, the top machines got as many rebuilds as the least important: on save_14 (33 machines, farms first, 6 runs) the
+     * farms' water at 60 s went 81,867 -> 84,600 credits a day (+3.3%, ahead at every checkpoint); on the 11-machine target scenarios it
+     * won 58% of head-to-heads and met more targets. Tried too: 1 / (rank + 1)^2 (more on save_14, behind on the 11-machine scenarios
+     * where every card has its own rank), and picking by each machine's recent success (smaller gain)
+     */
+    let ranks: number[] | null = null;
+    const pickMachine = () => {
+        if (machineCount === 1) return 0;
+        if (!ranks) ranks = machines.map((_, mIdx) => Math.min(...[0, 1, 2].map(s => (tierOfStat[mIdx][s] < 0 ? 99 : tierOfStat[mIdx][s]))));
+        const unmet = (m: number) => [0, 1, 2].some(st => params[m].target[st] !== null && !params[m].ignored[st] && statOf(params[m], currentStats[m], st) < params[m].target[st]!);
+        const w = (m: number) => (unmet(m) ? 1 : 1 / (ranks![m] + 1));
+        let total = 0;
+        for (let m = 0; m < machineCount; m++) total += w(m);
+        let r = Math.random() * total;
+        for (let m = 0; m < machineCount; m++) { r -= w(m); if (r <= 0) return m; }
+        return machineCount - 1;
+    };
     const PROMOTE = tuning.promote ?? PROMOTE_SHARE;
     // On by default: measured better or level on every benchmark scenario at 1 in 6 (1 in 3 cost the all-Auto case)
     const SWAP_EVERY = tuning.swapOneIn ?? 6;
@@ -1189,7 +1208,7 @@ export const runOptimizationEngine = async (
             if (!special) {
             // One random board per iteration; a stagnant set rebuilds every board at once, the only step that can make a coordinated swap
             const rebuildAll = isStagnant && machineCount > 1;
-            const targetMIdx = promoted.current && Math.random() < PROMOTE ? promoted.current.mIdx : Math.floor(Math.random() * machineCount);
+            const targetMIdx = promoted.current && Math.random() < PROMOTE ? promoted.current.mIdx : pickMachine();
             rebuiltMachines.length = 0;
             if (rebuildAll) {
                 for (let mIdx = 0; mIdx < machineCount; mIdx++) rebuiltMachines.push(mIdx);
