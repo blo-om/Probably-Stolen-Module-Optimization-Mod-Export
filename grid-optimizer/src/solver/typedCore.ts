@@ -350,6 +350,7 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         }
         const statScore = promote + (params.water
             ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), c1 + dq) - waterValueSmooth(Math.min(c0, cap), c1), 0, w0, params) + scoreStat(2, de, c2, w2, params) + aim
+                + (params.target[1] !== null ? scoreStat(1, dq, c1, w1, params) : 0)
             : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPE
