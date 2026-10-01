@@ -139,7 +139,8 @@ const MachineInstance = React.memo(forwardRef(({
                                                    onReorderStart,
                                                    onBoardChange,
                                                    onStopAll,
-                                                   onToggleLock
+                                                   onToggleLock,
+                                                   onRunMachine
                                                }: any, ref) => {
     // Machine state loading handles fallback defaults from localStorage automatically
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
@@ -275,8 +276,11 @@ const MachineInstance = React.memo(forwardRef(({
         return Array.from(mods.values());
     }, [showPaths, optimizer.board]);
 
+    const runSolo = () => optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
+        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined, cheapEnergyAt(typeKey));
     useImperativeHandle(ref, () => ({
         run: optimizer.runOptimization,
+        runSolo,
         stop: optimizer.stopOptimization,
         clear: optimizer.resetBoard,
         place: optimizer.manuallyPlaceItem,
@@ -740,9 +744,10 @@ const MachineInstance = React.memo(forwardRef(({
                                     optimizer.stopOptimization();
                                     onSolvingChange(machineId, false);
                                     onStopAll();
+                                } else if (isAnySolving) {
+                                    onRunMachine(machineId);
                                 } else {
-                                    optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
-                                        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined, cheapEnergyAt(typeKey));
+                                    runSolo();
                                 }
                             }}
                             disabled={inventory.length === 0 && !currentSolving}
@@ -1341,18 +1346,19 @@ export default function ModuleInventoryUI() {
         Object.values(machinesRef.current).forEach((m: any) => m?.stop());
     }, []);
 
-    const handleRunAll = async () => {
-        if (isAnySolving) {
-            stopAll();
-            return;
-        }
+    /* One joint run over the machines in `ids` (in card order; locked ones left out): the search shares the modules between them,
+     * relaxing and easing as Run All does. Every other machine keeps its modules. Run All is this over every machine, and pressing Run
+     * on a card while others are running restarts as one joint run over all of them (see handleRunMachine)
+     */
+    const runJoint = async (ids: string[]) => {
+        const chosen = new Set(ids);
         const active = machines.filter(m => {
             const ref = machinesRef.current[m.id];
-            return ref && !ref.isLocked();
+            return chosen.has(m.id) && ref && !ref.isLocked();
         });
         if (active.length === 0) return;
 
-        // Modules on locked machines stay where they are
+        // Modules on the other machines (not chosen, or locked) stay where they are
         const activeIds = new Set(active.map(m => m.id));
         const heldByLocked = new Set<string>();
         machines.forEach(m => {
@@ -1399,6 +1405,13 @@ export default function ModuleInventoryUI() {
 
         jointRunRef.current = { current: true };
         active.forEach(m => handleSolvingChange(m.id, true));
+        // A card's own Run while others run: a single machine still runs on its own (a benchmark, nothing given up), a joint run as Run All
+        if (active.length === 1) {
+            jointRunRef.current.current = false;
+            active.forEach(m => handleSolvingChange(m.id, false));
+            machinesRef.current[active[0].id]?.runSolo();
+            return;
+        }
         try {
             await runParallelEngine(configs, boards, engineInventory, expandedInventory, jointRunRef.current, (updates) => {
                 updates.forEach((update, id) => {
@@ -1410,6 +1423,28 @@ export default function ModuleInventoryUI() {
             active.forEach(m => handleSolvingChange(m.id, false));
         }
     };
+
+    const handleRunAll = async () => {
+        if (isAnySolving) {
+            stopAll();
+            return;
+        }
+        await runJoint(machines.map(m => m.id));
+    };
+
+    // Run on a card while other machines are running (alone or together): they stop, and one joint run starts over all of them and
+    // this one, so they share modules as under Run All instead of each holding what the others had when it started
+    const solvingRef = useRef(solvingStates);
+    solvingRef.current = solvingStates;
+    const handleRunMachine = async (id: string) => {
+        const running = Object.entries(solvingRef.current).filter(([, on]) => on).map(([k]) => k);
+        stopAll();
+        for (let i = 0; i < 200 && Object.values(solvingRef.current).some(Boolean); i++) await new Promise(r => setTimeout(r, 50));
+        await runJoint([...new Set([...running, id])]);
+    };
+    const runMachineRef = useRef(handleRunMachine);
+    runMachineRef.current = handleRunMachine;
+    const onRunMachine = useCallback((id: string) => { runMachineRef.current(id); }, []);
 
     // Reordering cards (= priority): press on a card's header and drag. The card lifts and follows the pointer,
     // the other cards slide aside live as it passes over them, and it settles into its slot on release.
@@ -2079,6 +2114,7 @@ export default function ModuleInventoryUI() {
                             onBoardChange={handleBoardChange}
                             onStopAll={stopAll}
                             onToggleLock={handleToggleLock}
+                            onRunMachine={onRunMachine}
                         />
                       </div>
                     </div>
