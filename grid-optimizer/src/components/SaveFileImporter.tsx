@@ -454,13 +454,14 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 const importedName = file.name.replace(/\.es3$/i, '');
                 // Settings still waiting to be remembered belong to the save loaded until now
                 flushSaveSettings();
-                onImport(parsedInventory, newMachines, importedName);
-                localStorage.setItem(SAVE_NAME_KEY, importedName);
-                // The save's own slot number, which the mod compares with the loaded game before trusting module uids
-                // Last night's base store attractiveness, without bonuses (for the projected attractiveness at the top of the page)
+                // Last night's base store attractiveness, without bonuses: the projected attractiveness at the top of the page, and the
+                // Mirage Projector's default target (see defaultTargetStats), so it is read before the machines are set up
                 const baseAttract = /baseStoreAttractiveness\\?"\s*:\s*(-?\d+)/.exec(text);
                 if (baseAttract) localStorage.setItem(STORE_BASE_ATTRACTIVENESS_KEY, baseAttract[1]);
                 else localStorage.removeItem(STORE_BASE_ATTRACTIVENESS_KEY);
+                onImport(parsedInventory, newMachines, importedName);
+                localStorage.setItem(SAVE_NAME_KEY, importedName);
+                // The save's own slot number, which the mod compares with the loaded game before trusting module uids
                 const slotMatch = /"saveSlotId"\s*:\s*(\d+)/.exec(text);
                 if (slotMatch) localStorage.setItem(SAVE_SLOT_KEY, slotMatch[1]);
                 else localStorage.removeItem(SAVE_SLOT_KEY);
