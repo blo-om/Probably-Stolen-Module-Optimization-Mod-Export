@@ -53,6 +53,12 @@ const TARGET_MET_DRAW_SCALE = 0.25;
  * farms only, equal or card-order priority) 0.5 made 5% more farm value from scratch and 4% more after locking and clearing; 0.9 cost
  */
 const WATER_AIM_SHARE = 0.5;
+/* After something is given up (eased or relaxed), the most important Auto stat short of its top breakpoint gets PROMOTE_SHARE of the
+ * rebuilds until it reaches its next one, each lifting that board's modules that do not raise it and placing only ones that do until it
+ * gets there (kept only if the score is no worse). On save_14's 33 machines the AgeWells (second priority) reached ~6 more breakpoints
+ * by 30 s with the farms level; the 11-machine bench held level or better in priority order, a few more targets met
+ */
+const PROMOTE_SHARE = 0.25;
 // Lowest Quality of each water grade above the worst (typedCore.ts WATER_GRADES)
 const WATER_GRADE_QUALITY = [-50, 0, 50, 100, 150];
 
@@ -151,6 +157,7 @@ type Scored = Totals & { tb: number; tbGen: number };
  *                    what they reach (28 runs a side, 8 s), the hardest near miss (AgeWell 250, reached ~245) was met 16 times against 7;
  *                    other targets and the overall score within noise; ~3% of the search time
  *   waterAim         share of water farm fills that aim at the next grade (WATER_AIM_SHARE; 0: never)
+ *   promote          share of rebuilds that go to the promoted stat after a give-up (PROMOTE_SHARE; 0: never)
  */
 export type EngineTuning = {
     tournament?: number;
@@ -162,6 +169,7 @@ export type EngineTuning = {
     polish?: number;
     ease?: number;
     waterAim?: number;
+    promote?: number;
     // 0: a stalled search running on its own never gives anything up (no relax, no ease); with workers the coordinator decides
     stall?: number;
 };
@@ -245,6 +253,7 @@ export const runOptimizationEngine = async (
     const STAGNATION = tuning.stagnationLimit ?? STAGNATION_LIMIT;
     const REPACK_EVERY = tuning.repackOneIn ?? REPACK_ONE_IN;
     const WATER_AIM = tuning.waterAim ?? WATER_AIM_SHARE;
+    const PROMOTE = tuning.promote ?? PROMOTE_SHARE;
     // On by default: measured better or level on every benchmark scenario at 1 in 6 (1 in 3 cost the all-Auto case)
     const SWAP_EVERY = tuning.swapOneIn ?? 6;
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
@@ -795,6 +804,30 @@ export const runOptimizationEngine = async (
     // Checked on the clock (every yield), not only at restarts, which can be far apart on big sets; the clock runs from the last
     // significant improvement (solver/stall.ts), so a search still making real gains is left alone however long it takes
     const stall = createStallClock(now);
+    /* Promote (PROMOTE_SHARE): after something was given up, the most important Auto stat short of its top breakpoint (closest to its next on a tie)
+     * gets half the rebuilds until it reaches that next breakpoint, each first placing only what raises it (see the fill)
+     */
+    const promoted: { current: { mIdx: number; s: number; v: number } | null } = { current: null };
+    const pickPromote = () => {
+        let best: { mIdx: number; s: number; v: number; tier: number; progress: number } | null = null;
+        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+            const p = params[mIdx];
+            if (p.water) continue;
+            for (let s = 0; s < 3; s++) {
+                const steps = stepsOf[mIdx][s];
+                if (!steps || !p.maximize[s] || p.ignored[s] || p.target[s] !== null) continue;
+                const x = statOf(p, bestStats[mIdx], s);
+                const sorted = [...steps].sort((a, b) => a - b);
+                const next = sorted.find(v => v > x);
+                if (next === undefined) continue;
+                const below = [...sorted].reverse().find(v => v <= x) ?? Math.min(0, x);
+                const progress = (x - below) / Math.max(1, next - below);
+                const tier = tierOfStat[mIdx][s];
+                if (!best || tier < best.tier || (tier === best.tier && progress > best.progress)) best = { mIdx, s, v: next, tier, progress };
+            }
+        }
+        return best ? { mIdx: best.mIdx, s: best.s, v: best.v } : null;
+    };
     const checkRelax = () => {
         let relaxed = false;
         if (relaxOrders) {
@@ -805,7 +838,10 @@ export const runOptimizationEngine = async (
             stall.observe(bestTiers);
             if (stall.due()) relaxed = relaxLowestTarget();
         }
+        const pr = promoted.current;
+        if (pr && statOf(params[pr.mIdx], bestStats[pr.mIdx], pr.s) >= pr.v) promoted.current = null;
         if (relaxed) {
+            if (PROMOTE) promoted.current = pickPromote();
             // The record was re-scored against the lowered target; progress is measured from there, and it is reported on the new scale
             pendingUpdate = true;
             stall.reset(bestTiers);
@@ -1116,7 +1152,7 @@ export const runOptimizationEngine = async (
             if (!special) {
             // One random board per iteration; a stagnant set rebuilds every board at once, the only step that can make a coordinated swap
             const rebuildAll = isStagnant && machineCount > 1;
-            const targetMIdx = Math.floor(Math.random() * machineCount);
+            const targetMIdx = promoted.current && Math.random() < PROMOTE ? promoted.current.mIdx : Math.floor(Math.random() * machineCount);
             rebuiltMachines.length = 0;
             if (rebuildAll) {
                 for (let mIdx = 0; mIdx < machineCount; mIdx++) rebuiltMachines.push(mIdx);
@@ -1232,6 +1268,18 @@ export const runOptimizationEngine = async (
                         }
                     }
                 }
+                const raises = (it: number, s: number) => s === 0 && p.sumPQ ? core.IP[it] + core.IQ[it] : s === 2 && p.sumPE ? core.IE[it] + core.IP[it] : s === 0 ? core.IP[it] : s === 1 ? core.IQ[it] : core.IE[it];
+                const promote = promoted.current;
+                if (promote && fillMIdx === promote.mIdx && !p.water && statOf(p, currentStats[fillMIdx], promote.s) < promote.v) {
+                    p.aimS = promote.s; p.aimV = promote.v;
+                    // Room for it: the board's unlocked modules that do not raise that stat come off
+                    for (let c = 0; c < CELLS; c++) {
+                        const a = board[c];
+                        if (a < 0 || fixed[a] || core.white[a] || raises(a, promote.s) > 0) continue;
+                        board[c] = EMPTY;
+                        if (poolOf[a] >= 0) placedMark[poolOf[a]] = 0;
+                    }
+                }
                 rebuildFreeCells(board);
                 let boardIsEmpty = freeCells.length === openCellCount[fillMIdx];
                 let t = core.boardTotals(board);
@@ -1278,7 +1326,7 @@ export const runOptimizationEngine = async (
                 infeasible.clear();
                 for (const shape of poolShapes) if (!shapeFitsAnywhere(shape, board)) infeasible.add(shape);
                 // Aiming at a grade: a first pass places only modules that add Quality, until the grade is reached
-                for (let pass = p.aimQ !== undefined ? 0 : 1; pass < 2; pass++) {
+                for (let pass = p.aimQ !== undefined || p.aimS !== undefined ? 0 : 1; pass < 2; pass++) {
                 let drawn = 0;
                 while (drawn < P && drawn < MAX_DRAWS && infeasible.size < poolShapeCount) {
                     // Best of DRAW_TOURNAMENT random candidates; the losers stay in the undrawn region of the permutation
@@ -1295,7 +1343,12 @@ export const runOptimizationEngine = async (
 
                     if (placedMark[pi] === markGen || consumedMark[pi] === consumedGen) continue;
                     const it = searchPool[pi];
-                    if (pass === 0 && (core.IQ[it] <= 0 || cur[1] >= p.aimQ!)) continue;
+                    if (pass === 0 && p.aimQ !== undefined && (core.IQ[it] <= 0 || cur[1] >= p.aimQ)) continue;
+                    if (pass === 0 && p.aimS !== undefined) {
+                        const s = p.aimS;
+                        const cv = s === 0 && p.sumPQ ? cur[0] + cur[1] : s === 2 && p.sumPE ? cur[2] + cur[0] : cur[s];
+                        if (raises(it, s) <= 0 || cv >= p.aimV!) continue;
+                    }
                     const shape = core.shape[it];
                     if (infeasible.has(shape)) continue;
                     if (freeCells.length < core.size[it]) { infeasible.add(shape); continue; }
@@ -1312,7 +1365,7 @@ export const runOptimizationEngine = async (
                 }
                 }
             }
-            for (const mIdx of rebuiltMachines) delete params[mIdx].aimQ;
+            for (const mIdx of rebuiltMachines) { delete params[mIdx].aimQ; delete params[mIdx].aimS; delete params[mIdx].aimV; }
 
             // The fill took the offered module: lift it off its owner, which is then judged along with the rebuilt board
             if (offered !== -1 && consumedMark[offered] === consumedGen) {
