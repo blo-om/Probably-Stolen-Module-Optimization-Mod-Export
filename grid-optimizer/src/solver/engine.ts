@@ -186,11 +186,13 @@ export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceSt
  *   1. Auto stats with breakpoints at or past their lowest step, and below it too where nothing below the first step counts
  *      (MachineConfig.worthlessBelowSteps: a Furnace under 100% makes a +0 ingot however close it is; a Moisture Farm under 0 still
  *      makes worse water, so it is left alone there). Such a stat is dropped altogether rather than held at a step.
- *      All that are less than EASE_BATCH_SHARE of the way to their next step go at once; otherwise the one with the least progress
- *      (lowest priority on a tie), so a stat close to its next step keeps its chance longest
+ *      All that are less than EASE_BATCH_SHARE of the way to their next step go at once; otherwise the EASE_LEAST_SHARE of them with
+ *      the least progress (at least one; lowest priority on a tie), so a stat close to its next step keeps its chance longest
  *   2. then the unmet stepped target of the lowest priority, one step
  */
 const EASE_BATCH_SHARE = 0.5;
+// One at a time made big sets wait a stall for every Auto stat (see solver/stall.ts)
+const EASE_LEAST_SHARE = 0.25;
 export const stallOrders = (machines: MachineConfig[], targets: (number | null)[][], maximize: boolean[][], valueOf: (mIdx: number, s: number) => number): StallOrder[] => {
     const eases: { mIdx: number; s: number; rank: number; step: number | null; progress: number }[] = [];
     let relax: { mIdx: number; s: number; rank: number } | null = null;
@@ -219,7 +221,7 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
     if (batch.length > 0) return batch.map(e => ({ mIdx: e.mIdx, s: e.s, ease: e.step }));
     if (eases.length > 0) {
         eases.sort((a, b) => a.progress - b.progress || b.rank - a.rank || b.mIdx - a.mIdx);
-        return [{ mIdx: eases[0].mIdx, s: eases[0].s, ease: eases[0].step }];
+        return eases.slice(0, Math.max(1, Math.ceil(eases.length * EASE_LEAST_SHARE))).map(e => ({ mIdx: e.mIdx, s: e.s, ease: e.step }));
     }
     const r = relax as { mIdx: number; s: number } | null;
     return r !== null ? [{ mIdx: r.mIdx, s: r.s }] : [];

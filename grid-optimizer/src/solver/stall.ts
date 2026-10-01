@@ -4,7 +4,11 @@
  * Scores are the engine's tier arrays: target tiers per priority rank, then maximized tiers per rank, then the tiebreak
  */
 
-// Stalled: no significant improvement for half the run so far, never under 2 s or over 5 s
+/* Stalled: no significant improvement for half the time since the run started or last gave something up, never under 2 s or over 5 s
+ * From the last give-up, not the start: on big sets there is a long run of stats to give up one stall at a time, and timed from the
+ * start every one of them waited the full 5 s. On save_14's 33 machines (5 runs a side, 60 s) this and easing a quarter at a time
+ * (stallOrders) reached at 20-30 s what the old pacing reached at 60 s, and ended higher
+ */
 const STALL_AFTER_SHARE = 0.5;
 const STALL_MIN_MS = 2000;
 const STALL_MAX_MS = 5000;
@@ -31,7 +35,7 @@ export const significant = (tiers: ArrayLike<number>, reference: ArrayLike<numbe
 
 // observe() every new record, due() says when it has stalled, reset() after something was given up (the scale changed)
 export const createStallClock = (now: () => number) => {
-    const startedAt = now();
+    let startedAt = now();
     let progressAt = startedAt;
     let mark: number[] | null = null;
     return {
@@ -48,6 +52,7 @@ export const createStallClock = (now: () => number) => {
         reset: (tiers: ArrayLike<number> | null) => {
             mark = tiers ? Array.from(tiers) : null;
             progressAt = now();
+            startedAt = progressAt;
         },
     };
 };
