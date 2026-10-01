@@ -131,9 +131,11 @@ const paramsOf = (m: MachineConfig): MachineParams => ({
 // A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value),
 // and Efficiency on a sumPE machine (Efficiency + Performance)
 // (Performance past capP counts for nothing: a Moisture Farm's container holds 6000 ml)
+// A water farm's Purity target is the grade it is to make: Quality past it is worth nothing more (so it does not overshoot)
+const waterQuality = (p: MachineParams, q: number) => (p.target[1] !== null ? Math.min(q, p.target[1]) : q);
 const statOf = (p: MachineParams, t: Totals, s: number) => {
     const tp = p.capP !== undefined ? Math.min(t.p, p.capP) : t.p;
-    return s === 0 && p.water ? waterValue(tp, t.q) : s === 0 && p.sumPQ ? tp + t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp : totalOf(t, s);
+    return s === 0 && p.water ? waterValue(tp, waterQuality(p, t.q)) : s === 0 && p.sumPQ ? tp + t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp : totalOf(t, s);
 };
 
 // How much a maximized point of each stat is worth: Efficiency half, so Performance and Quality always come first
@@ -186,6 +188,7 @@ export type EngineTuning = {
  *   relax  an unmet stepped target drops one step
  */
 // ease: the step to hold, or null to stop caring about the stat altogether (below its first step, where nothing it does counts)
+// mIdx -1: the water farms' Purity targets go on (see lateTargets)
 export type StallOrder = { mIdx: number; s: number; ease?: number | null };
 
 export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string, ownTotals?: Stats }>;
@@ -433,7 +436,7 @@ export const runOptimizationEngine = async (
                 if (p.maximize[s]) {
                     tiers[ti + RANK_OFFSET] += maximizedWorth(p, v, s) * 10;
                     if (s === 0 && p.water) {
-                        const progress = waterProgress(p.capP !== undefined ? Math.min(st.p, p.capP) : st.p, st.q) * 10;
+                        const progress = waterProgress(p.capP !== undefined ? Math.min(st.p, p.capP) : st.p, waterQuality(p, st.q)) * 10;
                         if (steer) tiers[ti + RANK_OFFSET] += progress * MAXIMIZE_WEIGHT[0]; else tiers[TIEBREAK_TIER] += progress;
                     }
                 }
@@ -720,14 +723,35 @@ export const runOptimizationEngine = async (
     };
 
     // The lowest-priority unmet stepped target drops one step (or is dropped below its lowest), and the record is re-scored against that
+    /* Water farms' Purity targets start off: the farms first make the most valuable water they can (on Auto), and the targets go on at the
+     * first give-up, which is when the free search has stalled. Held as targets from the start they kept the farms from trying other
+     * module mixes: on save_14 (33 machines, every farm on Target: Pure, 8 runs, 60 s) 81,112 credits a day, 82,408 this way, still
+     * every farm Pure. Tried and dropped with it: holding every machine's targets back the same way (worse on target scenarios),
+     * clearing a target farm's Quality modules now and then, and a same-shape swap sweep when stagnant (both no better or worse)
+     * Only when the search gives things up (several machines); a single machine run keeps its targets from the start
+     */
+    const lateTargets: [number, number][] = [];
+    if (machineCount > 1 && (relaxOrders || STALL)) {
+        params.forEach((p, mIdx) => { if (p.water && p.target[1] !== null) { lateTargets.push([mIdx, p.target[1]]); p.target[1] = null; } });
+        if (lateTargets.length > 0) { tbGen++; scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]); }
+    }
+    const switchTargetsOn = () => {
+        for (const [mIdx, t] of lateTargets) params[mIdx].target[1] = t;
+        lateTargets.length = 0;
+        tbGen++;
+        scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
+    };
     const relaxLowestTarget = () => {
+        if (lateTargets.length > 0) { switchTargetsOn(); return true; }
         const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s));
         if (orders.length > 0 && orders[0].ease === undefined && !stall.due(RELAX_STALL)) return false;
         for (const order of orders) applyOrder(order);
         return orders.length > 0;
     };
     const applyOrder = (order: StallOrder) => {
-        if (order.ease !== undefined) {
+        if (order.mIdx < 0) {
+            switchTargetsOn();
+        } else if (order.ease !== undefined) {
             params[order.mIdx].target[order.s] = order.ease;
             params[order.mIdx].maximize[order.s] = false;
             tbGen++;
@@ -1270,7 +1294,7 @@ export const runOptimizationEngine = async (
                 // A water farm aims at its next grade now and then (see WATER_AIM_SHARE): its unlocked volume modules make room for Quality
                 if (p.water && Math.random() < WATER_AIM) {
                     const q = currentStats[fillMIdx].q;
-                    const next = WATER_GRADE_QUALITY.find(g => g > q);
+                    const next = WATER_GRADE_QUALITY.find(g => g > q && (p.target[1] === null || g <= p.target[1]));
                     if (next !== undefined) {
                         p.aimQ = next;
                         for (let c = 0; c < CELLS; c++) {
