@@ -24,9 +24,19 @@ export const defaultIgnoreStats = (machineType: string): StatFlags => {
     return { ...(hit ? hit[1] : DEFAULT_IGNORED) };
 };
 
-// Targets a machine starts with: the Alarm System aims for a 100% chance to stop a theft (50% + Performance, so +50%)
-export const defaultTargetStats = (machineType: string): { Performance: number | null; Quality: number | null; Efficiency: number | null } => {
+// Store attractiveness a Mirage Projector starts out aiming for, its own bonus included (see defaultTargetStats)
+export const STORE_ATTRACTIVENESS_GOAL = 900;
+
+/* Targets a machine starts with:
+ *   Alarm System     a 100% chance to stop a theft (50% + Performance, so +50%)
+ *   Mirage Projector STORE_ATTRACTIVENESS_GOAL for the whole store: last night's base from the save (`baseAttractiveness`) plus the
+ *                    projector's 100 + Performance + Quality; without a save it stays on Auto
+ */
+export const defaultTargetStats = (machineType: string, baseAttractiveness: number | null = null): { Performance: number | null; Quality: number | null; Efficiency: number | null } => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    if (name.includes('mirage') && baseAttractiveness !== null) {
+        return { Performance: Math.max(0, STORE_ATTRACTIVENESS_GOAL - baseAttractiveness - MIRAGE_BASE_POINTS), Quality: null, Efficiency: null };
+    }
     return { Performance: name.includes('alarm') ? 50 : null, Quality: null, Efficiency: null };
 };
 

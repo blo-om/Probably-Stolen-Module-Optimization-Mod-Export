@@ -197,8 +197,10 @@ const MachineInstance = React.memo(forwardRef(({
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
     // A Moisture Farm with Volume and Purity both on Auto is scored on the value of its water (see MachineConfig.water)
+    // Volume on Auto and Purity on Auto or a Target: scored by the water's value (a Purity target is the lowest grade it may make)
     const waterMode = () => isMoistureFarm(typeKey)
-        && (['Performance', 'Quality'] as const).every(k => !optimizer.ignoreStats[k] && optimizer.maximizeStats[k] && optimizer.targetStats[k] === null);
+        && !optimizer.ignoreStats.Performance && optimizer.maximizeStats.Performance && optimizer.targetStats.Performance === null
+        && !optimizer.ignoreStats.Quality && (optimizer.maximizeStats.Quality || optimizer.targetStats.Quality !== null);
     // The values where each stat changes something on this machine, for the solver (see MachineConfig.targetSteps)
     // Desequencer: with its days on Auto, only the picked chipset's day breakpoints count; otherwise every chipset's
     const desequencerSteps = () => {
@@ -1116,14 +1118,12 @@ export default function ModuleInventoryUI() {
      *             (projectors do not stack: the game takes the highest)
      *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
      *             (alarms do not stack either)
-     *   ingots    a Furnace smelts 1 ingot a day, 2 with a Blast module on its board; each gains a purity stage per full 100% Quality
-     *             (with Blast the first 100% does not count)
+     *   ingots    a Furnace smelts 1 ingot a day, 2 with a Blast module on its board
      */
     const storeStats = useMemo(() => {
         let water = 0, farms = 0, projector: number | null = null, stop: number | null = null;
         const mlByGrade = new Map<string, number>();
         let ingots = 0, furnaces = 0;
-        const ingotsByStage = new Map<number, number>();
         for (const { id } of machines) {
             const card = machinesRef.current[id];
             if (!card) continue;
@@ -1145,16 +1145,13 @@ export default function ModuleInventoryUI() {
             if (alarm) stop = Math.max(stop ?? -Infinity, Math.min(100, Math.max(0, 50 + p)));
             if (furnace) {
                 const blast = board.some((row: any[]) => row.some(c => c && c !== 'Locked' && c.displayName.includes('(Blast)')));
-                const made = blast ? 2 : 1;
-                const stage = Math.min(4, Math.max(0, Math.floor((q - (blast ? 100 : 0)) / 100)));
                 furnaces++;
-                ingots += made;
-                ingotsByStage.set(stage, (ingotsByStage.get(stage) ?? 0) + made);
+                ingots += blast ? 2 : 1;
             }
         }
         let base: number | null = null;
         try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
-        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces, ingotsByStage };
+        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces };
     }, [boardVersion, machines, expandedInventory]);
 
     const unusedModules = useMemo(() => {
@@ -1304,7 +1301,9 @@ export default function ModuleInventoryUI() {
         const newMachines = restoreSaveSettings(save, importedMachines, m => {
             const kind = m.kind ?? m.machineType;
             const ignoreStats = defaultIgnoreStats(kind);
-            const targetStats = defaultTargetStats(kind);
+            let base: number | null = null;
+            try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
+            const targetStats = defaultTargetStats(kind, base);
             const maximizeStats = defaultMaximizeStats(ignoreStats);
             (['Performance', 'Quality', 'Efficiency'] as const).forEach(k => { if (targetStats[k] !== null) maximizeStats[k] = false; });
             return { boardIds: m.boardIds, tier: m.tier, ignoreStats, maximizeStats, targetStats };
@@ -1688,7 +1687,7 @@ export default function ModuleInventoryUI() {
                     background-color: #111;
                     color: #eee;
                     font-family: sans-serif;
-                    padding: 20px;
+                    padding: 6px 20px 20px;
                     user-select: none;
                 }
                 .stats-header {
@@ -1742,6 +1741,7 @@ export default function ModuleInventoryUI() {
                     gap: 8px 22px;
                     align-items: center;
                     min-width: 0;
+                    min-height: 3.6em;
                 }
                 .toolbar .store-stat {
                     display: flex;
@@ -1766,10 +1766,15 @@ export default function ModuleInventoryUI() {
                     font-weight: normal;
                 }
                 .toolbar .store-stat-grades {
-                    display: flex;
-                    flex-direction: column;
+                    display: grid;
+                    grid-template-rows: repeat(3, 1.3em);
+                    grid-auto-flow: column;
+                    column-gap: 16px;
+                    align-content: center;
                     font-size: 0.75em;
+                    line-height: 1.3em;
                     color: #aaa;
+                    white-space: nowrap;
                 }
                 .toolbar .store-stat-grades b {
                     color: #ddd;
@@ -1916,7 +1921,7 @@ export default function ModuleInventoryUI() {
 
             {/* Toolbar: stays pinned to the top of the window while the page scrolls */}
             <div className="toolbar" style={{
-                display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', marginBottom: '24px', width: '100%', flexWrap: 'wrap',
+                display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', marginBottom: '16px', width: '100%', flexWrap: 'wrap',
                 boxSizing: 'border-box', position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
             }}>
                 <div className="store-stats">
@@ -1932,7 +1937,6 @@ export default function ModuleInventoryUI() {
                     )}
                     {storeStats.farms > 0 && (
                         <div className="store-stat" title="Water made a day by all Moisture Farms, by grade">
-                            <span className="store-stat-label">Water a day</span>
                             <span className="store-stat-grades">
                                 {WATER_GRADES.slice().reverse().filter(g => storeStats.mlByGrade.has(g.name)).map(g => (
                                     <span key={g.name}>{g.name} <b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} ml</b></span>
@@ -1943,15 +1947,9 @@ export default function ModuleInventoryUI() {
                     {storeStats.furnaces > 0 && (
                         <div className="store-stat" title={[
                             `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: 1 ingot a day each, 2 with a Blast module`,
-                            'Purity: one stage up per full 100% Quality (with Blast the first 100% does not count)',
                         ].join('\n')}>
                             <span className="store-stat-label">Ingots a day</span>
                             <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}</span>
-                            <span className="store-stat-grades">
-                                {[...storeStats.ingotsByStage.entries()].sort((a, b) => b[0] - a[0]).map(([stage, n]) => (
-                                    <span key={stage}>{stage === 0 ? 'no purity bonus' : `+${stage} purity`} <b>{n}</b></span>
-                                ))}
-                            </span>
                         </div>
                     )}
                     {(storeStats.base !== null || storeStats.projector !== null) && (
