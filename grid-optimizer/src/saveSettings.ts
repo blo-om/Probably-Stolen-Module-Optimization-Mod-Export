@@ -16,6 +16,8 @@ type MachineSettings = {
     autoDays: string | null;
     locked: string | null;
     lockedUids?: number[];
+    // Modules on this machine that are unlocked: the specials start locked, so an unlocked one has to be remembered too
+    unlockedUids?: number[];
 };
 type SaveSettings = { order: string[]; machines: Record<string, MachineSettings> };
 
@@ -44,18 +46,25 @@ const snapshot = () => {
     const keys = ids.map((id, i) => get(cardKey(id)) ?? fallback[i]);
     const settings: SaveSettings = { order: keys, machines: {} };
     // Modules locked to a machine (right-click), by uid
-    const lockedUid = new Map<string, number>();
+    const uidById = new Map<string, number>();
+    const lockedIds = new Set<string>();
     try {
-        for (const item of JSON.parse(get('optimizer_inventory') || '[]')) if (item.isLocked && typeof item.uid === 'number') lockedUid.set(item.id, item.uid);
+        for (const item of JSON.parse(get('optimizer_inventory') || '[]')) {
+            if (typeof item.uid !== 'number') continue;
+            uidById.set(item.id, item.uid);
+            if (item.isLocked) lockedIds.add(item.id);
+        }
     } catch { /* none */ }
     ids.forEach((id, i) => {
         let state: Record<string, unknown> | null = null;
-        let lockedUids: number[] = [];
+        let lockedUids: number[] = [], unlockedUids: number[] = [];
         try {
             const { boardIds, ...rest } = JSON.parse(get(`optimizer_machine_${id}`) || 'null') ?? {};
             state = rest;
             const onBoard = new Set<string>((boardIds ?? []).flat());
-            lockedUids = [...onBoard].filter(c => lockedUid.has(c)).map(c => lockedUid.get(c)!);
+            const onBoardUids = [...onBoard].filter(c => uidById.has(c));
+            lockedUids = onBoardUids.filter(c => lockedIds.has(c)).map(c => uidById.get(c)!);
+            unlockedUids = onBoardUids.filter(c => !lockedIds.has(c)).map(c => uidById.get(c)!);
         } catch { /* keep null */ }
         settings.machines[keys[i]] = {
             state,
@@ -64,6 +73,7 @@ const snapshot = () => {
             autoDays: get(desequencerAutoDaysKey(id)),
             locked: get(`optimizer_machine_locked_${id}`),
             lockedUids,
+            unlockedUids,
         };
     });
     set(settingsKey(save), JSON.stringify(settings));
@@ -87,16 +97,16 @@ type Imported = { id: string; machineType: string; tier: unknown; boardIds: (str
 
 /* For a save being imported: puts back what was remembered for its machines (under their new card ids) and returns them in the
  * remembered card order, machines new to the save last. `defaults` is each machine's fresh state, used for anything not remembered
- * (and always for the tier and board, which come from the save). `lock` gets the ids of the save's modules (`items`) to lock again
+ * (and always for the tier and board, which come from the save). `lock` gets the save's modules (`items`, by id) whose lock to set
  */
 export const restoreSaveSettings = <M extends Imported>(save: string, machines: M[], defaults: (m: M) => Record<string, unknown>,
-    items: { id: string; uid?: number }[], lock: (moduleIds: string[]) => void): M[] => {
+    items: { id: string; uid?: number }[], lock: (locks: Map<string, boolean>) => void): M[] => {
     const uids = new Map(items.map(it => [it.id, it.uid]));
     const uidOf = (id: string) => uids.get(id);
     let settings: SaveSettings | null = null;
     try { settings = JSON.parse(get(settingsKey(save)) || 'null'); } catch { /* nothing remembered */ }
     const keys = keyed(machines.map(m => m.machineType));
-    const lockOnBoard: string[] = [];
+    const locks = new Map<string, boolean>();
     machines.forEach((m, i) => {
         const fresh = defaults(m);
         const s = settings?.machines[keys[i]];
@@ -106,9 +116,15 @@ export const restoreSaveSettings = <M extends Imported>(save: string, machines: 
         set(desequencerAutoDaysKey(m.id), s?.autoDays ?? null);
         set(`optimizer_machine_locked_${m.id}`, s?.locked ?? null);
         set(cardKey(m.id), keys[i]);
-        if (s?.lockedUids?.length) lockOnBoard.push(...m.boardIds.flat().filter((c): c is string => !!c && s.lockedUids!.includes(uidOf(c) ?? -1)));
+        for (const c of m.boardIds.flat()) {
+            if (!c) continue;
+            const uid = uidOf(c);
+            if (uid === undefined) continue;
+            if (s?.lockedUids?.includes(uid)) locks.set(c, true);
+            else if (s?.unlockedUids?.includes(uid)) locks.set(c, false);
+        }
     });
-    lock(lockOnBoard);
+    lock(locks);
     if (!settings) return machines;
     const rank = new Map(settings.order.map((k, i) => [k, i]));
     return machines
