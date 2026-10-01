@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt } from './machineDefaults';
+import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, WATER_PRICE_PER_1000_ML } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { runParallelEngine } from './solver/parallel';
 import type { Stats, GridTier, InventoryItem, ItemEffect, ModuleColor, Point } from './types';
@@ -1110,6 +1110,24 @@ export default function ModuleInventoryUI() {
         }, 150);
     }, []);
 
+    // Water value: what every Moisture Farm's water sells for a day, as its board stands (see moistureFarmOutput)
+    const waterValue = useMemo(() => {
+        let value = 0, farms = 0;
+        const mlByGrade = new Map<string, number>();
+        for (const { id } of machines) {
+            const card = machinesRef.current[id];
+            if (!card) continue;
+            const state = card.getState();
+            if (!isMoistureFarm(state.machineKind ?? state.machineType ?? '')) continue;
+            const { totals } = calculateBoardStats(card.getBoard(), expandedInventory);
+            const out = moistureFarmOutput(totals.Performance, totals.Quality);
+            value += out.value;
+            farms++;
+            mlByGrade.set(out.grade, (mlByGrade.get(out.grade) ?? 0) + out.ml);
+        }
+        return { value: Math.round(value), farms, mlByGrade };
+    }, [boardVersion, machines, expandedInventory]);
+
     const unusedModules = useMemo(() => {
         const used = getUsedItems(null);
         const groupOrder: Record<string, number> = { Red: 0, Yellow: 1, Green: 2, Purple: 3, DarkRed: 4, Grey: 5, White: 6 };
@@ -1689,6 +1707,25 @@ export default function ModuleInventoryUI() {
                     border: 1px solid #444;
                     border-radius: 4px;
                 }
+                .toolbar .water-stat {
+                    position: absolute;
+                    right: 16px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-end;
+                    line-height: 1.2;
+                    cursor: help;
+                }
+                @media (max-width: 1250px) {
+                    .toolbar .water-stat {
+                        position: static;
+                        transform: none;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                }
                 .bottom-layout {
                     display: flex;
                     gap: 30px;
@@ -1815,7 +1852,7 @@ export default function ModuleInventoryUI() {
             )}
 
             {/* Toolbar: stays pinned to the top of the window while the page scrolls */}
-            <div style={{
+            <div className="toolbar" style={{
                 display: 'flex', gap: '15px', justifyContent: 'center', padding: '10px 0', marginBottom: '24px', width: '100%', flexWrap: 'wrap',
                 position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
             }}>
@@ -1859,6 +1896,24 @@ export default function ModuleInventoryUI() {
                     {copiedAllForMod ? 'Copied!' : 'Export All'}
                 </button>
                 <SaveFileImporter onImport={handleImportSave} />
+                {waterValue.farms > 0 && (
+                    <div
+                        className="water-stat"
+                        title={[
+                            `${waterValue.farms} Moisture Farm${waterValue.farms === 1 ? '' : 's'}, as they stand now:`,
+                            ...WATER_GRADES.slice().reverse().filter(g => waterValue.mlByGrade.has(g.name))
+                                .map(g => `  ${g.name}: ${waterValue.mlByGrade.get(g.name)!.toLocaleString()} ml a day`),
+                            '',
+                            `Sell price from the game: ${WATER_PRICE_PER_1000_ML} per 1000 ml of basewater, changed by its grade`,
+                            '(Gutterflow -90%, Rust -75%, Ghost -33%, High-quality +50%, Pure +100%), up to 6000 ml a farm',
+                        ].join('\n')}
+                    >
+                        <span style={{ fontSize: '0.7em', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Water value</span>
+                        <span style={{ fontSize: '1.15em', fontWeight: 'bold', color: '#4fb3bf', fontVariantNumeric: 'tabular-nums' }}>
+                            {waterValue.value.toLocaleString()}<span style={{ fontSize: '0.65em', color: '#888', fontWeight: 'normal' }}> / day</span>
+                        </span>
+                    </div>
+                )}
                 <button
                     onClick={handleClearAllMachines}
                     disabled={isAnySolving}
