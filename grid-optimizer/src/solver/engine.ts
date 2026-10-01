@@ -14,7 +14,7 @@ import { calculateBoardStats, indexInventoryById, isSpecialModule, buildSearchPo
 import type { MachineConfig } from '../hooks/useOptimizer';
 import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue, waterProgress, cheapEfficiency } from './typedCore';
 import type { Board, MachineParams, Totals } from './typedCore';
-import { createStallClock } from './stall';
+import { createStallClock, EASE_STALL, RELAX_STALL } from './stall';
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 
@@ -722,6 +722,7 @@ export const runOptimizationEngine = async (
     // The lowest-priority unmet stepped target drops one step (or is dropped below its lowest), and the record is re-scored against that
     const relaxLowestTarget = () => {
         const orders = stallOrders(machines, params.map(p => p.target), params.map(p => EASE ? p.maximize : [false, false, false]), (mIdx, s) => statOf(params[mIdx], bestStats[mIdx], s));
+        if (orders.length > 0 && orders[0].ease === undefined && !stall.due(RELAX_STALL)) return false;
         for (const order of orders) applyOrder(order);
         return orders.length > 0;
     };
@@ -847,7 +848,8 @@ export const runOptimizationEngine = async (
             relaxed = orders.length > 0;
         } else if (STALL) {
             stall.observe(bestTiers);
-            if (stall.due()) relaxed = relaxLowestTarget();
+            // Easing comes after EASE_STALL of the stall time, relaxing a target after RELAX_STALL (see solver/stall.ts)
+            if (stall.due(EASE_STALL)) relaxed = relaxLowestTarget();
         }
         const pr = promoted.current;
         if (pr && statOf(params[pr.mIdx], bestStats[pr.mIdx], pr.s) >= pr.v) promoted.current = null;

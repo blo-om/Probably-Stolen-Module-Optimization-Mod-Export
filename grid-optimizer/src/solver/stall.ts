@@ -12,6 +12,14 @@
 const STALL_AFTER_SHARE = 0.5;
 const STALL_MIN_MS = 2000;
 const STALL_MAX_MS = 5000;
+/* Easing an Auto stat and relaxing a target wait different times: EASE_STALL / RELAX_STALL times the stall time above. An Auto stat
+ * held at the step it reached costs little, so it goes early; a target is what the player asked for, so it holds on longer. On the
+ * 11-machine bench (6 scenarios, 8 runs a side, 12 s) easing at half and relaxing at 1.5 times won 57% of head-to-heads on average
+ * (all-Auto 78%: maximized total 1422 -> 1669), and on save_14's 33 machines (10 runs, 30 s) the farms were 2-3% ahead at 5-20 s and
+ * 1% at 30 s. One clock for both had to choose: faster helped all-Auto and hurt targets, slower the other way round
+ */
+export const EASE_STALL = 0.5;
+export const RELAX_STALL = 1.5;
 // Significant on a target tier: at least this share of what it was missing (a stepped target's miss penalty included, so in practice
 // meeting a target, or a big jump while still far off). Creeping closer 1% at a time is not, so it cannot hold a relax off forever
 export const TARGET_PROGRESS_SHARE = 0.2;
@@ -45,9 +53,10 @@ export const createStallClock = (now: () => number) => {
                 progressAt = now();
             }
         },
-        due: () => {
+        // `share`: how much of the stall time has to have passed (EASE_STALL, RELAX_STALL)
+        due: (share = 1) => {
             const t = now();
-            return t - progressAt >= Math.min(STALL_MAX_MS, Math.max(STALL_MIN_MS, (t - startedAt) * STALL_AFTER_SHARE));
+            return t - progressAt >= share * Math.min(STALL_MAX_MS, Math.max(STALL_MIN_MS, (t - startedAt) * STALL_AFTER_SHARE));
         },
         reset: (tiers: ArrayLike<number> | null) => {
             mark = tiers ? Array.from(tiers) : null;
