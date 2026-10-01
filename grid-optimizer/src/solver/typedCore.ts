@@ -73,12 +73,16 @@ const waterMultiplierSmooth = (q: number) => {
     }
     return 2.0;
 };
-// How much of the smooth progress towards the next grade the score counts (the rest is the real, stepped price)
+// What the water made a day is worth, at its real grade's price. In points of basewater: 1 point = 10 ml of basewater a day
+export const waterValue = (p: number, q: number) => Math.max(0, 100 + p) * waterMultiplier(q);
+/* How close the water is to its next grade, in the same points (a tenth of the smooth price's lead over the real one). It steers the
+ * search (engine.ts scoreInto `steer`), but the record moves only on the real value: counted with it there, a layout worth less could
+ * win the record, so a farm that had reached Pure went back to High-quality on screen and the farms' total water value dropped
+ */
 const WATER_PROGRESS_SHARE = 0.1;
-// In points of basewater: 1 point = 10 ml of basewater a day
-export const waterValue = (p: number, q: number) => {
+export const waterProgress = (p: number, q: number) => {
     const m = waterMultiplier(q);
-    return Math.max(0, 100 + p) * (m + WATER_PROGRESS_SHARE * (waterMultiplierSmooth(q) - m));
+    return Math.max(0, 100 + p) * WATER_PROGRESS_SHARE * (waterMultiplierSmooth(q) - m);
 };
 // A maximized point of Efficiency past `cheapE` (the machine already uses 4 energy a day or less) is worth this much of one before it
 export const CHEAP_EFFICIENCY_WEIGHT = 0.2;

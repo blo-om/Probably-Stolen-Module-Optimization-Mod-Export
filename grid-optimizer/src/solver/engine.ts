@@ -12,7 +12,7 @@ import { applyInternalEffects } from '../utils';
 import type { Orientation } from '../utils';
 import { calculateBoardStats, indexInventoryById, isSpecialModule, buildSearchPool, generateCodeFromState } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
-import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue, cheapEfficiency } from './typedCore';
+import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue, waterProgress, cheapEfficiency } from './typedCore';
 import type { Board, MachineParams, Totals } from './typedCore';
 import { createStallClock } from './stall';
 
@@ -352,6 +352,7 @@ export const runOptimizationEngine = async (
     const currentTiers = new Float64Array(TIER_LENGTH);
     const epochTiers = new Float64Array(TIER_LENGTH).fill(-Infinity);
     const bestTiers = new Float64Array(TIER_LENGTH).fill(-Infinity);
+    const recordTiers = new Float64Array(TIER_LENGTH);
 
     // A machine whose every enabled stat is held to a target only has to reach them, with the least valuable modules that do
     const isTargetOnly = params.map(p => {
@@ -412,7 +413,9 @@ export const runOptimizationEngine = async (
     const score = (board: Board): Scored => ({ ...core.boardTotals(board), tb: 0, tbGen: -1 });
 
     // Scores a set of boards into `tiers`; `ps` is whose targets to measure against (this run's, or the caller's for reports)
-    const scoreInto = (tiers: Float64Array, statsFor: (mIdx: number) => Scored, boardFor: (mIdx: number) => Board, ps: MachineParams[] = params) => {
+    // `steer`: scores for the search to climb by, where a water farm's progress towards its next grade (waterProgress) counts with its
+    // value; without it, the real value only (the record, and everything shown), with that progress as a tiebreak
+    const scoreInto = (tiers: Float64Array, statsFor: (mIdx: number) => Scored, boardFor: (mIdx: number) => Board, ps: MachineParams[] = params, steer = false) => {
         tiers.fill(0);
         for (let mIdx = 0; mIdx < machineCount; mIdx++) {
             const st = statsFor(mIdx);
@@ -428,6 +431,10 @@ export const runOptimizationEngine = async (
                 }
                 if (p.maximize[s]) {
                     tiers[ti + RANK_OFFSET] += maximizedWorth(p, v, s) * 10;
+                    if (s === 0 && p.water) {
+                        const progress = waterProgress(p.capP !== undefined ? Math.min(st.p, p.capP) : st.p, st.q) * 10;
+                        if (steer) tiers[ti + RANK_OFFSET] += progress * MAXIMIZE_WEIGHT[0]; else tiers[TIEBREAK_TIER] += progress;
+                    }
                 }
             }
             // Only changes with the board (each scored board has its own Scored) and with the targets (tbGen)
@@ -1380,7 +1387,8 @@ export const runOptimizationEngine = async (
 
             for (const mIdx of rebuiltMachines) rebuiltStats[mIdx] = score(testBoards[mIdx]);
             const statsFor = (mIdx: number) => isRebuilt[mIdx] ? rebuiltStats[mIdx] : currentStats[mIdx];
-            scoreInto(currentTiers, statsFor, (mIdx) => isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx]);
+            const boardsFor = (mIdx: number) => isRebuilt[mIdx] ? testBoards[mIdx] : currentBoards[mIdx];
+            scoreInto(currentTiers, statsFor, boardsFor, params, true);
 
             if (!isSolvingRef.current) break;
 
@@ -1396,8 +1404,10 @@ export const runOptimizationEngine = async (
                 }
                 if (improved) {
                     stagnationCounter = 0;
-                    if (compareTiers(currentTiers, bestTiers) > 0) {
-                        bestTiers.set(currentTiers);
+                    // The record moves only when the real score does (see scoreInto)
+                    scoreInto(recordTiers, statsFor, boardsFor);
+                    if (compareTiers(recordTiers, bestTiers) > 0) {
+                        bestTiers.set(recordTiers);
                         for (let mIdx = 0; mIdx < machineCount; mIdx++) {
                             bestBoards[mIdx].set(currentBoards[mIdx]);
                             bestStats[mIdx] = currentStats[mIdx];
