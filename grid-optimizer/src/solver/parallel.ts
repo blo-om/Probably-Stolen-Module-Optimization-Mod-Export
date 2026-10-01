@@ -148,7 +148,10 @@ export const runParallelEngine = async (
         if (!record) return;
         const orders = stallOrders(machines, targets, maximize, (mIdx, s) => {
             const m = machines[mIdx];
-            const t = record.get(m.id)?.totals;
+            // The machine's own layout's totals: the shown ones are ordered among identical machines (best first), but each search holds
+            // a machine to what its own layout reached, so a step taken from a reordered layout could be one the record does not meet
+            const update = record.get(m.id);
+            const t = update?.ownTotals ?? update?.totals;
             if (!t) return 0;
             return m.sumPQ && s === 0 ? t.Performance + t.Quality : t[STATS[s]];
         });

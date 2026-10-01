@@ -187,7 +187,7 @@ export type EngineTuning = {
 // ease: the step to hold, or null to stop caring about the stat altogether (below its first step, where nothing it does counts)
 export type StallOrder = { mIdx: number; s: number; ease?: number | null };
 
-export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string }>;
+export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string, ownTotals?: Stats }>;
 
 /* What a stalled search gives up next (see StallOrder); empty when nothing is left. Shared by the engine and the worker coordinator
  * (solver/parallel.ts), so both pick the same
@@ -799,7 +799,10 @@ export const runOptimizationEngine = async (
                 if (codeIsStale[mIdx]) { currentCodes[mIdx] = codeFor(mIdx, objectBoard); codeIsStale[mIdx] = false; }
                 code = currentCodes[mIdx];
             }
-            updates.set(machines[mIdx].id, { board: objectBoard, totals: full.totals, pieceStats: full.pieceStats, code });
+            // ownTotals: this machine's own layout, before the group ordering handed it another one; the coordinator gives things up by
+            // these, since the search holds each machine to what its own layout reached
+            const own = unorderedStats[mIdx];
+            updates.set(machines[mIdx].id, { board: objectBoard, totals: full.totals, pieceStats: full.pieceStats, code, ownTotals: { Performance: own.p, Quality: own.q, Efficiency: own.e } });
         }
         onUpdate(updates, reportTiers((mIdx) => stats[mIdx], (mIdx) => boards[mIdx]));
     };
