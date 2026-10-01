@@ -1116,18 +1116,24 @@ export default function ModuleInventoryUI() {
      *             (projectors do not stack: the game takes the highest)
      *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
      *             (alarms do not stack either)
+     *   ingots    a Furnace smelts 1 ingot a day, 2 with a Blast module on its board; each gains a purity stage per full 100% Quality
+     *             (with Blast the first 100% does not count)
      */
     const storeStats = useMemo(() => {
         let water = 0, farms = 0, projector: number | null = null, stop: number | null = null;
         const mlByGrade = new Map<string, number>();
+        let ingots = 0, furnaces = 0;
+        const ingotsByStage = new Map<number, number>();
         for (const { id } of machines) {
             const card = machinesRef.current[id];
             if (!card) continue;
             const state = card.getState();
             const kind: string = state.machineKind ?? state.machineType ?? '';
             const farm = isMoistureFarm(kind), mirage = isMirage(kind), alarm = kind.toLowerCase().includes('alarm');
-            if (!farm && !mirage && !alarm) continue;
-            const { totals } = calculateBoardStats(card.getBoard(), expandedInventory);
+            const furnace = kind.toLowerCase().includes('furnace');
+            if (!farm && !mirage && !alarm && !furnace) continue;
+            const board = card.getBoard();
+            const { totals } = calculateBoardStats(board, expandedInventory);
             const p = Math.trunc(totals.Performance), q = Math.trunc(totals.Quality);
             if (farm) {
                 const out = moistureFarmOutput(p, q);
@@ -1137,10 +1143,18 @@ export default function ModuleInventoryUI() {
             }
             if (mirage) projector = Math.max(projector ?? -Infinity, MIRAGE_BASE_POINTS + p + q);
             if (alarm) stop = Math.max(stop ?? -Infinity, Math.min(100, Math.max(0, 50 + p)));
+            if (furnace) {
+                const blast = board.some((row: any[]) => row.some(c => c && c !== 'Locked' && c.displayName.includes('(Blast)')));
+                const made = blast ? 2 : 1;
+                const stage = Math.min(4, Math.max(0, Math.floor((q - (blast ? 100 : 0)) / 100)));
+                furnaces++;
+                ingots += made;
+                ingotsByStage.set(stage, (ingotsByStage.get(stage) ?? 0) + made);
+            }
         }
         let base: number | null = null;
         try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
-        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null };
+        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces, ingotsByStage };
     }, [boardVersion, machines, expandedInventory]);
 
     const unusedModules = useMemo(() => {
@@ -1926,6 +1940,20 @@ export default function ModuleInventoryUI() {
                             </span>
                         </div>
                     )}
+                    {storeStats.furnaces > 0 && (
+                        <div className="store-stat" title={[
+                            `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: 1 ingot a day each, 2 with a Blast module`,
+                            'Purity: one stage up per full 100% Quality (with Blast the first 100% does not count)',
+                        ].join('\n')}>
+                            <span className="store-stat-label">Ingots a day</span>
+                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}</span>
+                            <span className="store-stat-grades">
+                                {[...storeStats.ingotsByStage.entries()].sort((a, b) => b[0] - a[0]).map(([stage, n]) => (
+                                    <span key={stage}>{stage === 0 ? 'no purity bonus' : `+${stage} purity`} <b>{n}</b></span>
+                                ))}
+                            </span>
+                        </div>
+                    )}
                     {(storeStats.base !== null || storeStats.projector !== null) && (
                         <div className="store-stat" title={[
                             'Projected store attractiveness:',
@@ -1939,7 +1967,7 @@ export default function ModuleInventoryUI() {
                             </span>
                         </div>
                     )}
-                    {storeStats.farms + (storeStats.alarms ? 1 : 0) + (storeStats.projector !== null ? 1 : 0) > 0 && (
+                    {storeStats.farms + storeStats.furnaces + (storeStats.alarms ? 1 : 0) + (storeStats.projector !== null ? 1 : 0) > 0 && (
                         <div className="store-stat" title={storeStats.alarms
                             ? "Chance a theft goes through: 100% minus the best Alarm System's stop chance (50% + Performance, up to 100%; alarms do not stack)"
                             : 'No Alarm System: nothing stops a theft'}>
