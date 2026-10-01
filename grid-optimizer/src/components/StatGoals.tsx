@@ -4,7 +4,7 @@ import { rememberSaveSettings } from '../saveSettings';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, isAgeWell,
     isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
-    desequencerChipsetKey, desequencerAutoDaysKey,
+    desequencerChipsetKey, desequencerAutoDaysKey, STORE_BASE_ATTRACTIVENESS_KEY,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
 
@@ -317,8 +317,19 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             tooltip: target !== null ? `${target + MIRAGE_BASE_POINTS} pts${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
             noEffect: false,
             modes: ['auto', 'target', 'off'],
+            // Last night's base store attractiveness (from the save) + the projector's target = the store's total
             panel: mode === 'target'
-                ? <TargetInput unit={POINTS} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget('Performance', pct)} disabled={disabled} />
+                ? (() => {
+                    let base: number | null = null;
+                    try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
+                    return (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                            {base !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title="Last night's base store attractiveness, without bonuses (from the save)">{base} +</span>}
+                            <TargetInput unit={POINTS} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget('Performance', pct)} disabled={disabled} />
+                            {base !== null && target !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title="The store's total attractiveness with the projector at its target">= {base + target + MIRAGE_BASE_POINTS}</span>}
+                        </span>
+                    );
+                })()
                 : null,
         };
     };
