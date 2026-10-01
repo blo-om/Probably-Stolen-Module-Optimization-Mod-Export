@@ -32,6 +32,9 @@ export interface MachineParams {
     capP?: number;
     // Water farm, during one fill only: the Quality of the next grade up, which the fill reaches before it adds volume (engine.ts WATER_AIM_SHARE)
     aimQ?: number;
+    // During one fill only: stat aimS (as statOf counts it) is pushed to aimV before anything else (engine.ts promote)
+    aimS?: number;
+    aimV?: number;
     // Maximized Efficiency past this (energy down to 4 a day) is worth only CHEAP_EFFICIENCY_WEIGHT a point (see cheapEfficiency)
     cheapE?: number;
     // null when the stat has no target
@@ -332,13 +335,21 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         // Aiming at a grade: each point of Quality still short of it outweighs any volume (a point of Performance is worth about one)
         const aim = params.aimQ !== undefined && c1 < params.aimQ
             ? (Math.min(c1 + dq, params.aimQ) - Math.min(c1, params.aimQ)) * Math.max(100, 100 + Math.min(c0, cap)) * 0.05 * w0 : 0;
-        const statScore = params.water
+        let promote = 0;
+        if (params.aimS !== undefined && params.aimV !== undefined) {
+            const s = params.aimS;
+            const cv = s === 0 && params.sumPQ ? c0 + c1 : s === 2 && params.sumPE ? c2 + c0 : s === 0 ? c0 : s === 1 ? c1 : c2;
+            const dv = s === 0 && params.sumPQ ? dp + dq : s === 2 && params.sumPE ? de + dp : s === 0 ? dp : s === 1 ? dq : de;
+            const ws = s === 0 ? w0 : s === 1 ? w1 : w2;
+            if (cv < params.aimV) promote = (Math.min(cv + dv, params.aimV) - cv) * 20 * Math.max(ws, 1);
+        }
+        const statScore = promote + (params.water
             ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), c1 + dq) - waterValueSmooth(Math.min(c0, cap), c1), 0, w0, params) + scoreStat(2, de, c2, w2, params) + aim
             : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPE
             ? scoreStat(1, dq, c1, w1, params) + scoreStat(2, de + dp, c2 + c0, w2, params)
-            : scoreStat(0, dpc, Math.min(c0, cap), w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params);
+            : scoreStat(0, dpc, Math.min(c0, cap), w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params));
         const tiebreakers = (adj * 0.05) - (negativeContacts * 1000);
         if (statScore < 0 || (statScore === 0 && !zeroScoreOk)) return -10000 + tiebreakers;
         return statScore + tiebreakers;
