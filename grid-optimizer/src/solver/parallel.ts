@@ -142,11 +142,13 @@ export const runParallelEngine = async (
     const targets = machines.map(m => STATS.map(k => m.targetStats[k] ?? null));
     const maximize = machines.map(m => STATS.map(k => Boolean(m.maximizeStats?.[k]) && !((m.sumPQ || m.water) && k === 'Quality') && !(m.sumPE && k === 'Performance')));
     let relaxGen = 0;
+    let lateTargets = giveUp && machines.some(m => m.water && (m.targetStats.Quality ?? null) !== null);
     const stall = createStallClock(Date.now);
     const relaxLowestTarget = () => {
         const record = bestUpdates;
         if (!record) return;
-        const orders = stallOrders(machines, targets, maximize, (mIdx, s) => {
+        // The first give-up switches the water farms' Purity targets on in every search (see engine.ts lateTargets)
+        const orders = lateTargets ? (lateTargets = false, [{ mIdx: -1, s: -1 }]) : stallOrders(machines, targets, maximize, (mIdx, s) => {
             const m = machines[mIdx];
             // The machine's own layout's totals: the shown ones are ordered among identical machines (best first), but each search holds
             // a machine to what its own layout reached, so a step taken from a reordered layout could be one the record does not meet
@@ -157,10 +159,12 @@ export const runParallelEngine = async (
         });
         if (orders.length === 0) return;
         // Easing comes after EASE_STALL of the stall time, relaxing a target after RELAX_STALL (see solver/stall.ts)
-        if (orders[0].ease === undefined && !stall.due(RELAX_STALL)) return;
+        if (orders[0].mIdx >= 0 && orders[0].ease === undefined && !stall.due(RELAX_STALL)) return;
         for (const order of orders) {
             const { mIdx, s } = order;
-            if (order.ease !== undefined) {
+            if (mIdx < 0) {
+                // nothing to track here: the coordinator holds the targets as set
+            } else if (order.ease !== undefined) {
                 targets[mIdx][s] = order.ease;
                 maximize[mIdx][s] = false;
             } else {

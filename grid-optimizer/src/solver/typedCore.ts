@@ -337,6 +337,8 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         // Performance past the cap (if any) adds nothing
         const cap = params.capP ?? Infinity;
         const dpc = Math.min(c0 + dp, cap) - Math.min(c0, cap);
+        // A Purity target is the grade to make: Quality past it adds no value (engine.ts waterQuality)
+        const waterQ = (q: number) => (params.target[1] !== null ? Math.min(q, params.target[1]) : q);
         // Aiming at a grade: each point of Quality still short of it outweighs any volume (a point of Performance is worth about one)
         const aim = params.aimQ !== undefined && c1 < params.aimQ
             ? (Math.min(c1 + dq, params.aimQ) - Math.min(c1, params.aimQ)) * Math.max(100, 100 + Math.min(c0, cap)) * 0.05 * w0 : 0;
@@ -349,7 +351,7 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
             if (cv < params.aimV) promote = (Math.min(cv + dv, params.aimV) - cv) * 20 * Math.max(ws, 1);
         }
         const statScore = promote + (params.water
-            ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), c1 + dq) - waterValueSmooth(Math.min(c0, cap), c1), 0, w0, params) + scoreStat(2, de, c2, w2, params) + aim
+            ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), waterQ(c1 + dq)) - waterValueSmooth(Math.min(c0, cap), waterQ(c1)), 0, w0, params) + scoreStat(2, de, c2, w2, params) + aim
                 + (params.target[1] !== null ? scoreStat(1, dq, c1, w1, params) : 0)
             : params.sumPQ
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
