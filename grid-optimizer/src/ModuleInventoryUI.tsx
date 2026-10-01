@@ -15,42 +15,41 @@ import AddModuleMenu from './components/AddModuleMenu';
 // Junk Processing) start locked, and can be unlocked the same way
 const lockedToMachine = (item: InventoryItem) => Boolean(item.isLocked);
 
-// Padlock drawn black, keyhole cut out so the module shows through
+// Padlock, black and plain: a rounded body under a shackle, with a small round keyhole the module shows through
 const LockIcon = ({ size }: { size: number }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
-        <path d="M7 10V7.5a5 5 0 0 1 10 0V10" fill="none" stroke="#000" strokeWidth="2.6" />
-        <path fillRule="evenodd" fill="#000"
-            d="M5.5 10h13a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 20.5v-9A1.5 1.5 0 0 1 5.5 10Z
-               M12 13.6a1.9 1.9 0 0 0-1 3.5V19h2v-1.9a1.9 1.9 0 0 0-1-3.5Z" />
+        <path d="M7.5 11V8a4.5 4.5 0 0 1 9 0v3" fill="none" stroke="#000" strokeWidth="3" />
+        <path fillRule="evenodd" fill="#000" d="M6 10h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z M12 14.2a1.8 1.8 0 1 0 0 3.6a1.8 1.8 0 1 0 0-3.6Z" />
     </svg>
 );
 
-/* Where a module's lock goes: the middle of the piece. When that point is inside the piece (a square's centre, between the middle
- * cells of a line...) exactly there; otherwise (the corner of an L) the centre of the piece's cell nearest to it. Returns the cell
- * the icon is drawn in and its offset from that cell's centre, in cells
+/* Where a module's lock goes, whatever way the piece is turned:
+ *   T             its centre block (the one touching three others)
+ *   P             the middle of its 2x2 square
+ *   C, L of 4     the block in the middle of a straight run of three (the C's 3rd block, the L's 2nd block on its long side)
+ *   L of 3        its corner block
+ *   anything else (square, line, node) its exact middle, between blocks if need be
+ * Returns the block the icon is drawn in and its offset from that block's centre, in blocks
  */
 const lockSpot = (cells: Point[]) => {
+    const has = (x: number, y: number) => cells.some(c => c.x === x && c.y === y);
+    const at = (cell: Point, dx = 0, dy = 0) => ({ cell, dx, dy });
+    const nb = (c: Point) => ({ l: has(c.x - 1, c.y), r: has(c.x + 1, c.y), u: has(c.x, c.y - 1), d: has(c.x, c.y + 1) });
+    const count = (c: Point) => { const n = nb(c); return +n.l + +n.r + +n.u + +n.d; };
+    const straight = (c: Point) => { const n = nb(c); return count(c) === 2 && ((n.l && n.r) || (n.u && n.d)); };
+    if (cells.length === 5) {
+        const corner = cells.find(c => has(c.x + 1, c.y) && has(c.x, c.y + 1) && has(c.x + 1, c.y + 1));
+        if (corner) return at(corner, 0.5, 0.5);
+    }
+    const hub = cells.find(c => count(c) >= 3);
+    if (hub) return at(hub);
+    const runs = cells.filter(straight);
+    if (runs.length === 1 && cells.length > 3) return at(runs[0]);
+    if (cells.length === 3) { const bend = cells.find(c => count(c) === 2 && !straight(c)); if (bend) return at(bend); }
     const cx = cells.reduce((s, c) => s + c.x + 0.5, 0) / cells.length;
     const cy = cells.reduce((s, c) => s + c.y + 0.5, 0) / cells.length;
-    const has = (x: number, y: number) => cells.some(c => c.x === x && c.y === y);
-    const eps = 1e-6;
-    const xs = Math.abs(cx - Math.round(cx)) < eps ? [Math.round(cx) - 1, Math.round(cx)] : [Math.floor(cx)];
-    const ys = Math.abs(cy - Math.round(cy)) < eps ? [Math.round(cy) - 1, Math.round(cy)] : [Math.floor(cy)];
-    if (xs.every(x => ys.every(y => has(x, y)))) {
-        const cell = { x: xs[0], y: ys[0] };
-        let dx = cx - (cell.x + 0.5), dy = cy - (cell.y + 0.5);
-        // Inside one cell: keep the icon (half a cell wide) off a side of the piece that is open (a C's gap)
-        const room = 0.25;
-        if (xs.length === 1) { if (!has(cell.x + 1, cell.y)) dx = Math.min(dx, room); if (!has(cell.x - 1, cell.y)) dx = Math.max(dx, -room); }
-        if (ys.length === 1) { if (!has(cell.x, cell.y + 1)) dy = Math.min(dy, room); if (!has(cell.x, cell.y - 1)) dy = Math.max(dy, -room); }
-        return { cell, dx, dy };
-    }
-    let best = cells[0], bestD = Infinity;
-    for (const c of cells) {
-        const d = (c.x + 0.5 - cx) ** 2 + (c.y + 0.5 - cy) ** 2;
-        if (d < bestD - eps) { bestD = d; best = c; }
-    }
-    return { cell: best, dx: 0, dy: 0 };
+    const cell = cells.reduce((b, c) => ((c.x + 0.5 - cx) ** 2 + (c.y + 0.5 - cy) ** 2 < (b.x + 0.5 - cx) ** 2 + (b.y + 0.5 - cy) ** 2 - 1e-6 ? c : b));
+    return at(cell, cx - (cell.x + 0.5), cy - (cell.y + 0.5));
 };
 import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
@@ -671,7 +670,7 @@ const MachineInstance = React.memo(forwardRef(({
                                 >
                                     {lockCells.has(y * 7 + x) && (() => {
                                         const { dx, dy } = lockCells.get(y * 7 + x)!;
-                                        const size = Math.max(12, Math.round(cellSize * 0.5));
+                                        const size = Math.max(14, Math.round(cellSize * 0.62));
                                         return (
                                             <span style={{
                                                 position: 'absolute', left: `calc(50% + ${dx * cellSize}px)`, top: `calc(50% + ${dy * cellSize}px)`,
