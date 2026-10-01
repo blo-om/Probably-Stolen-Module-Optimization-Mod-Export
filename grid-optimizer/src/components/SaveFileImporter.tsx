@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { SAVE_NAME_KEY, SAVE_SLOT_KEY } from '../modExport';
 import { flushSaveSettings } from '../saveSettings';
+import { STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
 import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
@@ -456,6 +457,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 onImport(parsedInventory, newMachines, importedName);
                 localStorage.setItem(SAVE_NAME_KEY, importedName);
                 // The save's own slot number, which the mod compares with the loaded game before trusting module uids
+                // Last night's base store attractiveness, without bonuses (for the projected attractiveness at the top of the page)
+                const baseAttract = /baseStoreAttractiveness\\?"\s*:\s*(-?\d+)/.exec(text);
+                if (baseAttract) localStorage.setItem(STORE_BASE_ATTRACTIVENESS_KEY, baseAttract[1]);
+                else localStorage.removeItem(STORE_BASE_ATTRACTIVENESS_KEY);
                 const slotMatch = /"saveSlotId"\s*:\s*(\d+)/.exec(text);
                 if (slotMatch) localStorage.setItem(SAVE_SLOT_KEY, slotMatch[1]);
                 else localStorage.removeItem(SAVE_SLOT_KEY);
