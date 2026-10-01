@@ -667,8 +667,9 @@ export type MachineConfig = {
     targetSteps?: Partial<Record<keyof Stats, number[]>>;
     // Performance and Quality count as one stat, their sum, and Performance's target and priority are that sum's (Mirage Projector attractiveness)
     sumPQ?: boolean;
-    // Moisture Farm with Volume and Purity both on Auto: the two count as one stat, the value of the water it makes a day (volume times
-    // its grade's price; see solver/typedCore.ts waterValue)
+    // Moisture Farm with Volume on Auto and Purity on Auto or a Target: scored by the value of the water it makes a day (volume times its
+    // grade's price; see solver/typedCore.ts waterValue). On Auto, Purity counts only through that value; a Purity target stays a target
+    // of its own, the lowest grade the farm may make
     water?: boolean;
     // Stats where nothing below the first of targetSteps counts (Furnace ingot purity under 100%...), so a stalled Auto stat there
     // can be dropped altogether (see solver/engine.ts stallOrders)

@@ -114,7 +114,8 @@ const priorityOf = (m: MachineConfig, key: keyof Stats) => m.statPriority?.[key]
 
 // With sumPQ or water (see MachineConfig) Quality folds into Performance, and with sumPE Performance folds into Efficiency,
 // so the folded stat is ignored as a stat of its own
-const foldsQuality = (m: MachineConfig) => Boolean(m.sumPQ || m.water);
+// A water farm with a Quality target keeps it as a target of its own (the lowest grade it may make), its water value maximized above it
+const foldsQuality = (m: MachineConfig) => Boolean(m.sumPQ || (m.water && (m.targetStats.Quality ?? null) === null));
 const folded = (m: MachineConfig, k: keyof Stats) => (foldsQuality(m) && k === 'Quality') || (Boolean(m.sumPE) && k === 'Performance');
 const paramsOf = (m: MachineConfig): MachineParams => ({
     ignored: STAT_KEYS.map(k => statIsIgnored(m, k) || folded(m, k)),
