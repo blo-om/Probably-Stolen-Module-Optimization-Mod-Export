@@ -1767,9 +1767,9 @@ export default function ModuleInventoryUI() {
                 }
                 .toolbar .store-stat-grades {
                     display: grid;
-                    grid-template-rows: repeat(3, 1.3em);
                     grid-auto-flow: column;
                     column-gap: 16px;
+                    height: 3.9em;
                     align-content: center;
                     font-size: 0.75em;
                     line-height: 1.3em;
@@ -1937,7 +1937,7 @@ export default function ModuleInventoryUI() {
                     )}
                     {storeStats.farms > 0 && (
                         <div className="store-stat" title="Water made a day by all Moisture Farms, by grade">
-                            <span className="store-stat-grades">
+                            <span className="store-stat-grades" style={{ gridTemplateRows: `repeat(${Math.min(3, Math.max(1, storeStats.mlByGrade.size))}, 1.3em)` }}>
                                 {WATER_GRADES.slice().reverse().filter(g => storeStats.mlByGrade.has(g.name)).map(g => (
                                     <span key={g.name}>{g.name} <b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} ml</b></span>
                                 ))}
