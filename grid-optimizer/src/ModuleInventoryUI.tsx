@@ -1169,7 +1169,6 @@ export default function ModuleInventoryUI() {
     }, []);
 
     const WINE_PER_AGEWELL = 6;
-    const PURIFIER_BASE_REMOVAL = 25;
     /* Store stats at the top of the page, from the boards as they stand:
      *   water     what every Moisture Farm makes a day, by grade, and what it is worth (moistureFarmOutput)
      *   attract   last night's base attractiveness from the save plus the best Mirage Projector's 100 + Performance + Quality
@@ -1179,10 +1178,10 @@ export default function ModuleInventoryUI() {
      *   ingots    a Furnace smelts 1 ingot a day from 2 sources (scrap or ore), a Blast module makes it 2 from 3; each full 100%
      *             Quality lifts the ingot one purity stage, Blast takes one off (never below 0)
      *   power     every machine's energy a day (statUnit Efficiency: the game's rule per machine, AgeWell with its Performance)
-     *   wine      an AgeWell holds 6 bottles and ages them 1 day a night, +1 per full 125% Quality
-     *   cleaning  a Water Purifier removes 2 ml heavy metals, 3 ml chemicals and 5 ml each of organic waste, microbes, physical and
-     *             minerals a day, 25 ml in all, times (1 + Performance / 100) on clean-ish water (dirtier water is worked faster, and
-     *             nothing goes below the purity floor), so this is the rate on water above 96%
+     *   wine      an AgeWell holds 6 bottles and ages them 1 day a night, +1 per full 125% Quality; shown is what the modules add
+     *             a night with every AgeWell full (6 bottles x its extra days)
+     *   cleaning  the sum of the Water Purifiers' Removal readouts: the extra a day Performance adds to each contaminant's removal,
+     *             0.02 ml per 1% (statUnit Performance)
      *   work      a Desequencer decodes 33 + 33 * Performance / 100 work a day (desequencerSpeed)
      */
     const storeStats = useMemo(() => {
@@ -1213,7 +1212,7 @@ export default function ModuleInventoryUI() {
             }
             if (name.includes('water purifier')) {
                 purifiers++;
-                cleaning += PURIFIER_BASE_REMOVAL * Math.max(0, 1 + p / 100);
+                cleaning += statUnit(kind, 'Performance')?.fromPercent(p) ?? 0;
             }
             if (isDesequencer(kind)) {
                 desequencers++;
@@ -1239,7 +1238,7 @@ export default function ModuleInventoryUI() {
         let base: number | null = null;
         try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
         return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces,
-            sources, ingotsByStage, power, powered, agewells, agingDays, purifiers, cleaning: Math.round(cleaning * 10) / 10, desequencers, work };
+            sources, ingotsByStage, power, powered, agewells, agingDays, purifiers, cleaning: Math.round(cleaning * 100) / 100, desequencers, work };
     }, [boardVersion, machines, expandedInventory]);
 
     const unusedModules = useMemo(() => {
@@ -1879,7 +1878,11 @@ export default function ModuleInventoryUI() {
                     border: 1px solid #444;
                     border-radius: 4px;
                 }
+                .toolbar {
+                    flex-wrap: nowrap;
+                }
                 .toolbar .store-stats {
+                    flex: 1 1 0;
                     display: flex;
                     flex-wrap: wrap;
                     gap: 8px 22px;
@@ -1925,17 +1928,40 @@ export default function ModuleInventoryUI() {
                     font-variant-numeric: tabular-nums;
                 }
                 .toolbar .toolbar-buttons {
+                    flex: 0 1 auto;
+                    max-width: 50%;
                     display: flex;
                     flex-wrap: wrap;
                     gap: 10px;
                     justify-content: flex-end;
+                    align-content: center;
                     margin-left: auto;
+                    padding-left: 15px;
+                    border-left: 1px solid #2a2a2a;
+                }
+                .toolbar .store-stat-words {
+                    display: inline-flex;
+                    flex-direction: column;
+                    vertical-align: middle;
+                    margin-left: 5px;
+                    font-size: 0.5em;
+                    line-height: 1;
+                    color: #888;
+                    font-weight: normal;
+                    text-transform: uppercase;
+                    letter-spacing: 0.04em;
                 }
                 @media (max-width: 700px) {
+                    .toolbar {
+                        flex-wrap: wrap;
+                    }
                     .toolbar .store-stats, .toolbar .toolbar-buttons {
                         justify-content: center;
                         width: 100%;
+                        max-width: none;
                         margin-left: 0;
+                        padding-left: 0;
+                        border-left: none;
                     }
                 }
                 .bottom-layout {
@@ -2065,7 +2091,7 @@ export default function ModuleInventoryUI() {
 
             {/* Toolbar: stays pinned to the top of the window while the page scrolls */}
             <div className="toolbar" style={{
-                display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', marginBottom: '16px', width: '100%', flexWrap: 'wrap',
+                display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', marginBottom: '16px', width: '100%',
                 boxSizing: 'border-box', position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
             }}>
                 <div className="store-stats">
@@ -2090,10 +2116,11 @@ export default function ModuleInventoryUI() {
                     )}
                     {storeStats.furnaces > 0 && (
                         <div className="store-stat" title={[
-                            `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: 1 ingot a day each, 2 with a Blast module`,
+                            `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: ${storeStats.ingots} ingots a day from ${storeStats.sources} sources (scrap or ore)`,
+                            'A Furnace makes 1 ingot from 2 sources, with a Blast module 2 from 3',
                         ].join('\n')}>
                             <span className="store-stat-label">Ingots a day</span>
-                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit"> from {storeStats.sources} sources</span></span>
+                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit"> from {storeStats.sources}</span></span>
                         </div>
                     )}
                     {storeStats.furnaces > 0 && (
@@ -2112,18 +2139,22 @@ export default function ModuleInventoryUI() {
                     {storeStats.agewells > 0 && (
                         <div className="store-stat" title={[
                             `${storeStats.agewells} AgeWell${storeStats.agewells === 1 ? '' : 's'}, ${WINE_PER_AGEWELL} bottles each: ${storeStats.agewells * WINE_PER_AGEWELL} bottles`,
-                            `Aging a night over all bottles: ${storeStats.agingDays} days (${storeStats.agewells * WINE_PER_AGEWELL} with no modules, 1 day per bottle;`,
-                            'every full 125% Quality ages each bottle one more day a night)',
+                            `With all of them full, the modules add ${storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL} aging days a night`,
+                            `(${storeStats.agingDays} in all, against ${storeStats.agewells * WINE_PER_AGEWELL} with no modules: 1 day a bottle,`,
+                            '+1 for every full 125% Quality)',
                         ].join('\n')}>
                             <span className="store-stat-label">Wine</span>
-                            <span className="store-stat-value" style={{ color: '#c25b7f' }}>{storeStats.agewells * WINE_PER_AGEWELL}<span className="store-stat-unit"> bottles · {storeStats.agingDays} aging days / night</span></span>
+                            <span className="store-stat-value" style={{ color: '#c25b7f' }}>
+                                {storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL}
+                                <span className="store-stat-words"><span>extra</span><span>days</span><span>max</span><span>capacity</span></span>
+                            </span>
                         </div>
                     )}
                     {storeStats.purifiers > 0 && (
                         <div className="store-stat" title={[
-                            `What ${storeStats.purifiers} Water Purifier${storeStats.purifiers === 1 ? '' : 's'} can remove a day from water above 96%:`,
-                            '2 ml heavy metals, 3 ml chemicals, 5 ml each of organic waste, microbes, physical and minerals (25 ml),',
-                            'times 1 + Performance / 100. Dirtier water goes faster; nothing is removed below the purity floor Quality sets',
+                            `The Removal of ${storeStats.purifiers} Water Purifier${storeStats.purifiers === 1 ? '' : 's'} added up, as each card shows it:`,
+                            'the extra a day Performance removes of each contaminant, 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05).',
+                            'Never below the purity floor that Quality sets',
                         ].join('\n')}>
                             <span className="store-stat-label">Contaminants removed</span>
                             <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit"> ml / day</span></span>
