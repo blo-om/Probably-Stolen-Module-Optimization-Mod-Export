@@ -1237,6 +1237,30 @@ export default function ModuleInventoryUI() {
             sources, power, powered, agewells, agingDays, purifiers, cleaning: Math.round(cleaning * 100) / 100, desequencers, work };
     }, [boardVersion, machines, expandedInventory]);
 
+    // The top bar is two rows at most: the buttons keep their two rows, and stat cells that do not fit in the width left over are
+    // hidden, from the right (the order of the cells is their importance)
+    const statsAreaRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        const area = statsAreaRef.current;
+        if (!area) return;
+        const fit = () => {
+            const width = area.clientWidth;
+            const hidden: string[] = [];
+            area.querySelectorAll<HTMLElement>('.store-stat').forEach(cell => {
+                const out = cell.offsetLeft + cell.offsetWidth > width + 0.5;
+                cell.style.visibility = out ? 'hidden' : '';
+                if (out) hidden.push(cell.querySelector('.store-stat-label')?.textContent ?? '');
+            });
+            area.title = hidden.length ? `Not enough room for: ${hidden.filter(Boolean).join(', ')}` : '';
+        };
+        const observer = new ResizeObserver(fit);
+        observer.observe(area);
+        const grid = area.firstElementChild;
+        if (grid) observer.observe(grid);
+        fit();
+        return () => observer.disconnect();
+    }, [storeStats]);
+
     const unusedModules = useMemo(() => {
         const used = getUsedItems(null);
         const groupOrder: Record<string, number> = { Red: 0, Yellow: 1, Green: 2, Purple: 3, DarkRed: 4, Grey: 5, White: 6 };
@@ -1880,7 +1904,8 @@ export default function ModuleInventoryUI() {
                 .toolbar .store-stats-area {
                     flex: 1 1 0;
                     min-width: 0;
-                    container-type: inline-size;
+                    overflow: hidden;
+                    position: relative;
                 }
                 .toolbar .store-stats {
                     display: grid;
@@ -1933,17 +1958,20 @@ export default function ModuleInventoryUI() {
                     font-variant-numeric: tabular-nums;
                 }
                 .toolbar .toolbar-buttons {
-                    flex: 0 0 auto;
-                    box-sizing: border-box;
-                    width: clamp(480px, 40%, 600px);
+                    flex: 0 1 auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    align-items: flex-end;
+                    margin-left: auto;
+                    padding-left: 15px;
+                    border-left: 1px solid #2a2a2a;
+                }
+                .toolbar .toolbar-row {
                     display: flex;
                     flex-wrap: wrap;
                     gap: 10px;
                     justify-content: flex-end;
-                    align-content: center;
-                    margin-left: auto;
-                    padding-left: 15px;
-                    border-left: 1px solid #2a2a2a;
                 }
                 .toolbar .store-stat-words {
                     display: inline-flex;
@@ -1956,32 +1984,6 @@ export default function ModuleInventoryUI() {
                     font-weight: normal;
                     text-transform: uppercase;
                     letter-spacing: 0.04em;
-                }
-                @container (max-width: 740px) {
-                    .toolbar .store-stats {
-                        grid-template-rows: auto auto auto;
-                    }
-                }
-                @container (max-width: 560px) {
-                    .toolbar .store-stats {
-                        display: flex;
-                        flex-wrap: wrap;
-                    }
-                }
-                @media (max-width: 700px) {
-                    .toolbar {
-                        flex-wrap: wrap;
-                    }
-                    .toolbar .store-stats-area {
-                        flex-basis: 100%;
-                    }
-                    .toolbar .store-stats, .toolbar .toolbar-buttons {
-                        justify-content: center;
-                        width: 100%;
-                        margin-left: 0;
-                        padding-left: 0;
-                        border-left: none;
-                    }
                 }
                 .bottom-layout {
                     display: flex;
@@ -2113,7 +2115,7 @@ export default function ModuleInventoryUI() {
                 display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', marginBottom: '16px', width: '100%',
                 boxSizing: 'border-box', position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
             }}>
-                <div className="store-stats-area">
+                <div className="store-stats-area" ref={statsAreaRef}>
                 <div className="store-stats">
                     {storeStats.farms > 0 && (
                         <div className="store-stat" title={[
@@ -2205,6 +2207,7 @@ export default function ModuleInventoryUI() {
                 </div>
                 </div>
                 <div className="toolbar-buttons">
+                <div className="toolbar-row">
                 <button
                     onClick={handleRunAll}
                     disabled={inventory.length === 0 && !isAnySolving}
@@ -2244,6 +2247,8 @@ export default function ModuleInventoryUI() {
                 >
                     {copiedAllForMod ? 'Copied!' : 'Export All'}
                 </button>
+                </div>
+                <div className="toolbar-row">
                 <SaveFileImporter onImport={handleImportSave} />
                 <button
                     onClick={handleClearAllMachines}
@@ -2267,6 +2272,7 @@ export default function ModuleInventoryUI() {
                             {s.label}
                         </button>
                     ))}
+                </div>
                 </div>
                 </div>
             </div>
