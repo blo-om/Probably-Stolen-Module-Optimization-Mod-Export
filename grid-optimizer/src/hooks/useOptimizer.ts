@@ -1150,15 +1150,38 @@ export function useOptimizer(
         // The other solvers (solvers/index.ts) rank this card's stats by its own priorities, as their sites do
         const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps, sumPE, performanceCap, qualityCap, cheapEnergyAt, ...(readSolver() !== 'bloom' ? { statPriority } : {}) };
 
-        await runSelectedSolver(readSolver(), [config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
-            const myUpdate = updates.get(machineId);
-            if (myUpdate) {
+        /* hoydoy's solver (solvers/index.ts) runs one search per card at once, as on his site, each kept off only what the other cards held
+         * when it started: two of them could both take the same free module, and the page then showed it on both. A layout using a module
+         * another card holds by now is not shown; that card's search starts again from its board as it is, kept off what the others hold
+         * now. His solver itself is unchanged
+         */
+        const kind = readSolver();
+        let pool = engineInventory;
+        for (;;) {
+            const runRef = { current: true };
+            let clash = false;
+            const watch = setInterval(() => { if (!isSolvingRef.current) runRef.current = false; }, 50);
+            await runSelectedSolver(kind, [config], [boardRef.current], pool, fullInventoryForMachine, kind === 'hoydoy' ? runRef : isSolvingRef, (updates) => {
+                const myUpdate = updates.get(machineId);
+                if (!myUpdate) return;
+                if (kind === 'hoydoy') {
+                    const held = getUsedItems(machineId);
+                    if (myUpdate.board.some(row => row.some((cell: any) => cell && cell !== 'Locked' && held.has(cell.id)))) {
+                        clash = true;
+                        runRef.current = false;
+                        return;
+                    }
+                }
                 setBoardSync(myUpdate.board);
                 setBestTotals(myUpdate.totals);
                 setBestPieceStats(myUpdate.pieceStats);
                 setSolutionCode(myUpdate.code);
-            }
-        });
+            });
+            clearInterval(watch);
+            if (!clash || !isSolvingRef.current) break;
+            const held = getUsedItems(machineId);
+            pool = inventory.map(item => (held.has(item.id) ? { ...item, isLocked: true } : item));
+        }
 
         setIsSolving(false);
     };
