@@ -746,6 +746,7 @@ const MachineInstance = React.memo(forwardRef(({
                         limitStats={limitStats}
                         setLimitStats={setLimitStats}
                         width={(7 * cellSize + 22) / 0.8}
+                        autoLabel={solverKind !== 'bloom' ? 'Max' : 'Auto'}
                     />
                     {solverKind !== 'bloom' && (
                         <StatPriorities
