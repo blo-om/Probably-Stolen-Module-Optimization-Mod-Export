@@ -30,6 +30,8 @@ export interface MachineParams {
     sumPE?: boolean;
     // Performance past this counts for nothing (Moisture Farm: 6000 ml, the biggest water container)
     capP?: number;
+    // Quality past this counts for nothing (MachineConfig.qualityCap)
+    capQ?: number;
     // Water farm, during one fill only: the Quality of the next grade up, which the fill reaches before it adds volume (engine.ts WATER_AIM_SHARE)
     aimQ?: number;
     // During one fill only: stat aimS (as statOf counts it) is pushed to aimV before anything else (engine.ts promote)
@@ -357,7 +359,9 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
             ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPE
             ? scoreStat(1, dq, c1, w1, params) + scoreStat(2, de + dp, c2 + c0, w2, params)
-            : scoreStat(0, dpc, Math.min(c0, cap), w0, params) + scoreStat(1, dq, c1, w1, params) + scoreStat(2, de, c2, w2, params));
+            : scoreStat(0, dpc, Math.min(c0, cap), w0, params)
+                + scoreStat(1, Math.min(c1 + dq, params.capQ ?? Infinity) - Math.min(c1, params.capQ ?? Infinity), Math.min(c1, params.capQ ?? Infinity), w1, params)
+                + scoreStat(2, de, c2, w2, params));
         const tiebreakers = (adj * 0.05) - (negativeContacts * 1000);
         if (statScore < 0 || (statScore === 0 && !zeroScoreOk)) return -10000 + tiebreakers;
         return statScore + tiebreakers;

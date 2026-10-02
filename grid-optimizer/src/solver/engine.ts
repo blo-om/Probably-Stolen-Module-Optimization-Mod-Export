@@ -52,6 +52,15 @@ const REPACK_STEP_LIMIT = 1024;
  * (AgeWells 1,625 against 1,696). Farms only: on every machine it lost to the plain search on the 11-machine target scenarios.
  * 1 in 2 or 1 in 8 did worse, and so did 1,000 or 15,000 leaves, or letting spare modules from the pool join in
  */
+/* Staging: a solve over several priority groups solves the first group alone at first, with every module free for it (the later groups'
+ * boards empty), and each time it stalls brings the next group in, before anything is given up (eased or relaxed). Priority is
+ * lexicographic anyway, so the first group may take whatever it can use; solved together from the start, the later groups held modules
+ * the first needed and one rebuild at a time could not take them back. 15 workers, 40 s, from Clear All: save_14's 33 machines all on
+ * Auto 88,595 -> 93,270 credits of water a day (AgeWells level, Desequencers -57); 12 farms with the first four at 6000 ml (Purity
+ * capped, see MachineConfig.qualityCap) 81,623 -> 85,970, all four Pure in half the runs; 12 farms with the first three on Purity
+ * Pure 91,765 -> 90,140 (4 runs, within noise)
+ */
+const STAGED = 1;
 const WINDOW_ONE_IN = 5;
 const WINDOW_LEAVES = 4000;
 const WINDOWS = [[3, 3], [3, 3], [2, 4], [4, 2]];
@@ -138,6 +147,7 @@ const paramsOf = (m: MachineConfig): MachineParams => ({
     water: Boolean(m.water),
     sumPE: Boolean(m.sumPE),
     capP: m.performanceCap,
+    capQ: m.qualityCap,
     cheapE: m.cheapEnergyAt,
 });
 
@@ -148,7 +158,8 @@ const paramsOf = (m: MachineConfig): MachineParams => ({
 const waterQuality = (p: MachineParams, q: number) => (p.target[1] !== null ? Math.min(q, p.target[1]) : q);
 const statOf = (p: MachineParams, t: Totals, s: number) => {
     const tp = p.capP !== undefined ? Math.min(t.p, p.capP) : t.p;
-    return s === 0 && p.water ? waterValue(tp, waterQuality(p, t.q)) : s === 0 && p.sumPQ ? tp + t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp : totalOf(t, s);
+    return s === 0 && p.water ? waterValue(tp, waterQuality(p, t.q)) : s === 0 && p.sumPQ ? tp + t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp
+        : s === 1 && p.capQ !== undefined ? Math.min(t.q, p.capQ) : totalOf(t, s);
 };
 
 // How much a maximized point of each stat is worth: Efficiency half, so Performance and Quality always come first
@@ -190,6 +201,8 @@ export type EngineTuning = {
     promote?: number;
     // 0: a stalled search running on its own never gives anything up (no relax, no ease); with workers the coordinator decides
     stall?: number;
+    // 0: every machine is solved from the start (see STAGED)
+    stage?: number;
 };
 
 /* Tried on the A/B benches and dropped (details in the git history): late-acceptance hill climbing, relaxing the farthest target
@@ -204,7 +217,8 @@ export type EngineTuning = {
  */
 // ease: the step to hold, or null to stop caring about the stat altogether (below its first step, where nothing it does counts)
 // mIdx -1: the water farms' Purity targets go on (see lateTargets)
-export type StallOrder = { mIdx: number; s: number; ease?: number | null };
+// stage: the next priority group joins the solve (see STAGED)
+export type StallOrder = { mIdx: number; s: number; ease?: number | null; stage?: boolean };
 
 export type EngineUpdates = Map<string, { board: any[][], totals: Stats, pieceStats: Map<string, Stats>, code: string, ownTotals?: Stats }>;
 
@@ -226,6 +240,9 @@ export const stallOrders = (machines: MachineConfig[], targets: (number | null)[
     machines.forEach((m, mIdx) => STAT_KEYS.forEach((key, s) => {
         const steps = m.targetSteps?.[key];
         if (!steps || steps.length === 0 || statIsIgnored(m, key) || folded(m, key)) return;
+        // A capped Quality (MachineConfig.qualityCap) is never held at a step, as a water farm's is not: it already counts for nothing past
+        // its cap, and held at the step it had when the solve first stalled (High-quality, mostly) it never reached Pure
+        if (key === 'Quality' && m.qualityCap !== undefined && targets[mIdx][s] === null) return;
         const rank = priorityOf(m, key);
         const target = targets[mIdx][s];
         const value = valueOf(mIdx, s);
@@ -284,7 +301,7 @@ export const runOptimizationEngine = async (
         if (machineCount === 1) return 0;
         if (!ranks) ranks = machines.map((_, mIdx) => Math.min(...[0, 1, 2].map(s => (tierOfStat[mIdx][s] < 0 ? 99 : tierOfStat[mIdx][s]))));
         const unmet = (m: number) => [0, 1, 2].some(st => params[m].target[st] !== null && !params[m].ignored[st] && statOf(params[m], currentStats[m], st) < params[m].target[st]!);
-        const w = (m: number) => (unmet(m) ? 1 : 1 / (ranks![m] + 1));
+        const w = (m: number) => (!isActive(m) ? 0 : unmet(m) ? 1 : 1 / (ranks![m] + 1));
         let total = 0;
         for (let m = 0; m < machineCount; m++) total += w(m);
         let r = Math.random() * total;
@@ -773,6 +790,21 @@ export const runOptimizationEngine = async (
     // The boards it starts from are the record to beat and the first step to climb from: at -Infinity the first move always counted as an
     // improvement, so a run started on an optimized arrangement replaced it at once with whatever one rebuild of it made, and went on from there
     scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
+    // Staging (see STAGED): only the first priority group is solved at first, the other machines' modules free for it (their boards empty);
+    // each stall brings the next group in before anything is given up
+    const machineRank = machines.map((_, mIdx) => Math.min(...[0, 1, 2].map(s => (tierOfStat[mIdx][s] < 0 ? 99 : tierOfStat[mIdx][s]))));
+    const stageRanks = [...new Set(machineRank)].sort((a, b) => a - b);
+    let stageUpTo = (tuning.stage ?? STAGED) && machineCount > 1 && (relaxOrders || STALL) ? stageRanks[0] : Infinity;
+    const isActive = (mIdx: number) => machineRank[mIdx] <= stageUpTo;
+    const clearInactive = () => {
+        for (let mIdx = 0; mIdx < machineCount; mIdx++) {
+            if (isActive(mIdx)) continue;
+            const b = currentBoards[mIdx];
+            for (let c = 0; c < CELLS; c++) if (b[c] >= 0 && !fixed[b[c]]) b[c] = EMPTY;
+            currentStats[mIdx] = score(b);
+        }
+    };
+    clearInactive();
     scoreInto(epochTiers, (m) => currentStats[m], (m) => currentBoards[m], params, true);
     const switchTargetsOn = () => {
         for (const [mIdx, t] of lateTargets) params[mIdx].target[1] = t;
@@ -788,6 +820,11 @@ export const runOptimizationEngine = async (
         return orders.length > 0;
     };
     const applyOrder = (order: StallOrder) => {
+        if (order.stage) {
+            const next = stageRanks.find(r => r > stageUpTo);
+            if (next !== undefined) stageUpTo = next;
+            return;
+        }
         if (order.mIdx < 0) {
             switchTargetsOn();
         } else if (order.ease !== undefined) {
@@ -912,7 +949,10 @@ export const runOptimizationEngine = async (
         } else if (STALL) {
             stall.observe(bestTiers);
             // Easing comes after EASE_STALL of the stall time, relaxing a target after RELAX_STALL (see solver/stall.ts)
-            if (stall.due(EASE_STALL)) relaxed = relaxLowestTarget();
+            if (stall.due(EASE_STALL)) {
+                const next = stageRanks.find(r => r > stageUpTo);
+                if (next !== undefined) { stageUpTo = next; relaxed = true; } else relaxed = relaxLowestTarget();
+            }
         }
         const pr = promoted.current;
         if (pr && statOf(params[pr.mIdx], bestStats[pr.mIdx], pr.s) >= pr.v) promoted.current = null;
@@ -925,6 +965,7 @@ export const runOptimizationEngine = async (
                 currentBoards[mIdx].set(bestBoards[mIdx]);
                 currentStats[mIdx] = bestStats[mIdx];
             }
+            clearInactive();
             epochTiers.fill(-Infinity);
         }
     };
@@ -996,6 +1037,7 @@ export const runOptimizationEngine = async (
     const relayoutPieces: number[] = [];
     const tryRelayout = () => {
         const k = Math.floor(Math.random() * machineCount);
+        if (!isActive(k)) return false;
         beginMove([k]);
         const board = testBoards[k];
         relayoutPieces.length = 0;
@@ -1057,6 +1099,7 @@ export const runOptimizationEngine = async (
     const tryWindow = () => {
         if (windowMachines.length === 0) return false;
         const k = windowMachines[Math.floor(Math.random() * windowMachines.length)];
+        if (!isActive(k)) return false;
         beginMove([k]);
         const board = testBoards[k];
         const [ww, wh] = WINDOWS[Math.floor(Math.random() * WINDOWS.length)];
@@ -1307,6 +1350,7 @@ export const runOptimizationEngine = async (
         while (improved) {
             improved = false;
             for (let k = 0; k < machineCount && !improved; k++) {
+                if (!isActive(k)) continue;
                 for (let s = 0; s < 3 && !improved; s++) {
                     const target = params[k].target[s];
                     if (params[k].ignored[s] || target === null) continue;
@@ -1337,10 +1381,10 @@ export const runOptimizationEngine = async (
             if (!special) {
             // One random board per iteration; a stagnant set rebuilds every board at once, the only step that can make a coordinated swap
             const rebuildAll = isStagnant && machineCount > 1;
-            const targetMIdx = promoted.current && Math.random() < PROMOTE ? promoted.current.mIdx : pickMachine();
+            const targetMIdx = promoted.current && Math.random() < PROMOTE && isActive(promoted.current.mIdx) ? promoted.current.mIdx : pickMachine();
             rebuiltMachines.length = 0;
             if (rebuildAll) {
-                for (let mIdx = 0; mIdx < machineCount; mIdx++) rebuiltMachines.push(mIdx);
+                for (let mIdx = 0; mIdx < machineCount; mIdx++) if (isActive(mIdx)) rebuiltMachines.push(mIdx);
                 shuffle(rebuiltMachines);
             } else {
                 rebuiltMachines.push(targetMIdx);
@@ -1614,6 +1658,7 @@ export const runOptimizationEngine = async (
                         currentBoards[mIdx].set(bestBoards[mIdx]);
                         currentStats[mIdx] = bestStats[mIdx];
                     }
+                    clearInactive();
                     // Now and then one board goes back to its initial state, minus what the others have taken since
                     if (++restarts % FRESH_START_EVERY === 0) {
                         const k = Math.floor(Math.random() * machineCount);

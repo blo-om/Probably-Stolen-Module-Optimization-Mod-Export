@@ -163,6 +163,11 @@ export const runParallelEngine = async (
     // Every order so far, for a search that starts late (see migration)
     const sent: { order: StallOrder; gen: number }[] = [];
     let lateTargets = giveUp && machines.some(m => m.water && (m.targetStats.Quality ?? null) !== null);
+    // Benchmarks only: sees every new record (the display shows only some)
+    const onRecord: ((updates: Updates, tiers: number[]) => void) | undefined = (globalThis as any).__onRecord;
+    // Staging (engine.ts STAGED): each stall brings the next priority group in before anything is given up, in every search at once
+    const machineRank = machines.map(m => Math.min(...STATS.filter(k => !m.ignoreStats?.[k]).map(k => m.statPriority?.[k] ?? 1)));
+    let stagesLeft = giveUp ? new Set(machineRank).size - 1 : 0;
     const stall = createStallClock(Date.now);
     // One per worker: the search running in it (replaced when it migrates), whether it has finished, and its own best report and when it came
     type Slot = { worker: Worker | null; done: boolean; ownBest: number[] | null; ownAt: number };
@@ -174,7 +179,7 @@ export const runParallelEngine = async (
         const record = bestUpdates;
         if (!record) return;
         // The first give-up switches the water farms' Purity targets on in every search (see engine.ts lateTargets)
-        const orders = lateTargets ? (lateTargets = false, [{ mIdx: -1, s: -1 }]) : stallOrders(machines, targets, maximize, (mIdx, s) => {
+        const orders: StallOrder[] = stagesLeft > 0 ? (stagesLeft--, [{ mIdx: -2, s: -1, stage: true }]) : lateTargets ? (lateTargets = false, [{ mIdx: -1, s: -1 }]) : stallOrders(machines, targets, maximize, (mIdx, s) => {
             const m = machines[mIdx];
             // The machine's own layout's totals: the shown ones are ordered among identical machines (best first), but each search holds
             // a machine to what its own layout reached, so a step taken from a reordered layout could be one the record does not meet
@@ -247,6 +252,7 @@ export const runParallelEngine = async (
                 best = reply.tiers;
                 bestUpdates = reply.updates;
                 stall.observe(reply.tiers);
+                onRecord?.(reply.updates, reply.tiers);
                 if (awaiting.size === 0 && !lastAwaited) display.offer(rehydrate(reply.updates), reply.tiers);
             }
             if (lastAwaited) endWait();
