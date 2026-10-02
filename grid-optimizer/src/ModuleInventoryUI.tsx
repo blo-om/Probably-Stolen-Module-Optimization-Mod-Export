@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -1168,29 +1168,57 @@ export default function ModuleInventoryUI() {
         }, 150);
     }, []);
 
+    const WINE_PER_AGEWELL = 6;
+    const PURIFIER_BASE_REMOVAL = 25;
     /* Store stats at the top of the page, from the boards as they stand:
      *   water     what every Moisture Farm makes a day, by grade, and what it is worth (moistureFarmOutput)
      *   attract   last night's base attractiveness from the save plus the best Mirage Projector's 100 + Performance + Quality
      *             (projectors do not stack: the game takes the highest)
      *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
      *             (alarms do not stack either)
-     *   ingots    a Furnace smelts 1 ingot a day, 2 with a Blast module on its board
+     *   ingots    a Furnace smelts 1 ingot a day from 2 sources (scrap or ore), a Blast module makes it 2 from 3; each full 100%
+     *             Quality lifts the ingot one purity stage, Blast takes one off (never below 0)
+     *   power     every machine's energy a day (statUnit Efficiency: the game's rule per machine, AgeWell with its Performance)
+     *   wine      an AgeWell holds 6 bottles and ages them 1 day a night, +1 per full 125% Quality
+     *   cleaning  a Water Purifier removes 2 ml heavy metals, 3 ml chemicals and 5 ml each of organic waste, microbes, physical and
+     *             minerals a day, 25 ml in all, times (1 + Performance / 100) on clean-ish water (dirtier water is worked faster, and
+     *             nothing goes below the purity floor), so this is the rate on water above 96%
+     *   work      a Desequencer decodes 33 + 33 * Performance / 100 work a day (desequencerSpeed)
      */
     const storeStats = useMemo(() => {
         let water = 0, farms = 0, projector: number | null = null, stop: number | null = null;
         const mlByGrade = new Map<string, number>();
-        let ingots = 0, furnaces = 0;
+        let ingots = 0, furnaces = 0, sources = 0;
+        const ingotsByStage = new Map<number, number>();
+        let power = 0, powered = 0, agewells = 0, agingDays = 0, purifiers = 0, cleaning = 0, desequencers = 0, work = 0;
         for (const { id } of machines) {
             const card = machinesRef.current[id];
             if (!card) continue;
             const state = card.getState();
             const kind: string = state.machineKind ?? state.machineType ?? '';
-            const farm = isMoistureFarm(kind), mirage = isMirage(kind), alarm = kind.toLowerCase().includes('alarm');
-            const furnace = kind.toLowerCase().includes('furnace');
-            if (!farm && !mirage && !alarm && !furnace) continue;
+            const name = kind.toLowerCase();
+            const farm = isMoistureFarm(kind), mirage = isMirage(kind), alarm = name.includes('alarm');
+            const furnace = name.includes('furnace');
             const board = card.getBoard();
             const { totals } = calculateBoardStats(board, expandedInventory);
             const p = Math.trunc(totals.Performance), q = Math.trunc(totals.Quality);
+            const energy = statUnit(kind, 'Efficiency');
+            if (energy) {
+                power += energy.fromPercent(isAgeWell(kind) ? totals.Efficiency + totals.Performance : totals.Efficiency, totals);
+                powered++;
+            }
+            if (isAgeWell(kind)) {
+                agewells++;
+                agingDays += WINE_PER_AGEWELL * (1 + Math.floor(Math.max(0, q) / 125));
+            }
+            if (name.includes('water purifier')) {
+                purifiers++;
+                cleaning += PURIFIER_BASE_REMOVAL * Math.max(0, 1 + p / 100);
+            }
+            if (isDesequencer(kind)) {
+                desequencers++;
+                work += desequencerSpeed(p);
+            }
             if (farm) {
                 const out = moistureFarmOutput(p, q);
                 water += out.value;
@@ -1203,11 +1231,15 @@ export default function ModuleInventoryUI() {
                 const blast = board.some((row: any[]) => row.some(c => c && c !== 'Locked' && c.displayName.includes('(Blast)')));
                 furnaces++;
                 ingots += blast ? 2 : 1;
+                sources += blast ? 3 : 2;
+                const stages = Math.max(0, Math.floor(Math.max(0, q) / 100) - (blast ? 1 : 0));
+                ingotsByStage.set(stages, (ingotsByStage.get(stages) ?? 0) + (blast ? 2 : 1));
             }
         }
         let base: number | null = null;
         try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
-        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces };
+        return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces,
+            sources, ingotsByStage, power, powered, agewells, agingDays, purifiers, cleaning: Math.round(cleaning * 10) / 10, desequencers, work };
     }, [boardVersion, machines, expandedInventory]);
 
     const unusedModules = useMemo(() => {
@@ -2061,7 +2093,52 @@ export default function ModuleInventoryUI() {
                             `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: 1 ingot a day each, 2 with a Blast module`,
                         ].join('\n')}>
                             <span className="store-stat-label">Ingots a day</span>
-                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}</span>
+                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit"> from {storeStats.sources} sources</span></span>
+                        </div>
+                    )}
+                    {storeStats.furnaces > 0 && (
+                        <div className="store-stat" title={[
+                            'Ingots a day by how many purity stages they gain over their sources:',
+                            'every full 100% Quality is one stage up (Low, Fair, High, Very high, Perfect); a Blast module takes one off.',
+                            'Base purity: 2 scrap Low, scrap + ore Fair, 2 ore High (Blast: 3 sources, ores count the same way)',
+                        ].join('\n')}>
+                            <span className="store-stat-grades" style={{ gridTemplateRows: `repeat(${Math.min(3, Math.max(1, storeStats.ingotsByStage.size))}, 1.3em)` }}>
+                                {[...storeStats.ingotsByStage.entries()].sort((a, b) => b[0] - a[0]).map(([stages, n]) => (
+                                    <span key={stages}>{stages === 0 ? 'Base purity' : `+${stages} purity`} <b>{n}</b></span>
+                                ))}
+                            </span>
+                        </div>
+                    )}
+                    {storeStats.agewells > 0 && (
+                        <div className="store-stat" title={[
+                            `${storeStats.agewells} AgeWell${storeStats.agewells === 1 ? '' : 's'}, ${WINE_PER_AGEWELL} bottles each: ${storeStats.agewells * WINE_PER_AGEWELL} bottles`,
+                            `Aging a night over all bottles: ${storeStats.agingDays} days (${storeStats.agewells * WINE_PER_AGEWELL} with no modules, 1 day per bottle;`,
+                            'every full 125% Quality ages each bottle one more day a night)',
+                        ].join('\n')}>
+                            <span className="store-stat-label">Wine</span>
+                            <span className="store-stat-value" style={{ color: '#c25b7f' }}>{storeStats.agewells * WINE_PER_AGEWELL}<span className="store-stat-unit"> bottles · {storeStats.agingDays} aging days / night</span></span>
+                        </div>
+                    )}
+                    {storeStats.purifiers > 0 && (
+                        <div className="store-stat" title={[
+                            `What ${storeStats.purifiers} Water Purifier${storeStats.purifiers === 1 ? '' : 's'} can remove a day from water above 96%:`,
+                            '2 ml heavy metals, 3 ml chemicals, 5 ml each of organic waste, microbes, physical and minerals (25 ml),',
+                            'times 1 + Performance / 100. Dirtier water goes faster; nothing is removed below the purity floor Quality sets',
+                        ].join('\n')}>
+                            <span className="store-stat-label">Contaminants removed</span>
+                            <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit"> ml / day</span></span>
+                        </div>
+                    )}
+                    {storeStats.desequencers > 0 && (
+                        <div className="store-stat" title={`Decoding work a day over ${storeStats.desequencers} Cryptographic Desequencer${storeStats.desequencers === 1 ? '' : 's'}: 33 + 33 × Performance / 100 each (a keycard needs 75 to 150 work by chipset)`}>
+                            <span className="store-stat-label">Desequencer work</span>
+                            <span className="store-stat-value" style={{ color: '#6fa8ff' }}>{storeStats.work}<span className="store-stat-unit"> / day</span></span>
+                        </div>
+                    )}
+                    {storeStats.powered > 0 && (
+                        <div className="store-stat" title={`Energy a day over ${storeStats.powered} machine${storeStats.powered === 1 ? '' : 's'}, by the game's rule for each (Efficiency, and Performance on the AgeWell)`}>
+                            <span className="store-stat-label">Power</span>
+                            <span className="store-stat-value" style={{ color: '#f2d24b' }}>{storeStats.power}<span className="store-stat-unit"> / day</span></span>
                         </div>
                     )}
                     {(storeStats.base !== null || storeStats.projector !== null) && (
