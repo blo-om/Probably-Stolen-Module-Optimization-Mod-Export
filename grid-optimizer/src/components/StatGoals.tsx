@@ -115,6 +115,10 @@ type Props = {
     width?: number;
     // What Auto reads as: 'Max' while Razboy's or hoydoy's solver is picked (solvers/index.ts), whose pages call it that
     autoLabel?: string;
+    /* Max and Target as two toggles rather than a choice, as Razboy's and hoydoy's pages have them (solvers/index.ts): both on is a target
+     * that is reached first and then gone past (limitStats: the target stays, the stat is still maximized). Both off is Off
+     */
+    toggles?: boolean;
 };
 
 type Card = {
@@ -130,6 +134,11 @@ type Card = {
     modes: Mode[];
     mode: Mode;
     choose: (m: Mode) => void;
+    // Toggles (Razboy's and hoydoy's solvers, see Props.toggles): whether Max / Target / Off is on, and flipping one
+    isOn: (m: Mode) => boolean;
+    toggle: (m: Mode) => void;
+    // Opens the target's panel again (toggles only: there, the Target button switches the target off)
+    edit: () => void;
     // What opens under the cards for the mode that takes a value (target or limit); null when this card has nothing open
     panel: React.ReactNode;
     gap: string | null;
@@ -139,7 +148,7 @@ const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', target: 'Target', off: 
 
 // One card per stat (the Mirage Projector's Performance and Quality share one): the stat's name, the result it gives this machine,
 // and its modes in a strip along the bottom. A mode that takes a value opens its choices under the cards
-export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width, autoLabel = 'Auto' }: Props) => {
+export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width, autoLabel = 'Auto', toggles = false }: Props) => {
     const [open, setOpen] = useState<string | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -249,7 +258,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
 
         let panel: React.ReactNode = null;
         if (mode === 'target') {
-            if (energy) {
+            if (energy && !toggles) {
                 panel = (
                     <>
                         <Choice label="Exactly" selected={!limited} title="Reach this and stop spending modules on it" onClick={() => setLimit(stat, false)} disabled={disabled} />
@@ -285,8 +294,31 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             }
         }
 
+        // Toggles: Max is on without a target, or with one that is still gone past (limitStats); Target is on with a target (or the days on Auto)
+        const targetOn = mode === 'target';
+        const maxOn = mode === 'auto' || (targetOn && Boolean(limitStats[stat]));
+        const isOn = (m: Mode) => (m === 'off' ? off : m === 'auto' ? maxOn : targetOn);
+        const toggle = (m: Mode) => {
+            if (m === 'off') { choose('off'); return; }
+            if (off) { setLimit(stat, false); choose(m); return; }
+            if (m === 'auto') {
+                if (!maxOn) { setLimit(stat, true); return; }
+                if (targetOn) setLimit(stat, false);
+                else choose('off');
+                return;
+            }
+            if (targetOn) {
+                if (maxOn) { setLimit(stat, false); choose('auto'); }
+                else choose('off');
+                return;
+            }
+            setLimit(stat, maxOn);
+            choose('target');
+        };
+        const edit = () => { if (targetOn) setOpen(open === stat ? null : stat); };
+
         return {
-            key: stat, name: statName(machineType, stat), result, color, gap, panel, mode, choose,
+            key: stat, name: statName(machineType, stat), result, color, gap, panel, mode, choose, isOn, toggle, edit,
             progress: progress ?? autoProgress,
             barColor: progress === null && autoProgress !== null ? colorFor(autoProgress) : undefined,
             tooltip: autoProgress !== null && nextStep
@@ -313,8 +345,29 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             setTargetStats((prev: any) => ({ ...prev, Quality: null, Performance: m === 'auto' ? null : (prev.Performance ?? Math.max(0, Math.ceil(total))) }));
             setOpen(m === 'target' && !(open === 'attract' && mode === 'target') ? 'attract' : null);
         };
+        const targetOn = mode === 'target';
+        const maxOn = mode === 'auto' || (targetOn && Boolean(limitStats.Performance));
+        const isOn = (m: Mode) => (m === 'off' ? off : m === 'auto' ? maxOn : targetOn);
+        const toggle = (m: Mode) => {
+            if (m === 'off') { choose('off'); return; }
+            if (off) { setLimit('Performance', false); choose(m); return; }
+            if (m === 'auto') {
+                if (!maxOn) { setLimit('Performance', true); return; }
+                if (targetOn) setLimit('Performance', false);
+                else choose('off');
+                return;
+            }
+            if (targetOn) {
+                if (maxOn) { setLimit('Performance', false); choose('auto'); }
+                else choose('off');
+                return;
+            }
+            setLimit('Performance', maxOn);
+            choose('target');
+        };
+        const edit = () => { if (targetOn) setOpen(open === 'attract' ? null : 'attract'); };
         return {
-            key: 'attract', name: 'Attractiveness', result: `${total + MIRAGE_BASE_POINTS} pts`, color, progress, mode, choose,
+            key: 'attract', name: 'Attractiveness', result: `${total + MIRAGE_BASE_POINTS} pts`, color, progress, mode, choose, isOn, toggle, edit,
             gap: target === null || met ? null : `${Math.ceil(target - total)} pts short`,
             tooltip: target !== null ? `${target + MIRAGE_BASE_POINTS} pts${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
             noEffect: false,
@@ -359,7 +412,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                     <span style={{ fontSize: '0.75em', color: C.muted, padding: '8px 0' }}>No effect</span>
                                 ) : (
                                     <>
-                                        <div title={card.tooltip} style={{ fontSize: '1.05em', fontWeight: 'bold', color: card.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <div title={card.tooltip} onClick={toggles && !disabled ? card.edit : undefined}
+                                            style={{ fontSize: '1.05em', fontWeight: 'bold', color: card.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: toggles && card.isOn('target') && !disabled ? 'pointer' : undefined }}>
                                             {card.result}
                                         </div>
                                         {card.progress !== null && (
@@ -373,12 +427,12 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                             {!card.noEffect && (
                                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${card.modes.length}, minmax(0, 1fr))`, borderTop: `1px solid ${C.divider}` }}>
                                     {card.modes.map((m, i) => {
-                                        const on = card.mode === m;
+                                        const on = toggles ? card.isOn(m) : card.mode === m;
                                         return (
                                             <button
                                                 key={m}
                                                 type="button"
-                                                onClick={() => card.choose(m)}
+                                                onClick={() => (toggles ? card.toggle(m) : card.choose(m))}
                                                 disabled={disabled}
                                                 style={{
                                                     padding: '3px 0', fontSize: '0.64em', border: 'none', borderRadius: 0, minWidth: 0,
