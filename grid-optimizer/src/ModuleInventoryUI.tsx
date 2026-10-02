@@ -138,7 +138,7 @@ const MachineInstance = React.memo(forwardRef(({
                                                    canDelete,
                                                    onReorderStart,
                                                    onBoardChange,
-                                                   onStopAll,
+                                                   onStopMachine,
                                                    onToggleLock,
                                                    onRunMachine
                                                }: any, ref) => {
@@ -741,9 +741,7 @@ const MachineInstance = React.memo(forwardRef(({
                         <button
                             onClick={() => {
                                 if (currentSolving) {
-                                    optimizer.stopOptimization();
-                                    onSolvingChange(machineId, false);
-                                    onStopAll();
+                                    onStopMachine(machineId);
                                 } else if (isAnySolving) {
                                     onRunMachine(machineId);
                                 } else {
@@ -1446,6 +1444,19 @@ export default function ModuleInventoryUI() {
     runMachineRef.current = handleRunMachine;
     const onRunMachine = useCallback((id: string) => { runMachineRef.current(id); }, []);
 
+    // Stop on a card: only that machine leaves the solve. The run stops, and the machines still running carry on together from their
+    // layouts as they are (one joint run, or a single machine's own run if one is left), the stopped one keeping its layout and modules
+    const handleStopMachine = async (id: string) => {
+        const remaining = Object.entries(solvingRef.current).filter(([k, on]) => on && k !== id).map(([k]) => k);
+        stopAll();
+        if (remaining.length === 0) return;
+        for (let i = 0; i < 200 && Object.values(solvingRef.current).some(Boolean); i++) await new Promise(r => setTimeout(r, 50));
+        await runJoint(remaining);
+    };
+    const stopMachineRef = useRef(handleStopMachine);
+    stopMachineRef.current = handleStopMachine;
+    const onStopMachine = useCallback((id: string) => { stopMachineRef.current(id); }, []);
+
     // Reordering cards (= priority): press on a card's header and drag. The card lifts and follows the pointer,
     // the other cards slide aside live as it passes over them, and it settles into its slot on release.
     // Positions are animated with FLIP: remember where every slot was, reorder, then let each card glide from
@@ -2112,7 +2123,7 @@ export default function ModuleInventoryUI() {
                             canDelete={machines.length > 1}
                             onReorderStart={handleSortStart}
                             onBoardChange={handleBoardChange}
-                            onStopAll={stopAll}
+                            onStopMachine={onStopMachine}
                             onToggleLock={handleToggleLock}
                             onRunMachine={onRunMachine}
                         />
