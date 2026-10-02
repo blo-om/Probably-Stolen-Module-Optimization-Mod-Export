@@ -4,6 +4,7 @@ import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
+import { StatPriorities } from './components/StatPriorities';
 import type { Stats, GridTier, InventoryItem, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP } from './constants';
 import { formatStatValue, getStatColor, PRECOMPUTED_OFFSETS } from './utils';
@@ -140,7 +141,8 @@ const MachineInstance = React.memo(forwardRef(({
                                                    onBoardChange,
                                                    onStopMachine,
                                                    onToggleLock,
-                                                   onRunMachine
+                                                   onRunMachine,
+                                                   solverKind
                                                }: any, ref) => {
     // Machine state loading handles fallback defaults from localStorage automatically
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
@@ -745,6 +747,16 @@ const MachineInstance = React.memo(forwardRef(({
                         setLimitStats={setLimitStats}
                         width={(7 * cellSize + 22) / 0.8}
                     />
+                    {solverKind !== 'bloom' && (
+                        <StatPriorities
+                            machineType={typeKey}
+                            statPriority={optimizer.statPriority}
+                            setStatPriority={optimizer.setStatPriority}
+                            ignoreStats={optimizer.ignoreStats}
+                            disabled={currentSolving}
+                            width={(7 * cellSize + 22) / 0.8}
+                        />
+                    )}
 
                     <div style={{ display: 'flex', gap: '5px', width: '100%' }}>
                         <button
@@ -2162,6 +2174,7 @@ export default function ModuleInventoryUI() {
                             onReorderStart={handleSortStart}
                             onBoardChange={handleBoardChange}
                             onStopMachine={onStopMachine}
+                            solverKind={solverKind}
                             onToggleLock={handleToggleLock}
                             onRunMachine={onRunMachine}
                         />
