@@ -1175,8 +1175,7 @@ export default function ModuleInventoryUI() {
      *             (projectors do not stack: the game takes the highest)
      *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
      *             (alarms do not stack either)
-     *   ingots    a Furnace smelts 1 ingot a day from 2 sources (scrap or ore), a Blast module makes it 2 from 3; each full 100%
-     *             Quality lifts the ingot one purity stage, Blast takes one off (never below 0)
+     *   ingots    a Furnace smelts 1 ingot a day from 2 mats (scrap or ore), a Blast module makes it 2 from 3
      *   power     every machine's energy a day (statUnit Efficiency: the game's rule per machine, AgeWell with its Performance)
      *   wine      an AgeWell holds 6 bottles and ages them 1 day a night, +1 per full 125% Quality; shown is what the modules add
      *             a night with every AgeWell full (6 bottles x its extra days)
@@ -1188,7 +1187,6 @@ export default function ModuleInventoryUI() {
         let water = 0, farms = 0, projector: number | null = null, stop: number | null = null;
         const mlByGrade = new Map<string, number>();
         let ingots = 0, furnaces = 0, sources = 0;
-        const ingotsByStage = new Map<number, number>();
         let power = 0, powered = 0, agewells = 0, agingDays = 0, purifiers = 0, cleaning = 0, desequencers = 0, work = 0;
         for (const { id } of machines) {
             const card = machinesRef.current[id];
@@ -1231,14 +1229,12 @@ export default function ModuleInventoryUI() {
                 furnaces++;
                 ingots += blast ? 2 : 1;
                 sources += blast ? 3 : 2;
-                const stages = Math.max(0, Math.floor(Math.max(0, q) / 100) - (blast ? 1 : 0));
-                ingotsByStage.set(stages, (ingotsByStage.get(stages) ?? 0) + (blast ? 2 : 1));
             }
         }
         let base: number | null = null;
         try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
         return { water: Math.round(water), farms, mlByGrade, projector, base, theft: 100 - (stop ?? 0), alarms: stop !== null, ingots, furnaces,
-            sources, ingotsByStage, power, powered, agewells, agingDays, purifiers, cleaning: Math.round(cleaning * 100) / 100, desequencers, work };
+            sources, power, powered, agewells, agingDays, purifiers, cleaning: Math.round(cleaning * 100) / 100, desequencers, work };
     }, [boardVersion, machines, expandedInventory]);
 
     const unusedModules = useMemo(() => {
@@ -1881,11 +1877,18 @@ export default function ModuleInventoryUI() {
                 .toolbar {
                     flex-wrap: nowrap;
                 }
-                .toolbar .store-stats {
+                .toolbar .store-stats-area {
                     flex: 1 1 0;
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px 22px;
+                    min-width: 0;
+                    container-type: inline-size;
+                }
+                .toolbar .store-stats {
+                    display: grid;
+                    grid-template-rows: auto auto;
+                    grid-auto-flow: column;
+                    grid-auto-columns: max-content;
+                    justify-content: start;
+                    gap: 8px 18px;
                     align-items: center;
                     min-width: 0;
                     min-height: 3.6em;
@@ -1893,6 +1896,7 @@ export default function ModuleInventoryUI() {
                 .toolbar .store-stat {
                     display: flex;
                     flex-direction: column;
+                    white-space: nowrap;
                     line-height: 1.25;
                     cursor: help;
                 }
@@ -1913,23 +1917,25 @@ export default function ModuleInventoryUI() {
                     font-weight: normal;
                 }
                 .toolbar .store-stat-grades {
-                    display: grid;
-                    grid-auto-flow: column;
-                    column-gap: 16px;
-                    height: 3.9em;
-                    align-content: center;
+                    display: flex;
+                    gap: 8px;
+                    align-items: baseline;
                     font-size: 0.75em;
-                    line-height: 1.3em;
+                    line-height: 1.6em;
                     color: #aaa;
                     white-space: nowrap;
+                }
+                .toolbar .store-stat-grades b {
+                    font-size: 1.25em;
                 }
                 .toolbar .store-stat-grades b {
                     color: #ddd;
                     font-variant-numeric: tabular-nums;
                 }
                 .toolbar .toolbar-buttons {
-                    flex: 0 1 auto;
-                    max-width: 50%;
+                    flex: 0 0 auto;
+                    box-sizing: border-box;
+                    width: clamp(480px, 40%, 600px);
                     display: flex;
                     flex-wrap: wrap;
                     gap: 10px;
@@ -1951,14 +1957,27 @@ export default function ModuleInventoryUI() {
                     text-transform: uppercase;
                     letter-spacing: 0.04em;
                 }
+                @container (max-width: 740px) {
+                    .toolbar .store-stats {
+                        grid-template-rows: auto auto auto;
+                    }
+                }
+                @container (max-width: 560px) {
+                    .toolbar .store-stats {
+                        display: flex;
+                        flex-wrap: wrap;
+                    }
+                }
                 @media (max-width: 700px) {
                     .toolbar {
                         flex-wrap: wrap;
                     }
+                    .toolbar .store-stats-area {
+                        flex-basis: 100%;
+                    }
                     .toolbar .store-stats, .toolbar .toolbar-buttons {
                         justify-content: center;
                         width: 100%;
-                        max-width: none;
                         margin-left: 0;
                         padding-left: 0;
                         border-left: none;
@@ -2094,6 +2113,7 @@ export default function ModuleInventoryUI() {
                 display: 'flex', gap: '15px', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', marginBottom: '16px', width: '100%',
                 boxSizing: 'border-box', position: 'sticky', top: 0, zIndex: 100, backgroundColor: '#111', boxShadow: '0 6px 10px -6px rgba(0, 0, 0, 0.8)'
             }}>
+                <div className="store-stats-area">
                 <div className="store-stats">
                     {storeStats.farms > 0 && (
                         <div className="store-stat" title={[
@@ -2107,10 +2127,12 @@ export default function ModuleInventoryUI() {
                     )}
                     {storeStats.farms > 0 && (
                         <div className="store-stat" title="Water made a day by all Moisture Farms, by grade">
-                            <span className="store-stat-grades" style={{ gridTemplateRows: `repeat(${Math.min(3, Math.max(1, storeStats.mlByGrade.size))}, 1.3em)` }}>
+                            <span className="store-stat-label">Water production</span>
+                            <span className="store-stat-grades">
                                 {WATER_GRADES.slice().reverse().filter(g => storeStats.mlByGrade.has(g.name)).map(g => (
-                                    <span key={g.name}>{g.name} <b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} ml</b></span>
+                                    <span key={g.name}>{g.name} <b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()}</b></span>
                                 ))}
+                                <span>ml / day</span>
                             </span>
                         </div>
                     )}
@@ -2120,20 +2142,7 @@ export default function ModuleInventoryUI() {
                             'A Furnace makes 1 ingot from 2 sources, with a Blast module 2 from 3',
                         ].join('\n')}>
                             <span className="store-stat-label">Ingots a day</span>
-                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit"> from {storeStats.sources}</span></span>
-                        </div>
-                    )}
-                    {storeStats.furnaces > 0 && (
-                        <div className="store-stat" title={[
-                            'Ingots a day by how many purity stages they gain over their sources:',
-                            'every full 100% Quality is one stage up (Low, Fair, High, Very high, Perfect); a Blast module takes one off.',
-                            'Base purity: 2 scrap Low, scrap + ore Fair, 2 ore High (Blast: 3 sources, ores count the same way)',
-                        ].join('\n')}>
-                            <span className="store-stat-grades" style={{ gridTemplateRows: `repeat(${Math.min(3, Math.max(1, storeStats.ingotsByStage.size))}, 1.3em)` }}>
-                                {[...storeStats.ingotsByStage.entries()].sort((a, b) => b[0] - a[0]).map(([stages, n]) => (
-                                    <span key={stages}>{stages === 0 ? 'Base purity' : `+${stages} purity`} <b>{n}</b></span>
-                                ))}
-                            </span>
+                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit"> from {storeStats.sources} mats</span></span>
                         </div>
                     )}
                     {storeStats.agewells > 0 && (
@@ -2146,7 +2155,7 @@ export default function ModuleInventoryUI() {
                             <span className="store-stat-label">Wine</span>
                             <span className="store-stat-value" style={{ color: '#c25b7f' }}>
                                 {storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL}
-                                <span className="store-stat-words"><span>extra</span><span>days</span><span>max</span><span>capacity</span></span>
+                                <span className="store-stat-words"><span>extra days at</span><span>max capacity</span></span>
                             </span>
                         </div>
                     )}
@@ -2162,7 +2171,7 @@ export default function ModuleInventoryUI() {
                     )}
                     {storeStats.desequencers > 0 && (
                         <div className="store-stat" title={`Decoding work a day over ${storeStats.desequencers} Cryptographic Desequencer${storeStats.desequencers === 1 ? '' : 's'}: 33 + 33 × Performance / 100 each (a keycard needs 75 to 150 work by chipset)`}>
-                            <span className="store-stat-label">Desequencer work</span>
+                            <span className="store-stat-label">Desequencer</span>
                             <span className="store-stat-value" style={{ color: '#6fa8ff' }}>{storeStats.work}<span className="store-stat-unit"> / day</span></span>
                         </div>
                     )}
@@ -2193,6 +2202,7 @@ export default function ModuleInventoryUI() {
                             <span className="store-stat-value" style={{ color: storeStats.theft > 0 ? '#ff4d4d' : '#4caf50' }}>{storeStats.theft}%</span>
                         </div>
                     )}
+                </div>
                 </div>
                 <div className="toolbar-buttons">
                 <button
