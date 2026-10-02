@@ -43,6 +43,19 @@ const MAX_DRAWS = 192;
 const REPACK_ONE_IN = 4;
 const REPACK_STEP_LIMIT = 1024;
 
+/* Window repack: one iteration in WINDOW_ONE_IN takes every piece touching a small window of one board (3x3, 2x4 or 4x2) off and tries every
+ * way of putting the same pieces back into the cells that freed (up to WINDOW_LEAVES complete arrangements), keeping the best for that machine.
+ * A rebuild puts pieces back one at a time, each at its best cell, so a better arrangement that needs several to move together (a Node
+ * between two other modules, two pieces trading places) is out of its reach. On 12 Moisture Farms from empty boards with all of save_14's
+ * modules (4 min, single search) the water reached 97,000 in 3 runs of 6 against none of 7, the average best 96,257 against 94,000;
+ * the whole save (33 machines, 120 s, 7 runs a side) made 89,437 credits of water against 86,400, the other machines about level
+ * (AgeWells 1,625 against 1,696). Farms only: on every machine it lost to the plain search on the 11-machine target scenarios.
+ * 1 in 2 or 1 in 8 did worse, and so did 1,000 or 15,000 leaves, or letting spare modules from the pool join in
+ */
+const WINDOW_ONE_IN = 5;
+const WINDOW_LEAVES = 4000;
+const WINDOWS = [[3, 3], [3, 3], [2, 4], [4, 2]];
+
 // How much of a target's pull on the draw survives once the board already meets it; never zero, or a met target could not be defended
 const TARGET_MET_DRAW_SCALE = 0.25;
 
@@ -153,6 +166,7 @@ type Scored = Totals & { tb: number; tbGen: number };
  *   repackOneIn      REPACK_ONE_IN
  *   swapOneIn        one iteration in so many is a same-shape swap instead of a rebuild (0: never; default 6)
  *   relayoutOneIn    one iteration in so many re-lays one board's own modules in a new order instead of a rebuild (0: never)
+ *   windowOneIn      WINDOW_ONE_IN (0: never)
  *   ease             Auto stats with breakpoints may be eased when the search stalls (see StallOrder; 0: never). On by default: on
  *                    all-Auto A/B scenarios (12 runs a side, 20 s, scored by the step each stat reaches in the game) the total rose 2-7%,
  *                    the priority order held level, and targets elsewhere were met as often or more
@@ -169,6 +183,7 @@ export type EngineTuning = {
     repackOneIn?: number;
     swapOneIn?: number;
     relayoutOneIn?: number;
+    windowOneIn?: number;
     polish?: number;
     ease?: number;
     waterAim?: number;
@@ -280,6 +295,7 @@ export const runOptimizationEngine = async (
     // On by default: measured better or level on every benchmark scenario at 1 in 6 (1 in 3 cost the all-Auto case)
     const SWAP_EVERY = tuning.swapOneIn ?? 6;
     const RELAYOUT_EVERY = tuning.relayoutOneIn ?? 0;
+    const WINDOW_EVERY = tuning.windowOneIn ?? WINDOW_ONE_IN;
     const POLISH = tuning.polish ?? 1;
     const EASE = tuning.ease ?? 1;
     const STALL = tuning.stall ?? 1;
@@ -752,8 +768,12 @@ export const runOptimizationEngine = async (
     const lateTargets: [number, number][] = [];
     if (machineCount > 1 && (relaxOrders || STALL)) {
         params.forEach((p, mIdx) => { if (p.water && p.target[1] !== null) { lateTargets.push([mIdx, p.target[1]]); p.target[1] = null; } });
-        if (lateTargets.length > 0) { tbGen++; scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]); }
+        if (lateTargets.length > 0) tbGen++;
     }
+    // The boards it starts from are the record to beat and the first step to climb from: at -Infinity the first move always counted as an
+    // improvement, so a run started on an optimized arrangement replaced it at once with whatever one rebuild of it made, and went on from there
+    scoreInto(bestTiers, (m) => bestStats[m], (m) => bestBoards[m]);
+    scoreInto(epochTiers, (m) => currentStats[m], (m) => currentBoards[m], params, true);
     const switchTargetsOn = () => {
         for (const [mIdx, t] of lateTargets) params[mIdx].target[1] = t;
         lateTargets.length = 0;
@@ -1002,6 +1022,114 @@ export const runOptimizationEngine = async (
         return true;
     };
 
+    // Window repack (see WINDOW_ONE_IN)
+    const windowPieces: number[] = [];
+    const windowUsed = new Uint8Array(CELLS);
+    const windowFree: number[] = [];
+    const windowBest = new Int16Array(CELLS);
+    // Each orientation's first cell in reading order: a piece covering the first free cell has that cell as its first
+    const firstCell = new Map<Orientation, number>();
+    const firstOf = (o: Orientation) => {
+        let f = firstCell.get(o);
+        if (f === undefined) {
+            f = 0;
+            for (let i = 1; i < o.count; i++) if (o.ys[i] < o.ys[f] || (o.ys[i] === o.ys[f] && o.xs[i] < o.xs[f])) f = i;
+            firstCell.set(o, f);
+        }
+        return f;
+    };
+    // What one machine's board is worth for the repack to choose by: targets first, then the maximized stats (water with its progress)
+    const machineWorth = (k: number, t: Totals) => {
+        const p = params[k];
+        let v = 0;
+        for (let s = 0; s < 3; s++) {
+            if (p.ignored[s]) continue;
+            const x = statOf(p, t, s);
+            const target = p.target[s];
+            if (target !== null && x < target) v -= (target - x) * 1000;
+            if (p.maximize[s]) v += maximizedWorth(p, x, s) * 10;
+        }
+        if (p.water && p.maximize[0]) v += waterProgress(p.capP !== undefined ? Math.min(t.p, p.capP) : t.p, waterQuality(p, t.q)) * 10;
+        return v;
+    };
+    // Water farms only: on the 11-machine target scenarios windows on every machine lost to the plain search (the gain is on the farms)
+    const windowMachines = params.flatMap((p, mIdx) => (p.water ? [mIdx] : []));
+    const tryWindow = () => {
+        if (windowMachines.length === 0) return false;
+        const k = windowMachines[Math.floor(Math.random() * windowMachines.length)];
+        beginMove([k]);
+        const board = testBoards[k];
+        const [ww, wh] = WINDOWS[Math.floor(Math.random() * WINDOWS.length)];
+        const wx = Math.floor(Math.random() * (8 - ww)), wy = Math.floor(Math.random() * (6 - wh));
+        windowPieces.length = 0;
+        const g = ++itemGen;
+        for (let y = wy; y < wy + wh; y++) for (let x = wx; x < wx + ww; x++) {
+            const a = board[y * 7 + x];
+            if (a < 0 || fixed[a] || itemStamp[a] === g) continue;
+            itemStamp[a] = g;
+            windowPieces.push(a);
+        }
+        if (windowPieces.length < 2) return false;
+        for (let c = 0; c < CELLS; c++) if (board[c] >= 0 && itemStamp[board[c]] === g) board[c] = EMPTY;
+        windowFree.length = 0;
+        for (let c = 0; c < CELLS; c++) if (board[c] === EMPTY) windowFree.push(c);
+        shuffle(windowPieces);
+        let need = 0;
+        for (const a of windowPieces) need += core.size[a];
+        // Cells that may stay empty: as many as stay empty with every piece back, so every piece goes back
+        const slack = windowFree.length - need;
+        let leaves = 0;
+        let bestWorth = -Infinity;
+        windowUsed.fill(0);
+        // Covers the first free cell with each unused piece in each orientation (or leaves it empty while slack lasts), then the next
+        const search = (fi: number, skips: number) => {
+            while (fi < windowFree.length && board[windowFree[fi]] !== EMPTY) fi++;
+            if (fi === windowFree.length) {
+                leaves++;
+                const v = machineWorth(k, core.boardTotals(board));
+                if (v > bestWorth) { bestWorth = v; windowBest.set(board); }
+                return;
+            }
+            const c = windowFree[fi];
+            const cx = c % 7, cy = (c - cx) / 7;
+            // Interchangeable modules make the same boards: one of each class is tried at each cell
+            const seen: number[] = [];
+            for (let i = 0; i < windowPieces.length; i++) {
+                if (windowUsed[i]) continue;
+                const a = windowPieces[i];
+                if (seen.includes(classOf[a])) continue;
+                seen.push(classOf[a]);
+                for (const o of core.orientations[a]!) {
+                    const f = firstOf(o);
+                    const x = cx - o.xs[f], y = cy - o.ys[f];
+                    if (x + o.minX < 0 || x + o.maxX > 6 || y + o.minY < 0 || y + o.maxY > 4) continue;
+                    let fits = true;
+                    for (let j = 0; j < o.count && fits; j++) fits = board[(y + o.ys[j]) * 7 + x + o.xs[j]] === EMPTY;
+                    if (!fits) continue;
+                    for (let j = 0; j < o.count; j++) board[(y + o.ys[j]) * 7 + x + o.xs[j]] = a;
+                    windowUsed[i] = 1;
+                    search(fi + 1, skips);
+                    windowUsed[i] = 0;
+                    for (let j = 0; j < o.count; j++) board[(y + o.ys[j]) * 7 + x + o.xs[j]] = EMPTY;
+                    if (leaves >= WINDOW_LEAVES) return;
+                }
+            }
+            if (skips < slack) {
+                board[c] = LOCKED;
+                search(fi + 1, skips + 1);
+                board[c] = EMPTY;
+            }
+        };
+        search(0, 0);
+        // The arrangement it started from is one of those tried, unless the leaf limit came first
+        if (bestWorth === -Infinity) board.set(currentBoards[k]);
+        else {
+            board.set(windowBest);
+            for (const c of windowFree) if (board[c] === LOCKED) board[c] = EMPTY;
+        }
+        return true;
+    };
+
     /* Near-target polish: when the record misses a target by a little, the last points usually need one exact exchange (this module
      * for that one, one out and two in) that random rebuilds rarely hit. So once per new record, each target missed by at most
      * POLISH_NEAR of its size gets a systematic look on its own board:
@@ -1203,7 +1331,8 @@ export const runOptimizationEngine = async (
 
             const special = !isStagnant && (
                 (SWAP_EVERY > 0 && Math.random() * SWAP_EVERY < 1 && trySwap()) ||
-                (RELAYOUT_EVERY > 0 && Math.random() * RELAYOUT_EVERY < 1 && tryRelayout())
+                (RELAYOUT_EVERY > 0 && Math.random() * RELAYOUT_EVERY < 1 && tryRelayout()) ||
+                (WINDOW_EVERY > 0 && Math.random() * WINDOW_EVERY < 1 && tryWindow())
             );
             if (!special) {
             // One random board per iteration; a stagnant set rebuilds every board at once, the only step that can make a coordinated swap
