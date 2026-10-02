@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -258,11 +258,14 @@ const MachineInstance = React.memo(forwardRef(({
         const next = { Performance: false, Quality: false, Efficiency: false };
         let changed = false;
         for (const key of ['Performance', 'Quality', 'Efficiency'] as const) {
-            next[key] = !optimizer.ignoreStats[key] && (optimizer.targetStats[key] === null || limitStats[key]);
+            // A target that is still gone past: energy's At most on this site's solver; any stat with Max and Target both on for Razboy's and
+            // hoydoy's (their toggles), so this site's solver keeps the goals its own cards show
+            const limit = limitStats[key] && (solverKind !== 'bloom' || Boolean(statUnit(typeKey, key)?.lowerIsBetter));
+            next[key] = !optimizer.ignoreStats[key] && (optimizer.targetStats[key] === null || limit);
             if (Boolean(optimizer.maximizeStats[key]) !== next[key]) changed = true;
         }
         if (changed) optimizer.setMaximizeStats(next);
-    }, [optimizer.ignoreStats, optimizer.targetStats, optimizer.maximizeStats, limitStats]);
+    }, [optimizer.ignoreStats, optimizer.targetStats, optimizer.maximizeStats, limitStats, solverKind, typeKey]);
 
     useEffect(() => {
         if (machineType !== 'Select Machine...') {
@@ -747,6 +750,7 @@ const MachineInstance = React.memo(forwardRef(({
                         setLimitStats={setLimitStats}
                         width={(7 * cellSize + 22) / 0.8}
                         autoLabel={solverKind !== 'bloom' ? 'Max' : 'Auto'}
+                        toggles={solverKind !== 'bloom'}
                     />
                     {solverKind !== 'bloom' && (
                         <StatPriorities
