@@ -1438,6 +1438,11 @@ export default function ModuleInventoryUI() {
             stopAll();
             return;
         }
+        // hoydoy's solver (solvers/index.ts) as on his site: every unlocked card starts its own search, each kept off what the others hold
+        if (readSolver() === 'hoydoy') {
+            machines.forEach(m => { const ref = machinesRef.current[m.id]; if (ref && !ref.isLocked()) ref.runSolo(); });
+            return;
+        }
         await runJoint(machines.map(m => m.id));
     };
 
@@ -1446,6 +1451,8 @@ export default function ModuleInventoryUI() {
     const solvingRef = useRef(solvingStates);
     solvingRef.current = solvingStates;
     const handleRunMachine = async (id: string) => {
+        // hoydoy: the card's own search starts next to the others, which carry on undisturbed
+        if (readSolver() === 'hoydoy') { machinesRef.current[id]?.runSolo(); return; }
         const running = Object.entries(solvingRef.current).filter(([, on]) => on).map(([k]) => k);
         stopAll();
         for (let i = 0; i < 200 && Object.values(solvingRef.current).some(Boolean); i++) await new Promise(r => setTimeout(r, 50));
@@ -1458,6 +1465,8 @@ export default function ModuleInventoryUI() {
     // Stop on a card: only that machine leaves the solve. The run stops, and the machines still running carry on together from their
     // layouts as they are (one joint run, or a single machine's own run if one is left), the stopped one keeping its layout and modules
     const handleStopMachine = async (id: string) => {
+        // hoydoy: only this card's search stops
+        if (readSolver() === 'hoydoy') { machinesRef.current[id]?.stop(); return; }
         const remaining = Object.entries(solvingRef.current).filter(([k, on]) => on && k !== id).map(([k]) => k);
         stopAll();
         if (remaining.length === 0) return;
