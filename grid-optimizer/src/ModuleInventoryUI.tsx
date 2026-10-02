@@ -2134,6 +2134,16 @@ export default function ModuleInventoryUI() {
                             </span>
                         </div>
                     )}
+                    {storeStats.purifiers > 0 && (
+                        <div className="store-stat" title={[
+                            `The Removal of ${storeStats.purifiers} Water Purifier${storeStats.purifiers === 1 ? '' : 's'} added up, as each card shows it:`,
+                            'the extra a day Performance removes of each contaminant, 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05).',
+                            'Never below the purity floor that Quality sets',
+                        ].join('\n')}>
+                            <span className="store-stat-label">Purified</span>
+                            <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit"> ml / day</span></span>
+                        </div>
+                    )}
                     {storeStats.furnaces > 0 && (
                         <div className="store-stat" title={[
                             `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: ${storeStats.ingots} ingots a day from ${storeStats.sources} sources (scrap or ore)`,
@@ -2155,16 +2165,6 @@ export default function ModuleInventoryUI() {
                                 {storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL}
                                 <span className="store-stat-words"><span>extra days at</span><span>max capacity</span></span>
                             </span>
-                        </div>
-                    )}
-                    {storeStats.purifiers > 0 && (
-                        <div className="store-stat" title={[
-                            `The Removal of ${storeStats.purifiers} Water Purifier${storeStats.purifiers === 1 ? '' : 's'} added up, as each card shows it:`,
-                            'the extra a day Performance removes of each contaminant, 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05).',
-                            'Never below the purity floor that Quality sets',
-                        ].join('\n')}>
-                            <span className="store-stat-label">Contaminants removed</span>
-                            <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit"> ml / day</span></span>
                         </div>
                     )}
                     {storeStats.desequencers > 0 && (
