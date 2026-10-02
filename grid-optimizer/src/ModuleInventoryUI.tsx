@@ -246,6 +246,33 @@ const MachineInstance = React.memo(forwardRef(({
         rememberSaveSettings();
     }, [limitKey, limitStats]);
 
+    /* Goals per solver: each solver keeps its own Auto / Max / Target / Off choices, targets, Limit and priorities for this card
+     * (optimizer_goals_<solver>_<id>, and per save, see saveSettings.ts), so switching solvers brings back what was set for that one.
+     * The set in use is written to its solver's key on every change; a solver picked for the first time starts from the current set
+     */
+    const goalsKey = (kind: string) => `optimizer_goals_${kind}_${machineId}`;
+    // null until the card first loads, which takes up the saved set of the solver picked then too (an import puts them back per save)
+    const goalSolverRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (goalSolverRef.current === solverKind) return;
+        goalSolverRef.current = solverKind;
+        let saved: any = null;
+        try { saved = JSON.parse(localStorage.getItem(goalsKey(solverKind)) || 'null'); } catch { /* none */ }
+        if (!saved) return;
+        if (saved.targetStats) optimizer.setTargetStats(saved.targetStats);
+        if (saved.ignoreStats) optimizer.setIgnoreStats(saved.ignoreStats);
+        if (saved.statPriority) optimizer.setStatPriority(saved.statPriority);
+        if (saved.limit) setLimitStats(saved.limit);
+    }, [solverKind]);
+    useEffect(() => {
+        try {
+            localStorage.setItem(goalsKey(goalSolverRef.current ?? solverKind), JSON.stringify({
+                targetStats: optimizer.targetStats, ignoreStats: optimizer.ignoreStats, statPriority: optimizer.statPriority, limit: limitStats,
+            }));
+        } catch { /* per-viewer convenience only */ }
+        rememberSaveSettings();
+    }, [optimizer.targetStats, optimizer.ignoreStats, optimizer.statPriority, limitStats, solverKind]);
+
     // A stat that does nothing on this machine has no card, so it must not be left on from an older setup either
     useEffect(() => {
         const stray = (['Performance', 'Quality', 'Efficiency'] as const).filter(k => hiddenStat(typeKey, k) && !optimizer.ignoreStats[k]);
