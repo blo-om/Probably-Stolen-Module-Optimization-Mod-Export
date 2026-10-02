@@ -3,7 +3,7 @@ import type {GridTier, InventoryItem, Stats, TargetStats, Point, ModuleShape, Mo
 import type { Orientation } from '../utils';
 import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS, roundStat } from '../utils';
 import { MODULE_TEMPLATES } from '../constants';
-import { runParallelEngine } from '../solver/parallel';
+import { readSolver, runSelectedSolver } from '../solvers';
 import { rememberSaveSettings } from '../saveSettings';
 
 
@@ -1147,9 +1147,10 @@ export function useOptimizer(
         setIsSolving(true);
         isSolvingRef.current = true;
 
-        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps, sumPE, performanceCap, qualityCap, cheapEnergyAt };
+        // The other solvers (solvers/index.ts) rank this card's stats by its own priorities, as their sites do
+        const config = { id: machineId, tier, targetStats, maximizeStats, ignoreStats, targetSteps, sumPQ, water, worthlessBelowSteps, sumPE, performanceCap, qualityCap, cheapEnergyAt, ...(readSolver() !== 'bloom' ? { statPriority } : {}) };
 
-        await runParallelEngine([config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
+        await runSelectedSolver(readSolver(), [config], [boardRef.current], engineInventory, fullInventoryForMachine, isSolvingRef, (updates) => {
             const myUpdate = updates.get(machineId);
             if (myUpdate) {
                 setBoardSync(myUpdate.board);

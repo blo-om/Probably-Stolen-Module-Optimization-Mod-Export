@@ -3,7 +3,7 @@ import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { defaultIgnoreStats, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
-import { runParallelEngine } from './solver/parallel';
+import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import type { Stats, GridTier, InventoryItem, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP } from './constants';
 import { formatStatValue, getStatColor, PRECOMPUTED_OFFSETS } from './utils';
@@ -1398,7 +1398,8 @@ export default function ModuleInventoryUI() {
                 targetStats: state.targetStats,
                 maximizeStats: state.maximizeStats,
                 ignoreStats: state.ignoreStats,
-                statPriority: { Performance: priority, Quality: priority, Efficiency: priority },
+                // Card order is priority on this site's solver; the others keep each card's own stat priorities, as their sites do
+                statPriority: readSolver() === 'bloom' ? { Performance: priority, Quality: priority, Efficiency: priority } : state.statPriority,
                 targetSteps: state.targetSteps,
                 sumPQ: state.sumPQ,
                 water: state.water,
@@ -1421,7 +1422,7 @@ export default function ModuleInventoryUI() {
             return;
         }
         try {
-            await runParallelEngine(configs, boards, engineInventory, expandedInventory, jointRunRef.current, (updates) => {
+            await runSelectedSolver(readSolver(), configs, boards, engineInventory, expandedInventory, jointRunRef.current, (updates) => {
                 updates.forEach((update, id) => {
                     machinesRef.current[id]?.applyUpdate(update.board, update.totals, update.pieceStats, update.code);
                 });
@@ -1625,6 +1626,8 @@ export default function ModuleInventoryUI() {
     };
 
     const [copiedAllForMod, setCopiedAllForMod] = useState(false);
+    // Which solver lays the modules out (solvers/index.ts), read when a solve starts
+    const [solverKind, setSolverKind] = useState<SolverKind>(readSolver);
     const handleCopyAllForMod = () => {
         const entries = machines
             .map(m => machinesRef.current[m.id]?.getModExport?.())
@@ -2078,6 +2081,22 @@ export default function ModuleInventoryUI() {
                 >
                     Delete All
                 </button>
+                <div role="radiogroup" aria-label="Solver" title="Which solver lays the modules out (when a solve starts)"
+                    style={{ display: 'flex', alignItems: 'center', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden', opacity: isAnySolving ? 0.5 : 1 }}>
+                    {SOLVERS.map(s => (
+                        <button key={s.value} role="radio" aria-checked={solverKind === s.value} title={s.title}
+                            disabled={isAnySolving}
+                            onClick={() => { writeSolver(s.value); setSolverKind(s.value); }}
+                            style={{
+                                padding: '10px 14px', border: 'none', borderRadius: 0, fontSize: '0.95em',
+                                backgroundColor: solverKind === s.value ? '#2e4a35' : '#333333',
+                                color: solverKind === s.value ? '#fff' : '#aaa', fontWeight: solverKind === s.value ? 'bold' : 'normal',
+                                cursor: isAnySolving ? 'not-allowed' : 'pointer',
+                            }}>
+                            {s.label}
+                        </button>
+                    ))}
+                </div>
                 </div>
             </div>
 
