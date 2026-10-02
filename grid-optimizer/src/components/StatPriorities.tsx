@@ -1,6 +1,6 @@
 // Per-stat priority (1 matters most), as Razboy's and hoydoy's own pages have it under each stat. Shown only while one of their solvers is
 // picked (solvers/index.ts): this site's solver ranks machines by card order instead
-import { hiddenStat, statName } from '../machineDefaults';
+import { hiddenStat, isAgeWell, statName } from '../machineDefaults';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
 const STATS: StatKey[] = ['Performance', 'Quality', 'Efficiency'];
@@ -13,7 +13,10 @@ export const StatPriorities = ({ machineType, statPriority, setStatPriority, ign
     disabled: boolean;
     width: number;
 }) => {
-    const shown = STATS.filter(stat => !hiddenStat(machineType, stat));
+    // AgeWell's Performance has no card of its own (it lowers energy like Efficiency, so the Efficiency card covers both), but their solvers
+    // see it as a stat of its own (solvers/index.ts plainConfig), so it gets a priority of its own, on or off with Efficiency
+    const linkedTo = (stat: StatKey): StatKey | null => (stat === 'Performance' && isAgeWell(machineType) ? 'Efficiency' : null);
+    const shown = STATS.filter(stat => !hiddenStat(machineType, stat) || linkedTo(stat) !== null);
     if (shown.length === 0) return null;
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width, maxWidth: '100%', boxSizing: 'border-box', margin: '-4px 0 8px', padding: '4px 8px', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#1a1a1a' }}
@@ -21,7 +24,7 @@ export const StatPriorities = ({ machineType, statPriority, setStatPriority, ign
             <span style={{ fontSize: '0.62em', letterSpacing: '0.06em', color: '#888', textTransform: 'uppercase' }}>Priority</span>
             <div style={{ display: 'flex', flex: 1, justifyContent: 'space-around', gap: '6px' }}>
                 {shown.map(stat => {
-                    const off = Boolean(ignoreStats[stat]);
+                    const off = Boolean(ignoreStats[linkedTo(stat) ?? stat]);
                     return (
                         <label key={stat} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7em', color: off ? '#555' : '#bbb' }}>
                             {statName(machineType, stat)}
