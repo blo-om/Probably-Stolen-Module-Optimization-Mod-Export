@@ -18,7 +18,11 @@ type MachineSettings = {
     lockedUids?: number[];
     // Modules on this machine that are unlocked: the specials start locked, so an unlocked one has to be remembered too
     unlockedUids?: number[];
+    // Each solver's own goals for this card (ModuleInventoryUI: optimizer_goals_<solver>_<id>)
+    goals?: Record<string, string | null>;
 };
+const SOLVER_KINDS = ['bloom', 'razboy', 'hoydoy'];
+const goalsKey = (kind: string, id: string) => `optimizer_goals_${kind}_${id}`;
 type SaveSettings = { order: string[]; machines: Record<string, MachineSettings> };
 
 const get = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -74,6 +78,7 @@ const snapshot = () => {
             locked: get(`optimizer_machine_locked_${id}`),
             lockedUids,
             unlockedUids,
+            goals: Object.fromEntries(SOLVER_KINDS.map(kind => [kind, get(goalsKey(kind, id))])),
         };
     });
     set(settingsKey(save), JSON.stringify(settings));
@@ -116,6 +121,7 @@ export const restoreSaveSettings = <M extends Imported>(save: string, machines: 
         set(desequencerAutoDaysKey(m.id), s?.autoDays ?? null);
         set(`optimizer_machine_locked_${m.id}`, s?.locked ?? null);
         set(cardKey(m.id), keys[i]);
+        for (const kind of SOLVER_KINDS) set(goalsKey(kind, m.id), s?.goals?.[kind] ?? null);
         for (const c of m.boardIds.flat()) {
             if (!c) continue;
             const uid = uidOf(c);
