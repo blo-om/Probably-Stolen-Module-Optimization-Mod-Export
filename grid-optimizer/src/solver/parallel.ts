@@ -4,7 +4,7 @@ import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
 import type { EngineTuning } from './engine';
 import { stallOrders } from './engine';
-import { createStallClock, significant, EASE_STALL, RELAX_STALL } from './stall';
+import { createStallClock, significant, EASE_STALL, RELAX_STALL, MAX_PROGRESS_SHARE } from './stall';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
 
@@ -65,8 +65,12 @@ const beats = (a: number[], b: number[]) => {
  *
  * A record is shown when it changes some machine's Performance, Quality or Efficiency AND is a significant step from what is on screen:
  *   - any progress on a target is significant (target tiers come first in the score)
- *   - otherwise the first score tier that changed must have gained at least MAX_PROGRESS_SHARE (solver/stall.ts) of the whole maximized score on screen (every card's
+ *   - otherwise the first score tier that changed must have gained at least displayShare of the whole maximized score on screen (every card's
  *     maximized tiers together), so a point on a low-priority card does not count as much as the same point would on its own small tier
+ *     The big gains come early and the late ones are small, so that share starts at MAX_PROGRESS_SHARE (solver/stall.ts) and halves every
+ *     DISPLAY_SHARE_HALVING_MS down to DISPLAY_SHARE_MIN. At a fixed 0.5% a long run on save_14 looked stuck: an AgeWell's next breakpoint
+ *     or a few hundred credits of water stayed off screen until enough of them added up. It is always a strict gain: a layout that scores
+ *     the same as the one on screen is never drawn
  * A smaller gain is not dropped: the next record is compared with what is still on screen, so small gains add up until they count
  * When the solve ends the page keeps the last significant record rather than switching to a layout that barely differs;
  * only a solve that never showed anything shows its best
@@ -77,7 +81,12 @@ const beats = (a: number[], b: number[]) => {
  */
 const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
 
+const DISPLAY_SHARE_HALVING_MS = 20000;
+const DISPLAY_SHARE_MIN = 0.0002;
+const displayShare = (elapsed: number) => Math.max(DISPLAY_SHARE_MIN, MAX_PROGRESS_SHARE * Math.pow(0.5, elapsed / DISPLAY_SHARE_HALVING_MS));
+
 const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, tiers: number[]) => void) => {
+    const startedAt = Date.now();
     let pending: { updates: Updates; tiers: number[] } | null = null;
     let shown: { sig: string; tiers: number[] } | null = null;
     const signature = (updates: Updates) => machines.map(m => {
@@ -94,7 +103,7 @@ const createDisplay = (machines: MachineConfig[], onUpdate: (updates: Updates, t
         offer: (updates: Updates, tiers: number[]) => {
             pending = { updates, tiers };
             if (shown === null) { show(); return; }
-            if (signature(updates) !== shown.sig && (shown.tiers.length === 0 || significant(tiers, shown.tiers, 0))) show();
+            if (signature(updates) !== shown.sig && (shown.tiers.length === 0 || significant(tiers, shown.tiers, 0, displayShare(Date.now() - startedAt)))) show();
         },
         final: () => { if (shown === null) show(); },
         // The score changed scale (a stat eased or a target relaxed): the next layout that looks different is shown, and compared from there
