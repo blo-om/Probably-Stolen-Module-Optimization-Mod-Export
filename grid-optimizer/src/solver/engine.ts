@@ -420,6 +420,16 @@ export const runOptimizationEngine = async (
         }
         return hasTarget;
     });
+    /* Full: a machine whose every stat is a target or maximized only up to a cap (a Moisture Farm with Volume on a target and Purity capped
+     * at Pure, MachineConfig.qualityCap) has nothing left to gain once all of them are reached, and what it holds past that is surplus
+     * the downgrade below hands back. Without it, of two farms sharing the first priority at 6000 ml, one kept two Neural Cores at 6000 ml
+     * and exactly Pure, and the third farm went without: taking one off dips the farm below its target unless several modules move at once
+     */
+    const capOf = (p: MachineParams, s: number) => (s === 1 ? p.capQ : s === 0 && !p.water && !p.sumPQ ? p.capP : undefined);
+    const canBeFull = params.map(p => [0, 1, 2].some(s => !p.ignored[s] && p.maximize[s])
+        && [0, 1, 2].every(s => p.ignored[s] || !p.maximize[s] || capOf(p, s) !== undefined));
+    const isFull = (p: MachineParams, t: Totals) => meetsTargets(p, t)
+        && [0, 1, 2].every(s => p.ignored[s] || !p.maximize[s] || statOf(p, t, s) >= capOf(p, s)!);
     const meetsTargets = (p: MachineParams, t: Totals) => {
         for (let s = 0; s < 3; s++) {
             const target = p.target[s];
@@ -464,7 +474,9 @@ export const runOptimizationEngine = async (
             held += value[a];
             bonus += ocBonus[a];
         }
-        return isTargetOnly[mIdx] ? held + overshoot - bonus : t.pieces * 5 + overshoot - bonus;
+        // A full machine (see isFull) pays for what it holds too, so of two layouts that keep it full the one holding less wins: handing
+        // modules back is then a step up, not a coin flip the refill undoes by drawing them straight back
+        return isTargetOnly[mIdx] || (canBeFull[mIdx] && isFull(p, t)) ? held + overshoot - bonus : t.pieces * 5 + overshoot - bonus;
     };
     const score = (board: Board): Scored => ({ ...core.boardTotals(board), tb: 0, tbGen: -1 });
 
@@ -682,9 +694,10 @@ export const runOptimizationEngine = async (
         return false;
     };
 
-    // Target-only machines swap modules for weaker unused ones of the same shape while every target stays met
+    // Target-only machines, and full ones (see isFull), swap modules for weaker unused ones of the same shape while every target stays met
+    // (and a full machine stays full)
     const downgradeTargetMachines = (boards: Board[]) => {
-        if (!isTargetOnly.some(Boolean)) return false;
+        if (!isTargetOnly.some(Boolean) && !canBeFull.some(Boolean)) return false;
         const g = ++itemGen;
         for (const b of boards) for (let c = 0; c < CELLS; c++) if (b[c] >= 0) itemStamp[b[c]] = g;
         const spare: number[] = [];
@@ -694,8 +707,10 @@ export const runOptimizationEngine = async (
         }
         let changed = false;
         for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-            if (!isTargetOnly[mIdx]) continue;
             const board = boards[mIdx];
+            const full = !isTargetOnly[mIdx] && canBeFull[mIdx] && params[mIdx].maximize.some(Boolean) && isFull(params[mIdx], core.boardTotals(board));
+            if (!isTargetOnly[mIdx] && !full) continue;
+            const holds = (t: Totals) => (full ? isFull(params[mIdx], t) : meetsTargets(params[mIdx], t));
             const own: number[] = [];
             const og = ++itemGen;
             for (let c = 0; c < CELLS; c++) {
@@ -708,7 +723,7 @@ export const runOptimizationEngine = async (
                 const candidates = spare.filter(q => core.shape[q] === core.shape[piece] && value[q] < value[piece]).sort((a, b) => value[a] - value[b]);
                 for (const cand of candidates) {
                     swap(piece, cand);
-                    if (meetsTargets(params[mIdx], core.boardTotals(board))) {
+                    if (holds(core.boardTotals(board))) {
                         spare.splice(spare.indexOf(cand), 1);
                         spare.push(piece);
                         changed = true;
