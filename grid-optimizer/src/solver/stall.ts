@@ -1,5 +1,5 @@
 /* When a search counts as stalled, shared by the engine running on its own and the worker coordinator (solver/parallel.ts), so both
- * give things up (stallOrders in engine.ts) by the same rule, and by the live display's idea of a significant change
+ * give things up (stallOrders in engine.ts) by the same rule
  *
  * Scores are the engine's tier arrays: target tiers per priority rank, then maximized tiers per rank, then the tiebreak
  */
@@ -28,7 +28,8 @@ export const MAX_PROGRESS_SHARE = 0.005;
 
 // The first tier that changed moved up by enough: `targetShare` of what a target tier was missing (0: any progress on a target),
 // or MAX_PROGRESS_SHARE of the whole maximized score. A change in the tiebreak alone is never significant
-export const significant = (tiers: ArrayLike<number>, reference: ArrayLike<number>, targetShare: number) => {
+// `maxShare`: the share of the whole maximized score a maximized tier has to gain (MAX_PROGRESS_SHARE unless given)
+export const significant = (tiers: ArrayLike<number>, reference: ArrayLike<number>, targetShare: number, maxShare = MAX_PROGRESS_SHARE) => {
     const targetTiers = (tiers.length - 1) / 2;
     for (let i = 0; i < tiers.length; i++) {
         if (tiers[i] === reference[i]) continue;
@@ -36,7 +37,7 @@ export const significant = (tiers: ArrayLike<number>, reference: ArrayLike<numbe
         if (i < targetTiers) return tiers[i] - reference[i] >= targetShare * Math.abs(reference[i]);
         let whole = 0;
         for (let k = targetTiers; k < tiers.length - 1; k++) whole += Math.abs(reference[k]);
-        return tiers[i] - reference[i] >= MAX_PROGRESS_SHARE * Math.max(whole, 1);
+        return tiers[i] - reference[i] >= maxShare * Math.max(whole, 1);
     }
     return false;
 };
