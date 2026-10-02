@@ -61,6 +61,21 @@ const REPACK_STEP_LIMIT = 1024;
  * Pure 91,765 -> 90,140 (4 runs, within noise)
  */
 const STAGED = 1;
+/* Only from (mostly) empty boards: at most STAGE_FILL_MAX of the open cells holding a module that may move (Clear All, or nearly).
+ * Staged from an imported layout, the later groups' boards were emptied while their targets had been met; every target outranks every
+ * maximized stat, so nothing the first group did could beat the layout it started from, and Run All on save_14 as imported (69,023
+ * credits of water a day) sat there for 40 s
+ */
+const STAGE_FILL_MAX = 0.25;
+export const startsMostlyEmpty = (boards: any[][][]) => {
+    let open = 0, filled = 0;
+    for (const board of boards) for (const row of board) for (const cell of row) {
+        if (cell === 'Locked') continue;
+        open++;
+        if (cell && !cell.isLocked) filled++;
+    }
+    return open === 0 || filled <= STAGE_FILL_MAX * open;
+};
 const WINDOW_ONE_IN = 5;
 const WINDOW_LEAVES = 4000;
 const WINDOWS = [[3, 3], [3, 3], [2, 4], [4, 2]];
@@ -809,7 +824,7 @@ export const runOptimizationEngine = async (
     // each stall brings the next group in before anything is given up
     const machineRank = machines.map((_, mIdx) => Math.min(...[0, 1, 2].map(s => (tierOfStat[mIdx][s] < 0 ? 99 : tierOfStat[mIdx][s]))));
     const stageRanks = [...new Set(machineRank)].sort((a, b) => a - b);
-    let stageUpTo = (tuning.stage ?? STAGED) && machineCount > 1 && (relaxOrders || STALL) ? stageRanks[0] : Infinity;
+    let stageUpTo = (tuning.stage ?? STAGED) && machineCount > 1 && (relaxOrders || STALL) && startsMostlyEmpty(initialObjectBoards) ? stageRanks[0] : Infinity;
     const isActive = (mIdx: number) => machineRank[mIdx] <= stageUpTo;
     const clearInactive = () => {
         for (let mIdx = 0; mIdx < machineCount; mIdx++) {

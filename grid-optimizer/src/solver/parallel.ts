@@ -3,7 +3,7 @@ import type { MachineConfig } from '../hooks/useOptimizer';
 import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
 import type { EngineTuning, StallOrder } from './engine';
-import { stallOrders } from './engine';
+import { stallOrders, startsMostlyEmpty } from './engine';
 import { createStallClock, significant, EASE_STALL, RELAX_STALL, MAX_PROGRESS_SHARE } from './stall';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
@@ -52,9 +52,10 @@ export const CPU_USAGE_KEY = 'optimizer_cpu_usage';
 export const readCpuUsage = (): CpuUsage => {
     try {
         const v = localStorage.getItem(CPU_USAGE_KEY);
-        return v === 'low' || v === 'max' ? v : 'balanced';
+        // Max by default: the search is what the page is for, and every extra worker finds better layouts sooner (see above)
+        return v === 'low' || v === 'balanced' ? v : 'max';
     } catch {
-        return 'balanced';
+        return 'max';
     }
 };
 const workerCount = () => {
@@ -167,11 +168,14 @@ export const runParallelEngine = async (
     const onRecord: ((updates: Updates, tiers: number[]) => void) | undefined = (globalThis as any).__onRecord;
     // Staging (engine.ts STAGED): each stall brings the next priority group in before anything is given up, in every search at once
     const machineRank = machines.map(m => Math.min(...STATS.filter(k => !m.ignoreStats?.[k]).map(k => m.statPriority?.[k] ?? 1)));
-    let stagesLeft = giveUp ? new Set(machineRank).size - 1 : 0;
+    let stagesLeft = giveUp && startsMostlyEmpty(initialBoards) ? new Set(machineRank).size - 1 : 0;
     const stall = createStallClock(Date.now);
     // One per worker: the search running in it (replaced when it migrates), whether it has finished, and its own best report and when it came
-    type Slot = { worker: Worker | null; done: boolean; ownBest: number[] | null; ownAt: number };
-    const slots: Slot[] = Array.from({ length: count }, () => ({ worker: null, done: true, ownBest: null, ownAt: 0 }));
+    // fromSeq: how many records the solve had when this search started (see recordSeq)
+    type Slot = { worker: Worker | null; done: boolean; ownBest: number[] | null; ownAt: number; fromSeq: number };
+    const slots: Slot[] = Array.from({ length: count }, () => ({ worker: null, done: true, ownBest: null, ownAt: 0, fromSeq: 0 }));
+    // New records so far (not counting the re-scoring after a give-up)
+    let recordSeq = 0;
     const post = (message: WorkerMessage) => slots.forEach(slot => { if (slot.worker && !slot.done) slot.worker.postMessage(message); });
     let awaiting = new Set<number>();
     let awaitingUntil = 0;
@@ -235,6 +239,7 @@ export const runParallelEngine = async (
         slot.done = false;
         slot.ownBest = null;
         slot.ownAt = Date.now();
+        slot.fromSeq = recordSeq;
         worker.onmessage = (event: MessageEvent<WorkerReply>) => {
             if (slot.worker !== worker) return;
             const reply = event.data;
@@ -249,6 +254,7 @@ export const runParallelEngine = async (
             if (!slot.ownBest || beats(reply.tiers, slot.ownBest)) { slot.ownBest = reply.tiers; slot.ownAt = Date.now(); }
             const lastAwaited = awaiting.delete(i) && awaiting.size === 0;
             if (best === null || beats(reply.tiers, best)) {
+                if (best !== null) recordSeq++;
                 best = reply.tiers;
                 bestUpdates = reply.updates;
                 stall.observe(reply.tiers);
@@ -286,7 +292,10 @@ export const runParallelEngine = async (
         if (awaiting.size > 0 && t > awaitingUntil) endWait();
         // Migration (see MIGRATE_IDLE_MS): a search stuck below the record starts again from it, with every give-up so far
         if (!stopSent && bestUpdates && best && awaiting.size === 0) {
-            const stuck = slots.map((slot, i) => (!slot.done && t - slot.ownAt >= MIGRATE_IDLE_MS && (!slot.ownBest || beats(best!, slot.ownBest)) ? i : -1)).filter(i => i >= 0);
+            // A search that has reported nothing has found nothing better than where it started: it is behind only if a record came since
+            // (otherwise every search of a solve started on a layout nothing beats yet was restarted every 5 s, and none got anywhere)
+            const behind = (slot: Slot) => (slot.ownBest ? beats(best!, slot.ownBest) : recordSeq > slot.fromSeq);
+            const stuck = slots.map((slot, i) => (!slot.done && t - slot.ownAt >= MIGRATE_IDLE_MS && behind(slot) ? i : -1)).filter(i => i >= 0);
             if (stuck.length > 0) {
                 const record = rehydrate(bestUpdates);
                 const boards = machines.map(m => record.get(m.id)!.board);
