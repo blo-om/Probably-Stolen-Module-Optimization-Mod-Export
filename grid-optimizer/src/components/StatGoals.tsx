@@ -113,6 +113,8 @@ type Props = {
     hasBlast: boolean;
     // Row width in px; the module grid is meant to be 0.8 of it
     width?: number;
+    // What Auto reads as: 'Max' while Razboy's or hoydoy's solver is picked (solvers/index.ts), whose pages call it that
+    autoLabel?: string;
 };
 
 type Card = {
@@ -137,7 +139,7 @@ const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', target: 'Target', off: 
 
 // One card per stat (the Mirage Projector's Performance and Quality share one): the stat's name, the result it gives this machine,
 // and its modes in a strip along the bottom. A mode that takes a value opens its choices under the cards
-export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width }: Props) => {
+export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width, autoLabel = 'Auto' }: Props) => {
     const [open, setOpen] = useState<string | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -386,7 +388,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                                     color: on ? (m === 'off' ? '#ccc' : C.accentText) : C.sub,
                                                 }}
                                             >
-                                                {MODE_LABEL[m]}
+                                                {m === 'auto' ? autoLabel : MODE_LABEL[m]}
                                             </button>
                                         );
                                     })}

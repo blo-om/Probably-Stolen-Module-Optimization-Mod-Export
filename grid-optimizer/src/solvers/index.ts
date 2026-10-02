@@ -7,8 +7,10 @@
  *           that are running, on the GPU when the browser has WebGPU, otherwise one search per core; each card keeps its own stat priorities
  *   hoydoy  github.com/hoydoy/probably-stolen-module-optimization (solvers/hoydoy, unchanged): one search per machine on the page
  *           itself; Run All starts them all at once, each using the modules no other machine held when it started
- * The other two know nothing of this site's extras (water value, caps, breakpoints, the store goals): they solve the targets and
- * Auto stats as set, the way their own sites do
+ * The other two know nothing of this site's extras (water value, caps, breakpoints, the store goals, easing and relaxing, staging,
+ * card-order priority): they solve the targets and maximized stats as set, the way their own sites do, with each card's own per-stat
+ * priorities. Nor of this site's module locks (right-click): those are taken off before their solvers see the modules, so the special
+ * modules are locked by their own rules only. Modules held by machines outside the solve stay out of their reach, as on their sites
  */
 import type { MachineConfig } from '../hooks/useOptimizer';
 import { calculateBoardStats, generateCodeFromState, indexInventoryById } from '../hooks/useOptimizer';
@@ -75,6 +77,13 @@ export const runSelectedSolver = async (
 ): Promise<void> => {
     if (kind === 'bloom') return runParallelEngine(machines, boards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
     const inventoryById = indexInventoryById(fullInventory);
+    // This site's module locks off. The callers mark a module held by a machine outside the solve with a locked copy of it, which their
+    // sites keep out of reach too; a lock on the module itself (the player's right-click, or a special locked by default) is this site's
+    const unlocked = (item: any) => { const { isLocked: _lock, ...rest } = item; return rest as InventoryItem; };
+    const heldOutside = new Set(searchPoolInventory.filter(item => item.isLocked && inventoryById.get(item.id) !== item).map(item => item.id));
+    searchPoolInventory = searchPoolInventory.map(item => (heldOutside.has(item.id) ? { ...unlocked(item), isLocked: true } : unlocked(item)));
+    const theirInventory = fullInventory.map(unlocked);
+    boards = boards.map(board => board.map(row => row.map((cell: any) => (cell && cell !== 'Locked' ? unlocked(cell) : cell))));
 
     if (kind === 'hoydoy') {
         // As on hoydoy's site: every machine its own search, all at once, each kept off what the others held when it started
@@ -82,7 +91,7 @@ export const runSelectedSolver = async (
             const others = new Set<string>();
             boards.forEach((b, j) => { if (j !== k) boardIds(b).forEach(id => others.add(id)); });
             const pool = searchPoolInventory.map(item => (others.has(item.id) ? { ...item, isLocked: true } : item));
-            return runHoydoy([plainConfig(m)] as any, [boards[k]], pool as any, fullInventory as any, isSolvingRef, (updates: any) => {
+            return runHoydoy([plainConfig(m)] as any, [boards[k]], pool as any, theirInventory as any, isSolvingRef, (updates: any) => {
                 const own = updates.get(m.id);
                 if (own) onUpdate(new Map([[m.id, describe(m, own.board, fullInventory, inventoryById)]]));
             });
@@ -94,7 +103,7 @@ export const runSelectedSolver = async (
     const request = {
         machines: machines.map((m, k) => ({ machine: plainConfig(m), initialBoard: boards[k] })),
         searchPoolInventory,
-        fullInventory,
+        fullInventory: theirInventory,
     };
     const handle = runRazboy(request as any, update => {
         const out: Updates = new Map();
