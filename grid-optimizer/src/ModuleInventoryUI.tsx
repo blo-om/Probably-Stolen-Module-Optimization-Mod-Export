@@ -1941,18 +1941,19 @@ export default function ModuleInventoryUI() {
                     color: #888;
                     font-weight: normal;
                 }
+                .toolbar .store-stat-tall {
+                    grid-row: span 2;
+                    align-self: start;
+                }
                 .toolbar .store-stat-grades {
                     display: flex;
-                    gap: 8px;
-                    align-items: baseline;
-                    font-size: 0.75em;
-                    line-height: 1.6em;
-                    color: #aaa;
+                    flex-direction: column;
+                    font-size: 0.68em;
+                    line-height: 1.25em;
+                    color: #888;
                     white-space: nowrap;
                 }
-                .toolbar .store-stat-grades b {
-                    font-size: 1.25em;
-                }
+
                 .toolbar .store-stat-grades b {
                     color: #ddd;
                     font-variant-numeric: tabular-nums;
@@ -2118,23 +2119,18 @@ export default function ModuleInventoryUI() {
                 <div className="store-stats-area" ref={statsAreaRef}>
                 <div className="store-stats">
                     {storeStats.farms > 0 && (
-                        <div className="store-stat" title={[
+                        <div className="store-stat store-stat-tall" title={[
                             `What ${storeStats.farms} Moisture Farm${storeStats.farms === 1 ? '' : 's'} make a day, as the boards stand, at the game's price per grade`,
                             '(credits per 100 ml: ' + WATER_GRADES.slice().reverse().map(g => `${g.name} ${g.price}`).join(', ') + ')',
                             'A farm makes 1000 ml a day, +10 ml per 1% Performance, up to 6000 ml',
+                            'Under it: the water made a day, by grade',
                         ].join('\n')}>
                             <span className="store-stat-label">Water value</span>
                             <span className="store-stat-value" style={{ color: '#4fb3bf' }}>{storeStats.water.toLocaleString()}<span className="store-stat-unit"> credits / day</span></span>
-                        </div>
-                    )}
-                    {storeStats.farms > 0 && (
-                        <div className="store-stat" title="Water made a day by all Moisture Farms, by grade">
-                            <span className="store-stat-label">Water production</span>
                             <span className="store-stat-grades">
                                 {WATER_GRADES.slice().reverse().filter(g => storeStats.mlByGrade.has(g.name)).map(g => (
-                                    <span key={g.name}>{g.name} <b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()}</b></span>
+                                    <span key={g.name}><b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} ml</b> {g.name}</span>
                                 ))}
-                                <span>ml / day</span>
                             </span>
                         </div>
                     )}
