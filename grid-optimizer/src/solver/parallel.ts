@@ -2,7 +2,7 @@ import { runOptimizationEngine } from '../hooks/useOptimizer';
 import type { MachineConfig } from '../hooks/useOptimizer';
 import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
-import type { EngineTuning } from './engine';
+import type { EngineTuning, StallOrder } from './engine';
 import { stallOrders } from './engine';
 import { createStallClock, significant, EASE_STALL, RELAX_STALL, MAX_PROGRESS_SHARE } from './stall';
 
@@ -30,6 +30,16 @@ const PRESETS: EngineTuning[] = [
     { stagnationLimit: 300 },
     { repackOneIn: 2 },
 ];
+
+/* Migration: the searches never share layouts, so late in a solve one holds the record and is stuck there while the rest work on worse
+ * layouts of their own; stopping and starting again from the record (every search on it) moved again at once. A search that has not
+ * beaten its own best for MIGRATE_IDLE_MS while another holds the record starts again from the record, told every give-up so far.
+ * On save_14 from Clear All, every machine on Auto, 15 workers, 3 min: the water at 180 s 92,247 (6 runs) -> 94,093 (3 runs), ahead at
+ * 60 and 120 s too, the AgeWells and Desequencers level. 10 s did a little less, 20 s nothing; restarting every search together after
+ * 10 s without a record ended lower and was behind on the way; giving the searches different jobs (farm repacks, the lower-priority
+ * machines, bigger ruins) did nothing on its own and nothing more with migration
+ */
+const MIGRATE_IDLE_MS = 5000;
 
 // Solves running at the same time (several cards can be solving individually) share the cores rather than each taking all of them
 let activeSolves = 0;
@@ -146,13 +156,20 @@ export const runParallelEngine = async (
     const count = workerCount();
     let best: number[] | null = null;
     let bestUpdates: Updates | null = null;
-    const workers: Worker[] = [];
     // Relaxing: the targets as they stand, the orders sent so far, and the record at the last significant improvement
     const targets = machines.map(m => STATS.map(k => m.targetStats[k] ?? null));
     const maximize = machines.map(m => STATS.map(k => Boolean(m.maximizeStats?.[k]) && !((m.sumPQ || m.water) && k === 'Quality') && !(m.sumPE && k === 'Performance')));
     let relaxGen = 0;
+    // Every order so far, for a search that starts late (see migration)
+    const sent: { order: StallOrder; gen: number }[] = [];
     let lateTargets = giveUp && machines.some(m => m.water && (m.targetStats.Quality ?? null) !== null);
     const stall = createStallClock(Date.now);
+    // One per worker: the search running in it (replaced when it migrates), whether it has finished, and its own best report and when it came
+    type Slot = { worker: Worker | null; done: boolean; ownBest: number[] | null; ownAt: number };
+    const slots: Slot[] = Array.from({ length: count }, () => ({ worker: null, done: true, ownBest: null, ownAt: 0 }));
+    const post = (message: WorkerMessage) => slots.forEach(slot => { if (slot.worker && !slot.done) slot.worker.postMessage(message); });
+    let awaiting = new Set<number>();
+    let awaitingUntil = 0;
     const relaxLowestTarget = () => {
         const record = bestUpdates;
         if (!record) return;
@@ -183,45 +200,48 @@ export const runParallelEngine = async (
                 if (lower.length === 0) maximize[mIdx][s] = !machines[mIdx].worthlessBelowSteps?.[STATS[s]];
             }
             relaxGen++;
-            workers.forEach(w => w.postMessage({ type: 'relax', order, gen: relaxGen } satisfies WorkerMessage));
+            sent.push({ order, gen: relaxGen });
+            post({ type: 'relax', order, gen: relaxGen });
         }
         // Reports on the old scale are ignored from here. The first report on the new one may come from a worker whose layout is worse
         // than what is on screen, so the display waits until every worker has re-scored its record (or a second has passed) and
         // then shows the best of them, compared afresh since the scale changed
         best = null;
+        slots.forEach(slot => { slot.ownBest = null; });
         stall.reset(null);
-        awaiting = new Set(workers.map((_, i) => i).filter(i => running.has(i)));
+        awaiting = new Set(slots.map((_, i) => i).filter(i => !slots[i].done));
         awaitingUntil = Date.now() + 1000;
     };
-    let awaiting = new Set<number>();
-    let awaitingUntil = 0;
-    const running = new Set<number>();
     const endWait = () => {
         awaiting = new Set();
         display.rebase();
         if (bestUpdates && best) display.offer(rehydrate(bestUpdates), best);
     };
-    try {
-        for (let i = 0; i < count; i++) workers.push(new Worker(new URL('./engineWorker.ts', import.meta.url), { type: 'module' }));
-    } catch (error) {
-        workers.forEach(w => w.terminate());
-        activeSolves--;
-        console.warn('Workers unavailable, solving on the page', error);
-        return solveOnPage();
-    }
+    let resolveAll: () => void = () => {};
+    const allDone = new Promise<void>(resolve => { resolveAll = resolve; });
+    const checkAllDone = () => { if (slots.every(slot => slot.done)) resolveAll(); };
 
-    const startFor = (i: number): WorkerMessage => ({ type: 'start', machines, boards: initialBoards, searchPoolInventory, fullInventory, tuning: PRESETS[i % PRESETS.length] });
-    const finished = workers.map((worker, i) => new Promise<void>((resolve) => {
+    // Starts a search in worker slot i from `boards`, replacing the one running there
+    const launch = (i: number, boards: any[][][]) => {
+        const worker = new Worker(new URL('./engineWorker.ts', import.meta.url), { type: 'module' });
+        const slot = slots[i];
+        if (slot.worker && !slot.done) slot.worker.terminate();
+        slot.worker = worker;
+        slot.done = false;
+        slot.ownBest = null;
+        slot.ownAt = Date.now();
         worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+            if (slot.worker !== worker) return;
             const reply = event.data;
             if (reply.type === 'done') {
-                running.delete(i);
+                slot.done = true;
                 if (awaiting.delete(i) && awaiting.size === 0) endWait();
                 worker.terminate();
-                resolve();
+                checkAllDone();
                 return;
             }
             if (reply.gen !== relaxGen) return;
+            if (!slot.ownBest || beats(reply.tiers, slot.ownBest)) { slot.ownBest = reply.tiers; slot.ownAt = Date.now(); }
             const lastAwaited = awaiting.delete(i) && awaiting.size === 0;
             if (best === null || beats(reply.tiers, best)) {
                 best = reply.tiers;
@@ -234,25 +254,43 @@ export const runParallelEngine = async (
         worker.onerror = (event) => {
             console.warn('Solver worker failed', event.message);
             worker.terminate();
-            resolve();
+            if (slot.worker === worker) { slot.done = true; checkAllDone(); }
         };
-        running.add(i);
-        worker.postMessage(startFor(i));
-    }));
+        worker.postMessage({ type: 'start', machines, boards, searchPoolInventory, fullInventory, tuning: PRESETS[i % PRESETS.length] } satisfies WorkerMessage);
+        // Every give-up so far, so a search that starts late scores on the same scale as the rest
+        for (const { order, gen } of sent) worker.postMessage({ type: 'relax', order, gen } satisfies WorkerMessage);
+    };
+    try {
+        for (let i = 0; i < count; i++) launch(i, initialBoards);
+    } catch (error) {
+        slots.forEach(slot => slot.worker?.terminate());
+        activeSolves--;
+        console.warn('Workers unavailable, solving on the page', error);
+        return solveOnPage();
+    }
 
     // The caller stops a solve by clearing its ref; every worker is told, and each flushes its last record before it reports done
     let stopSent = false;
     const watch = setInterval(() => {
+        const t = Date.now();
         if (!stopSent && !isSolvingRef.current) {
             stopSent = true;
-            workers.forEach(w => w.postMessage({ type: 'stop' } satisfies WorkerMessage));
+            post({ type: 'stop' });
         }
-        const t = Date.now();
         if (awaiting.size > 0 && t > awaitingUntil) endWait();
+        // Migration (see MIGRATE_IDLE_MS): a search stuck below the record starts again from it, with every give-up so far
+        if (!stopSent && bestUpdates && best && awaiting.size === 0) {
+            const stuck = slots.map((slot, i) => (!slot.done && t - slot.ownAt >= MIGRATE_IDLE_MS && (!slot.ownBest || beats(best!, slot.ownBest)) ? i : -1)).filter(i => i >= 0);
+            if (stuck.length > 0) {
+                const record = rehydrate(bestUpdates);
+                const boards = machines.map(m => record.get(m.id)!.board);
+                for (const i of stuck) launch(i, boards);
+            }
+        }
         if (giveUp && !stopSent && awaiting.size === 0 && stall.due(EASE_STALL)) relaxLowestTarget();
     }, 50);
     try {
-        await Promise.all(finished);
+        await allDone;
     } finally {
         clearInterval(watch);
         display.final();
