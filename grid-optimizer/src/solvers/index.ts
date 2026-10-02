@@ -52,10 +52,19 @@ const describe = (machine: MachineConfig, reported: any[][], fullInventory: Inve
     return { board, totals, pieceStats, code: generateCodeFromState(machine.tier, machine.maximizeStats, machine.targetStats, forCode, board) };
 };
 
-// The parts of a machine's settings the other solvers know
-const plainConfig = (m: MachineConfig) => ({
-    id: m.id, tier: m.tier, targetStats: m.targetStats, maximizeStats: m.maximizeStats, ignoreStats: m.ignoreStats, statPriority: m.statPriority,
-});
+// The parts of a machine's settings the other solvers know. An AgeWell's Performance (folded into this site's Efficiency card, since it
+// lowers energy just the same) is a stat of its own to them: on, and maximized, whenever Efficiency is on, with its own priority
+const plainConfig = (m: MachineConfig) => {
+    const config = { id: m.id, tier: m.tier, targetStats: m.targetStats, maximizeStats: m.maximizeStats, ignoreStats: m.ignoreStats, statPriority: m.statPriority };
+    if (!m.sumPE) return config;
+    const efficiencyOn = !m.ignoreStats?.Efficiency;
+    return {
+        ...config,
+        targetStats: { ...m.targetStats, Performance: null },
+        maximizeStats: { ...m.maximizeStats, Performance: efficiencyOn },
+        ignoreStats: { ...m.ignoreStats, Performance: !efficiencyOn },
+    };
+};
 
 const boardIds = (board: any[][]) => {
     const ids = new Set<string>();
