@@ -202,6 +202,14 @@ const MachineInstance = React.memo(forwardRef(({
     const waterMode = () => isMoistureFarm(typeKey)
         && !optimizer.ignoreStats.Performance && optimizer.maximizeStats.Performance && optimizer.targetStats.Performance === null
         && !optimizer.ignoreStats.Quality && (optimizer.maximizeStats.Quality || optimizer.targetStats.Quality !== null);
+    /* Volume on a Target and Purity on Auto: Purity past Pure counts for nothing (MachineConfig.qualityCap). Counted in full, one farm of a
+     * shared priority took Purity far past Pure while the others made Ghost water: 12 farms with the first four at 6000 ml (15 workers,
+     * 40 s, 6 runs) 76,360 credits a day, those four Pure, Pure, Ghost, Ghost at worst; capped (with staging) 85,970, never below High-quality
+     */
+    const qualityCap = () => isMoistureFarm(typeKey)
+        && !optimizer.ignoreStats.Performance && optimizer.targetStats.Performance !== null && !optimizer.maximizeStats.Performance
+        && !optimizer.ignoreStats.Quality && optimizer.maximizeStats.Quality && optimizer.targetStats.Quality === null
+        ? WATER_GRADES[WATER_GRADES.length - 1].from : undefined;
     // The values where each stat changes something on this machine, for the solver (see MachineConfig.targetSteps)
     // Desequencer: with its days on Auto, only the picked chipset's day breakpoints count; otherwise every chipset's
     const desequencerSteps = () => {
@@ -277,7 +285,7 @@ const MachineInstance = React.memo(forwardRef(({
     }, [showPaths, optimizer.board]);
 
     const runSolo = () => optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
-        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined, cheapEnergyAt(typeKey));
+        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined, cheapEnergyAt(typeKey), qualityCap());
     useImperativeHandle(ref, () => ({
         run: optimizer.runOptimization,
         runSolo,
@@ -296,6 +304,7 @@ const MachineInstance = React.memo(forwardRef(({
             water: waterMode(),
             sumPE: isAgeWell(typeKey),
             performanceCap: isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined,
+            qualityCap: qualityCap(),
             worthlessBelowSteps: worthlessBelowSteps(typeKey),
             cheapEnergyAt: cheapEnergyAt(typeKey),
             machineType,
@@ -1395,6 +1404,7 @@ export default function ModuleInventoryUI() {
                 water: state.water,
                 sumPE: state.sumPE,
                 performanceCap: state.performanceCap,
+                qualityCap: state.qualityCap,
                 worthlessBelowSteps: state.worthlessBelowSteps,
                 cheapEnergyAt: state.cheapEnergyAt
             };
