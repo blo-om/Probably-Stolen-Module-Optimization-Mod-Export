@@ -35,9 +35,11 @@ const entriesFor = (stat: StatKey): Entry[] => {
             entries.push({ template, effect, value, stats: applyInternalEffects(probe), size: PRECOMPUTED_OFFSETS.get(template.shape)?.[0]?.length ?? template.size });
         }
     }
-    // Per cell of that stat; ties go to the one that costs the other stats less
+    // Overcharged and Degrading at the bottom (the rest above them); within each part, per cell of that stat, ties going to the one that
+    // costs the other stats less
+    const last = (e: Entry) => (e.effect === 'Overcharged' || e.effect === 'Degrading' ? 1 : 0);
     const others = (e: Entry) => STATS.reduce((sum, s) => sum + (s.key === stat ? 0 : e.stats[s.key]), 0) / e.size;
-    return entries.sort((a, b) => b.stats[stat] / b.size - a.stats[stat] / a.size || others(b) - others(a));
+    return entries.sort((a, b) => last(a) - last(b) || b.stats[stat] / b.size - a.stats[stat] / a.size || others(b) - others(a));
 };
 
 const fmt = (v: number) => (v > 0 ? `+${v}` : `${v}`);
