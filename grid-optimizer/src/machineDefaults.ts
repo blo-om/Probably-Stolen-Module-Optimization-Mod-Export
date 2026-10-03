@@ -232,13 +232,12 @@ export const MOISTURE_FARM_CAP = 500;
  *   unitValue is 239-240)
  *   The grade is an item condition with a value modifier on that (ItemConditionList.CreatePureWater ... CreateGutterflow): Pure +100%,
  *   High-quality +50%, Basewater 0, Ghostwater -33%, Rustwater -75%, Gutterflow -90%
- *   The store sells at its retail markup on top (PlayerStore.retailMarkup, a store setting not kept in the save): 15%, which is what makes
- *   a full jug of pure water read 567 in the game, (15 for the jug + 239 * 2) * 1.15
- * GameItem.ComposeStagedValue: (markup * (container + liquid * (1 + modifier))), rounded. The jug is left out here: it is not made by the farm
+ * GameItem.ComposeStagedValue: markup * (container + liquid * (1 + modifier)), rounded. Shown here without the store's retail markup
+ * (PlayerStore.retailMarkup, a store setting: with 15%, a full jug of pure water reads (15 + 239 * 2) * 1.15 = 567 in the game) and without
+ * the jug, which the farm does not make
  */
 export const WATER_PRICE_PER_LITRE = 40;
-export const RETAIL_MARKUP = 15;
-// `price`: credits a litre at that grade, before the markup
+// `price`: credits a litre at that grade
 export const WATER_GRADES: { name: string; from: number; modifier: number; price: number }[] = [
     { name: 'Gutterflow', from: -Infinity, modifier: -90 },
     { name: 'Rustwater', from: -50, modifier: -75 },
@@ -251,7 +250,7 @@ export const moistureFarmOutput = (performance: number, quality: number) => {
     const ml = Math.min(6000, Math.max(0, (100 + Math.trunc(performance)) * 10));
     const grade = [...WATER_GRADES].reverse().find(g => quality >= g.from)!;
     const liquid = Math.floor((ml * WATER_PRICE_PER_LITRE) / 1000);
-    return { ml, grade: grade.name, value: Math.round((liquid * (100 + grade.modifier) * (100 + RETAIL_MARKUP)) / 10000) };
+    return { ml, grade: grade.name, value: Math.round((liquid * (100 + grade.modifier)) / 100) };
 };
 
 // Store attractiveness: last night's base (the save's baseStoreAttractiveness, no bonuses) plus the best Mirage Projector's; projectors
