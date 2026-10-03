@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, RETAIL_MARKUP, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -2121,7 +2121,8 @@ export default function ModuleInventoryUI() {
                     {storeStats.farms > 0 && (
                         <div className="store-stat store-stat-tall" title={[
                             `What ${storeStats.farms} Moisture Farm${storeStats.farms === 1 ? '' : 's'} make a day, as the boards stand, at the game's price per grade`,
-                            '(credits per 100 ml: ' + WATER_GRADES.slice().reverse().map(g => `${g.name} ${g.price}`).join(', ') + ')',
+                            '(credits a litre: ' + WATER_GRADES.slice().reverse().map(g => `${g.name} ${g.price}`).join(', ')
+                                + `, plus the store's ${RETAIL_MARKUP}% retail markup)`,
                             'A farm makes 1000 ml a day, +10 ml per 1% Performance, up to 6000 ml',
                             'Under it: the water made a day, by grade',
                         ].join('\n')}>

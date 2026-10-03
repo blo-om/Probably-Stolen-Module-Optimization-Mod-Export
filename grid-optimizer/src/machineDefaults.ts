@@ -226,22 +226,32 @@ export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' 
 // Moisture Farm Performance that still counts: +500% makes 6000 ml, as much as the biggest water container holds
 export const MOISTURE_FARM_CAP = 500;
 
-/* What a Moisture Farm's water is worth a day, from the game (checked against the decompiled game):
+/* What a Moisture Farm's water sells for a day, from the game (checked against the decompiled game and the save's stored values):
  *   MachineMoistureFarm.GetOutputVolume: (100 + Performance) * 10 ml a day, never below 0; a farm fills up to 6000 ml, the biggest container
- *   WaterFeatureHelper.WATER_PRICES, the price of each grade (WATER_PURITIES gives the grades), taken as credits per 100 ml
+ *   The liquid's own value: 40 credits a litre whatever its grade, rounded down (WaterFeatureHelper.GetWaterPrice; a full jug's stored
+ *   unitValue is 239-240)
+ *   The grade is an item condition with a value modifier on that (ItemConditionList.CreatePureWater ... CreateGutterflow): Pure +100%,
+ *   High-quality +50%, Basewater 0, Ghostwater -33%, Rustwater -75%, Gutterflow -90%
+ *   The store sells at its retail markup on top (PlayerStore.retailMarkup, a store setting not kept in the save): 15%, which is what makes
+ *   a full jug of pure water read 567 in the game, (15 for the jug + 239 * 2) * 1.15
+ * GameItem.ComposeStagedValue: (markup * (container + liquid * (1 + modifier))), rounded. The jug is left out here: it is not made by the farm
  */
-export const WATER_GRADES: { name: string; from: number; price: number }[] = [
-    { name: 'Gutterflow', from: -Infinity, price: 10 },
-    { name: 'Rustwater', from: -50, price: 20 },
-    { name: 'Ghostwater', from: 0, price: 27 },
-    { name: 'Basewater', from: 50, price: 40 },
-    { name: 'High-quality', from: 100, price: 100 },
-    { name: 'Pure', from: 150, price: 200 },
-];
+export const WATER_PRICE_PER_LITRE = 40;
+export const RETAIL_MARKUP = 15;
+// `price`: credits a litre at that grade, before the markup
+export const WATER_GRADES: { name: string; from: number; modifier: number; price: number }[] = [
+    { name: 'Gutterflow', from: -Infinity, modifier: -90 },
+    { name: 'Rustwater', from: -50, modifier: -75 },
+    { name: 'Ghostwater', from: 0, modifier: -33 },
+    { name: 'Basewater', from: 50, modifier: 0 },
+    { name: 'High-quality', from: 100, modifier: 50 },
+    { name: 'Pure', from: 150, modifier: 100 },
+].map(g => ({ ...g, price: (WATER_PRICE_PER_LITRE * (100 + g.modifier)) / 100 }));
 export const moistureFarmOutput = (performance: number, quality: number) => {
     const ml = Math.min(6000, Math.max(0, (100 + Math.trunc(performance)) * 10));
     const grade = [...WATER_GRADES].reverse().find(g => quality >= g.from)!;
-    return { ml, grade: grade.name, value: (ml * grade.price) / 100 };
+    const liquid = Math.floor((ml * WATER_PRICE_PER_LITRE) / 1000);
+    return { ml, grade: grade.name, value: Math.round((liquid * (100 + grade.modifier) * (100 + RETAIL_MARKUP)) / 10000) };
 };
 
 // Store attractiveness: last night's base (the save's baseStoreAttractiveness, no bonuses) plus the best Mirage Projector's; projectors
