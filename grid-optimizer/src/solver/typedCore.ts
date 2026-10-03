@@ -53,13 +53,13 @@ export interface Totals {
 
 export const totalOf = (t: Totals, s: number) => (s === 0 ? t.p : s === 1 ? t.q : t.e);
 
-/* Moisture Farm water value. The farm makes (100 + Performance) * 10 ml a day, of a grade set by Quality, and each grade has its own price
- * (WaterFeatureHelper.WATER_PRICES in the game, per 100 ml: Gutterflow 10, Rust 20, Ghost 27, Base 40, High-quality 100, Pure 200; the
- * page's counter uses the same, machineDefaults.ts WATER_GRADES). Here relative to basewater: 100 ml of pure water counts five times
- * 100 ml of basewater
+/* Moisture Farm water value. The farm makes (100 + Performance) * 10 ml a day, of a grade set by Quality, and each grade has its own price:
+ * 40 credits a litre with the grade's value modifier (ItemConditionList in the game: Gutterflow -90%, Rust -75%, Ghost -33%, Base 0,
+ * High-quality +50%, Pure +100%; the page's counter uses the same, machineDefaults.ts WATER_GRADES). Here relative to basewater: 100 ml of
+ * pure water counts twice 100 ml of basewater
  */
 // [lowest Quality of the grade, price relative to basewater]
-const WATER_GRADES: [number, number][] = [[-Infinity, 0.25], [-50, 0.5], [0, 0.675], [50, 1.0], [100, 2.5], [150, 5.0]];
+const WATER_GRADES: [number, number][] = [[-Infinity, 0.1], [-50, 0.25], [0, 0.67], [50, 1.0], [100, 1.5], [150, 2.0]];
 export const waterMultiplier = (q: number) => {
     let m = WATER_GRADES[0][1];
     for (const [from, v] of WATER_GRADES) if (q >= from) m = v;
@@ -69,7 +69,7 @@ export const waterMultiplier = (q: number) => {
 const waterMultiplierSmooth = (q: number) => {
     if (q < -100) return WATER_GRADES[0][1];
     if (q >= 150) return WATER_GRADES[WATER_GRADES.length - 1][1];
-    const points: [number, number][] = [[-100, 0.25], [-50, 0.5], [0, 0.675], [50, 1.0], [100, 2.5], [150, 5.0]];
+    const points: [number, number][] = [[-100, 0.1], [-50, 0.25], [0, 0.67], [50, 1.0], [100, 1.5], [150, 2.0]];
     for (let i = 0; i < points.length - 1; i++) {
         const [q0, m0] = points[i], [q1, m1] = points[i + 1];
         if (q < q1) return m0 + (m1 - m0) * (q - q0) / (q1 - q0);
