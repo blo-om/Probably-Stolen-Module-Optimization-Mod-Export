@@ -87,23 +87,34 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
             try {
                 const text = evt.target?.result as string;
 
-                const keyIdx = text.indexOf('"mainInvJSON"');
-                if (keyIdx === -1) throw new Error("Could not find mainInvJSON in save file.");
-
-                const colonIdx = text.indexOf(':', keyIdx);
-                const quoteStart = text.indexOf('"', colonIdx);
-
-                let quoteEnd = -1;
-                for (let i = quoteStart + 1; i < text.length; i++) {
-                    if (text[i] === '\\') i++;
-                    else if (text[i] === '"') { quoteEnd = i; break; }
-                }
-
-                if (quoteEnd === -1) throw new Error("Malformed mainInvJSON string.");
-
-                const invStr = JSON.parse(text.substring(quoteStart, quoteEnd + 1));
-                const invData = JSON.parse(invStr);
-                const saveItems = invData.saveItems || [];
+                // Each store inventory is its own JSON string in the save: { saveItems: [...] }, uuids numbered within it
+                const readInventory = (key: string): any[] | null => {
+                    const keyIdx = text.indexOf(`"${key}"`);
+                    if (keyIdx === -1) return null;
+                    const colonIdx = text.indexOf(':', keyIdx);
+                    const quoteStart = text.indexOf('"', colonIdx);
+                    let quoteEnd = -1;
+                    for (let i = quoteStart + 1; i < text.length; i++) {
+                        if (text[i] === '\\') i++;
+                        else if (text[i] === '"') { quoteEnd = i; break; }
+                    }
+                    if (quoteEnd === -1) throw new Error(`Malformed ${key} string.`);
+                    return JSON.parse(JSON.parse(text.substring(quoteStart, quoteEnd + 1))).saveItems || [];
+                };
+                const saveItems = readInventory('mainInvJSON');
+                if (saveItems === null) throw new Error("Could not find mainInvJSON in save file.");
+                /* The display window and the counter are inventories of their own in the save, and the player's modules can sit there too
+                 * (the Module Optimizer Import mod also puts the modules a layout doesn't use on the counter). Their modules come in as
+                 * loose modules, under their own name; machines there are not machine cards (the mod finds machines by their path from the
+                 * main inventory). Their uuids are moved past the main inventory's so the three don't mix
+                 */
+                const STORE_INVENTORIES: [string, string][] = [['showcaseInvJSON', 'Display window'], ['backInvJSON', 'Counter']];
+                STORE_INVENTORIES.forEach(([key, label], k) => {
+                    const offset = (k + 1) * 10_000_000;
+                    for (const item of readInventory(key) ?? []) {
+                        saveItems.push({ ...item, uuid: item.uuid + offset, childItems: item.childItems?.map((c: number) => c + offset), storeInventory: label });
+                    }
+                });
 
                 const itemMap = new Map();
                 saveItems.forEach((item: any) => itemMap.set(item.uuid, item));
@@ -120,9 +131,9 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 const machineContents = new Map<number, { invId: string, modifiedShape: any }[]>();
                 const machineDataMap = new Map<number, any>();
 
-                const childrenMap = new Map<number | undefined, any[]>();
+                const childrenMap = new Map<number | string | undefined, any[]>();
                 saveItems.forEach((item: any) => {
-                    const pId = parentMap.get(item.uuid);
+                    const pId = parentMap.get(item.uuid) ?? (item.storeInventory ? `root:${item.storeInventory}` : undefined);
                     if (!childrenMap.has(pId)) childrenMap.set(pId, []);
                     childrenMap.get(pId)!.push(item);
                 });
@@ -153,7 +164,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                             isCustom = true;
                         }
 
-                        if (baseName === 'Save Bag') {
+                        if (child.storeInventory && parentMap.get(child.uuid) === undefined) {
+                            // The display window's and the counter's own bags ("Hidden Save Bag", "Back Inv Save Bag")
+                            child.numberedName = child.storeInventory;
+                        } else if (baseName === 'Save Bag') {
                             child.numberedName = 'Inv.';
                         } else if (isCustom) {
                             if (customCounters[resolvedName] === undefined) {
@@ -181,7 +195,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     const isMachineType = typesStr.includes("machine") || keysStr.includes("standard_machine_tag") || keysStr.includes("machinery");
                     const isActualMachine = machineKeywords.some(kw => nameLower.includes(kw)) && !nameLower.includes("bay") && !nameLower.includes("box") && !nameLower.includes("crate");
 
-                    if (isMachineType && isActualMachine) {
+                    if (isMachineType && isActualMachine && !item.storeInventory) {
                         machineContents.set(item.uuid, []);
                         machineDataMap.set(item.uuid, item);
                     }
@@ -334,7 +348,9 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                             break;
                         }
                     }
-                    if (!pathStr) {
+                    if (item.storeInventory) {
+                        if (!pathStr.startsWith(item.storeInventory)) pathStr = pathStr ? `${item.storeInventory} > ${pathStr}` : item.storeInventory;
+                    } else if (!pathStr) {
                         pathStr = 'Inv.';
                     } else if (!pathStr.startsWith('Inv.')) {
                         pathStr = `Inv. > ${pathStr}`;
