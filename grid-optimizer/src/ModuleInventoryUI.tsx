@@ -1274,7 +1274,8 @@ export default function ModuleInventoryUI() {
      * largest first, machines in card order, locked machines skipped. When no free spot fits it, the machine's own modules may be
      * moved to make room (one, then two of them), as long as that still lowers none of its stats.
      * Retrieve takes out exactly the stored modules; a machine whose modules were moved gets its layout from before the Store back,
-     * unless it has been changed since. A new solve forgets all of it
+     * unless it has been changed since. A solve forgets what was stored on the machines it solves (their new layout keeps or drops
+     * those modules); what was stored on the other machines can still be retrieved
      */
     const [storedIds, setStoredIds] = useState<string[]>(() => {
         try { return JSON.parse(localStorage.getItem('optimizer_stored_ids') || '[]'); } catch { return []; }
@@ -1290,7 +1291,18 @@ export default function ModuleInventoryUI() {
             localStorage.setItem('optimizer_stored_layouts', JSON.stringify(storedLayouts));
         } catch { /* storage unavailable */ }
     }, [storedIds, storedLayouts]);
-    useEffect(() => { if (isAnySolving) { setStoredIds([]); setStoredLayouts({}); } }, [isAnySolving]);
+    const wasSolving = useRef<Record<string, boolean>>({});
+    useEffect(() => {
+        const started = Object.keys(solvingStates).filter(id => solvingStates[id] && !wasSolving.current[id]);
+        wasSolving.current = { ...solvingStates };
+        if (started.length === 0) return;
+        const onStarted = new Set<string>();
+        for (const id of started) {
+            machinesRef.current[id]?.getBoard().forEach((row: any[]) => row.forEach(c => { if (c && c !== 'Locked') onStarted.add(c.id); }));
+        }
+        setStoredIds(prev => (prev.some(sid => onStarted.has(sid)) ? prev.filter(sid => !onStarted.has(sid)) : prev));
+        setStoredLayouts(prev => (started.some(id => prev[id]) ? Object.fromEntries(Object.entries(prev).filter(([id]) => !started.includes(id))) : prev));
+    }, [solvingStates]);
     const [storeNote, setStoreNote] = useState<string | null>(null);
     const idGrid = (board: any[][]): IdGrid => board.map(row => row.map(c => (c === 'Locked' ? 'Locked' : c ? c.id : null)));
     const handleStore = () => {
@@ -1299,6 +1311,8 @@ export default function ModuleInventoryUI() {
         const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
         const deadline = performance.now() + 2000;
         const cards = machines.map(({ id }) => ({ id, card: machinesRef.current[id] })).filter(m => m.card && !m.card.isLocked());
+        // Every machine's layout before this Store: what Retrieve gives back to a machine whose own modules had to move
+        const startLayouts = Object.fromEntries(cards.map(({ id, card }) => [id, idGrid(card.getBoard())]));
 
         // Every placement of `item` on `board`: free, unlocked cells only
         const placementsOf = (board: any[][], item: InventoryItem) => {
@@ -1364,7 +1378,7 @@ export default function ModuleInventoryUI() {
                     const board: any[][] = card.getBoard();
                     const next = storeOn(board, card.getState().machineKind, item, moves);
                     if (!next) continue;
-                    if (moves > 0 && !layouts[id]) layouts[id] = { before: idGrid(board), after: [] };
+                    if (moves > 0 && !layouts[id]) layouts[id] = { before: startLayouts[id], after: [] };
                     const { totals, pieceStats } = calculateBoardStats(next, expandedInventory, byId);
                     card.applyUpdate(next, totals, pieceStats, '');
                     stored.push(item.id);
