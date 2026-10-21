@@ -4,6 +4,7 @@ import { flushSaveSettings } from '../saveSettings';
 import { STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
 import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
+import { getSaveItemName, readSaveInventory } from '../saveImport';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
 interface SaveFileImporterProps {
@@ -88,19 +89,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 const text = evt.target?.result as string;
 
                 // Each store inventory is its own JSON string in the save: { saveItems: [...] }, uuids numbered within it
-                const readInventory = (key: string): any[] | null => {
-                    const keyIdx = text.indexOf(`"${key}"`);
-                    if (keyIdx === -1) return null;
-                    const colonIdx = text.indexOf(':', keyIdx);
-                    const quoteStart = text.indexOf('"', colonIdx);
-                    let quoteEnd = -1;
-                    for (let i = quoteStart + 1; i < text.length; i++) {
-                        if (text[i] === '\\') i++;
-                        else if (text[i] === '"') { quoteEnd = i; break; }
-                    }
-                    if (quoteEnd === -1) throw new Error(`Malformed ${key} string.`);
-                    return JSON.parse(JSON.parse(text.substring(quoteStart, quoteEnd + 1))).saveItems || [];
-                };
+                const readInventory = (key: string) => readSaveInventory<any>(text, key);
                 const saveItems = readInventory('mainInvJSON');
                 if (saveItems === null) throw new Error("Could not find mainInvJSON in save file.");
                 /* The display window and the counter are inventories of their own in the save, and the player's modules can sit there too
@@ -188,7 +177,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
 
                 // parse + import machines
                 saveItems.forEach((item: any) => {
-                    const nameLower = (item.name || '').toLowerCase();
+                    const nameLower = getSaveItemName(item).toLowerCase();
                     const typesStr = item.itemTypes?.join(' ').toLowerCase() || '';
                     const keysStr = (item._keys || []).join(' ').toLowerCase();
 
@@ -203,7 +192,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
 
                 // parse + import modules
                 saveItems.forEach((item: any) => {
-                    const name = item.name || '';
+                    const name = getSaveItemName(item);
                     const nameLower = name.toLowerCase();
                     const _keys = item._keys || [];
                     const typesStr = item.itemTypes?.join(' ').toUpperCase() || '';
@@ -462,7 +451,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         boardIds,
                         machineType: dropdownName,
                         // The item's own name ("Furnace", "AgeWell"...): the path above may carry a name the player gave it instead
-                        kind: typeof parentItem?.name === 'string' ? parentItem.name : undefined,
+                        kind: parentItem ? getSaveItemName(parentItem) : undefined,
                         tier: machineTier
                     });
                 });
