@@ -50,6 +50,13 @@ const ITEM_NAMES: Readonly<Record<string, string>> = {
     system_module_eco: 'Eco Module',
     node_medium: 'Node (Medium)',
     alarm_module_transmitter: 'Alarm Transmitter Module',
+    // The other machines and modules the optimizer knows (identifiers from English saves and the game's item tables)
+    water_purifier: 'Water Purifier',
+    mirage_projector: 'Mirage Projector',
+    furnace_module_blast: 'Furnace Module (Blast)',
+    furnace_module_junk: 'Furnace Module (Junk Processing)',
+    system_capped_neural_core: 'Neural Core Module (Capped)',
+    system_uncapped_neural_core: 'Neural Core Module (Uncapped)',
 };
 
 export function getSaveItemName(item: { identifier?: string; name?: string }): string {
