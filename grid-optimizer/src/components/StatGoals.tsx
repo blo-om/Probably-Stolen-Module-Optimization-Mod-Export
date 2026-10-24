@@ -39,6 +39,14 @@ const stepName = (b: StatBreakpoint) => (b.label.length > 12 && b.short ? b.shor
 // Below the first step: a counted step ("+1", "+1d") reads as zero of it; a named one (a water grade) as "below" it
 const belowFirst = (first: StatBreakpoint) => (first.short && /^\+\d/.test(first.short) ? first.short.replace(/\d+/, '0') : `< ${stepName(first)}`);
 
+// A card's reading with its unit in smaller type ("5510 ml/d", "28/day", "120 pts"), so the number keeps the room: units in Chinese
+// (毫升/天) are wider than the English ones. A reading that is not a number and a unit (a water grade, "+1d") stays as it is
+const splitUnit = (result: string): React.ReactNode => {
+    const m = /^(-?[\d.,]+)( ?)(\D.*)$/.exec(result);
+    if (!m || m[3] === '%') return result;
+    return <>{m[1]}<span style={{ fontSize: '0.72em', fontWeight: 'normal', marginLeft: m[2] ? '3px' : '1px' }}>{m[3]}</span></>;
+};
+
 // Mirage attractiveness, as points: the base plus Performance plus Quality
 const POINTS: StatUnit = {
     get unit() { return t('pts'); },
@@ -420,7 +428,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                     <>
                                         <div title={card.tooltip} onClick={toggles && !disabled ? card.edit : undefined}
                                             style={{ fontSize: '1.05em', fontWeight: 'bold', color: card.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: toggles && card.isOn('target') && !disabled ? 'pointer' : undefined }}>
-                                            {card.result}
+                                            {splitUnit(card.result)}
                                         </div>
                                         {card.progress !== null && (
                                             <div style={{ height: '3px', margin: '2px 4px 0', background: '#2a2a2a', borderRadius: '2px', overflow: 'hidden' }}>
