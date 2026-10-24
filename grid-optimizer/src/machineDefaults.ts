@@ -1,3 +1,4 @@
+import { t, plural } from './i18n';
 // Which stats each machine type starts with switched on. From the community machine guide:
 //   Furnace          - Performance has no impact; Quality raises ingot purity
 //   Desequencer      - Quality N/A; Performance = work per day
@@ -65,7 +66,7 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 // `short` is the chip label where space is tight
 export type StatBreakpoint = { value: number; label: string; hint: string; short?: string };
 
-const PURITIES = ['Low', 'Fair', 'High', 'Very high', 'Perfect'];
+const PURITIES = ['Low Purity', 'Fair Purity', 'High Purity', 'Very High Purity', 'Perfect Purity'];
 
 const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
     // Base purity of each recipe, by index into PURITIES
@@ -75,19 +76,19 @@ const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
     const offset = hasBlast ? 100 : 0;
     return [1, 2, 3, 4].map(stages => ({
         value: stages * 100 + offset,
-        label: `+${stages} purity${stages === 1 ? ', flux free' : ''}`,
+        label: stages === 1 ? t('+{n} purity, flux free', { n: stages }) : t('+{n} purity', { n: stages }),
         short: `+${stages}`,
-        hint: recipes.map(([recipe, base]) => `${recipe} → ${PURITIES[Math.min(base + stages, 4)]}`).join(' · ')
-            + (hasBlast ? ' (Blast: first 100% ignored)' : ''),
+        hint: recipes.map(([recipe, base]) => `${t(recipe)} → ${t(PURITIES[Math.min(base + stages, 4)])}`).join(' · ')
+            + (hasBlast ? t(' (Blast: first 100% ignored)') : ''),
     }));
 };
 
 const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] = [
     ['moisture farm', () => [
-        { value: 0, label: 'Ghostwater', short: 'Ghost', hint: '96-98% water. Pitcher: 75% high-quality, 25% basewater' },
-        { value: 50, label: 'Basewater', short: 'Base', hint: '98-99% water. Pitcher: always high-quality' },
-        { value: 100, label: 'High-quality', short: 'HQ', hint: '99-99.9% water. Pitcher: 26% pure' },
-        { value: 150, label: 'Pure', hint: '99.9%+ water, no filtering needed' },
+        { value: 0, label: t('Ghostwater'), short: t('Ghost'), hint: t('96-98% water. Pitcher: 75% high-quality, 25% basewater') },
+        { value: 50, label: t('Basewater'), short: t('Base'), hint: t('98-99% water. Pitcher: always high-quality') },
+        { value: 100, label: t('High-quality'), short: t('HQ'), hint: t('99-99.9% water. Pitcher: 26% pure') },
+        { value: 150, label: t('Pure'), hint: t('99.9%+ water, no filtering needed') },
     ]],
     /* The Purifier cleans each contaminant down to a floor (heavy metal 0.25%, chemicals 0.16%, organic waste 0.10%, microbes 0.09%,
      * physical and minerals 0.07%: 0.74% for water from a basic source) times a factor set by Quality:
@@ -96,17 +97,17 @@ const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] =
      * Pitcher-filtered water (heavy metals and chemicals left, 0.41%): 99.59% with none, 99.92% (pure) at 75%
      */
     ['water purifier', () => [
-        { value: 0, label: 'High-quality', short: 'HQ', hint: 'Any basic source already comes out high-quality (99.26%+) with no Quality at all' },
-        { value: 75, label: 'Pure (pre-filtered)', short: 'Pure (pitcher)', hint: 'Pure (99.92%) from basic-source water filtered in a pitcher first' },
-        { value: 100, label: 'Pure', hint: 'Pure (99.93%) from any basic source: traders, tap, moisture farm' },
-        { value: 200, label: '100% water', short: '100%', hint: 'Contaminant floors 0%: converts everything' },
+        { value: 0, label: t('High-quality'), short: t('HQ'), hint: t('Any basic source already comes out high-quality (99.26%+) with no Quality at all') },
+        { value: 75, label: t('Pure (pre-filtered)'), short: t('Pure (pitcher)'), hint: t('Pure (99.92%) from basic-source water filtered in a pitcher first') },
+        { value: 100, label: t('Pure'), hint: t('Pure (99.93%) from any basic source: traders, tap, moisture farm') },
+        { value: 200, label: t('100% water'), short: t('100%'), hint: t('Contaminant floors 0%: converts everything') },
     ]],
     ['furnace', furnaceBreakpoints],
     ['agewell', () => [1, 2, 3, 4].map(extra => ({
         value: extra * 125,
-        label: `+${extra} day${extra > 1 ? 's' : ''}`,
-        short: `+${extra}d`,
-        hint: `Wine ages ${extra + 1} days per night instead of 1`,
+        label: t('+{n} day{s}', { n: extra, s: plural(extra) }),
+        short: t('+{n}d', { n: extra }),
+        hint: t('Wine ages {n} days per night instead of 1', { n: extra + 1 }),
     }))],
 ];
 
@@ -126,8 +127,8 @@ const DESEQUENCER_CUTOFFS: [number, [number, number][]][] = [
 const PERFORMANCE_BREAKPOINTS: [string, () => StatBreakpoint[]][] = [
     ['desequencer', () => DESEQUENCER_CUTOFFS.map(([value, cards]) => ({
         value,
-        label: cards.map(([work, days]) => `${work} in ${days}d`).join(', '),
-        hint: cards.map(([work, days]) => `${CHIPSETS[work]} (${work} work) in ${days} day${days > 1 ? 's' : ''}`).join(' · '),
+        label: cards.map(([work, days]) => t('{work} in {days}d', { work, days })).join(', '),
+        hint: cards.map(([work, days]) => t('{chipset} ({work} work) in {days} day{s}', { chipset: t(CHIPSETS[work]), work, days, s: plural(days) })).join(' · '),
     }))],
 ];
 
@@ -220,7 +221,8 @@ const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][]
 ];
 export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
-    return STAT_EFFECTS.find(([k, s]) => s === stat && name.includes(k))?.[2] ?? null;
+    const effect = STAT_EFFECTS.find(([k, s]) => s === stat && name.includes(k))?.[2];
+    return effect === undefined ? null : t(effect);
 };
 
 // Moisture Farm Performance that still counts: +500% makes 6000 ml, as much as the biggest water container holds
@@ -276,7 +278,7 @@ const STAT_NAMES: [string, 'Performance' | 'Quality' | 'Efficiency', string][] =
 export const statName = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     const hit = STAT_NAMES.find(([keyword, s]) => s === stat && name.includes(keyword));
-    return hit ? hit[2] : stat;
+    return t(hit ? hit[2] : stat);
 };
 
 // Stats that change nothing on a machine, per the machine guide
@@ -328,7 +330,7 @@ const energyOf = ({ base, effRatio, perfRatio }: EnergyRule, eff: number, perf: 
     return Math.max(1, energy);
 };
 const energyUnit = (rule: EnergyRule): StatUnit => ({
-    unit: '/day',
+    get unit() { return t('/day'); },
     fromPercent: (eff, totals) => energyOf(rule, eff, totals?.Performance ?? 0),
     // The least Efficiency that gets energy down to the value asked for
     toPercent: (value, totals) => {
@@ -343,7 +345,7 @@ const energyUnit = (rule: EnergyRule): StatUnit => ({
  * separate rounding of the two can put off by at most 1 energy a day
  */
 const combinedEnergyUnit = (rule: EnergyRule): StatUnit => ({
-    unit: '/day',
+    get unit() { return t('/day'); },
     fromPercent: (sum, totals) => totals && Math.abs(totals.Efficiency + totals.Performance - sum) < 1e-9
         ? energyOf(rule, totals.Efficiency, totals.Performance)
         : energyOf(rule, sum, 0),
@@ -370,11 +372,11 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         fromPercent: pct => Math.max(0, 50 + Math.trunc(pct)),
         toPercent: chance => Math.ceil(chance - 50),
         step: 1,
-        hint: 'Chance to stop a theft: 50% plus Performance',
+        get hint() { return t('Chance to stop a theft: 50% plus Performance'); },
     }],
     // Up to 6000 ml: the biggest water container holds that much, so Performance past +500% fills nothing more (MOISTURE_FARM_CAP)
     ['moisture farm', 'Performance', {
-        unit: 'ml/d',
+        get unit() { return t('ml/d'); },
         fromPercent: pct => Math.min(6000, Math.max(0, 1000 + 10 * pct)),
         // Rounded up, so the target always reaches the volume asked for
         toPercent: ml => Math.ceil((Math.min(ml, 6000) - 1000) / 10),
@@ -390,11 +392,11 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
      * is left above its floor, and shrinks as the water gets cleaner
      */
     ['water purifier', 'Performance', {
-        unit: 'ml/d',
+        get unit() { return t('ml/d'); },
         fromPercent: pct => Math.round(pct * 2) / 100,
         toPercent: ml => Math.ceil(ml * 50 - 1e-9),
         step: 0.1,
-        hint: 'Extra removed a day per contaminant from Performance: 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05). The real amount is capped by what is left above the purity floor',
+        get hint() { return t('Extra removed a day per contaminant from Performance: 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05). The real amount is capped by what is left above the purity floor'); },
     }],
 ];
 
