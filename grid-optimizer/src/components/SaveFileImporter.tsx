@@ -468,9 +468,14 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 else localStorage.removeItem(STORE_BASE_ATTRACTIVENESS_KEY);
                 onImport(parsedInventory, newMachines, importedName);
                 localStorage.setItem(SAVE_NAME_KEY, importedName);
-                // The save's own slot number, which the mod compares with the loaded game before trusting module uids
-                const slotMatch = /"saveSlotId"\s*:\s*(\d+)/.exec(text);
-                if (slotMatch) localStorage.setItem(SAVE_SLOT_KEY, slotMatch[1]);
+                /* The save's slot, which the mod compares with the loaded game before trusting module uids. The game takes the slot from the
+                 * file name (save_26.es3 is slot 26); the saveSlotId inside the file is only rewritten when the game saves, so a save copied
+                 * into another slot still carries its old one (a copy of save_14 as save_26 says 14 until it is saved again). The id inside
+                 * is only used when the file name is not save_<n> (a renamed download such as "save_20 (1).es3")
+                 */
+                const slotFromName = /^save_(\d+)$/i.exec(importedName)?.[1];
+                const slot = slotFromName ?? /"saveSlotId"\s*:\s*(\d+)/.exec(text)?.[1];
+                if (slot !== undefined) localStorage.setItem(SAVE_SLOT_KEY, slot);
                 else localStorage.removeItem(SAVE_SLOT_KEY);
                 setSaveName(importedName);
             } catch (err) {

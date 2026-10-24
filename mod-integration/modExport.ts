@@ -31,9 +31,9 @@ const SAVE_SLOT_KEY = 'optimizer_save_slot';
 // Call with the save file's text and name when a save is imported: the export names the save it was made from
 export const rememberSaveForMod = (saveText: string, fileName: string) => {
     try {
-        localStorage.setItem(SAVE_NAME_KEY, fileName.replace(/\.es3$/i, ''));
-        const slot = /"saveSlotId"\s*:\s*(\d+)/.exec(saveText);
-        if (slot) localStorage.setItem(SAVE_SLOT_KEY, slot[1]);
+        const name = fileName.replace(/\.es3$/i, ''); localStorage.setItem(SAVE_NAME_KEY, name);
+        const slot = /^save_(\d+)$/i.exec(name)?.[1] ?? /"saveSlotId"\s*:\s*(\d+)/.exec(saveText)?.[1]; // the game's slot is the file name's
+        if (slot !== undefined) localStorage.setItem(SAVE_SLOT_KEY, slot);
         else localStorage.removeItem(SAVE_SLOT_KEY);
     } catch { /* storage unavailable: the export goes without a slot, which the mod accepts */ }
 };
