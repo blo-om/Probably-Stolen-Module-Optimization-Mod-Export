@@ -2284,23 +2284,20 @@ export default function ModuleInventoryUI() {
                         </button>
                     ))}
                 </div>
-                {/* The page's language, as a dropdown styled like the toolbar's buttons (the native arrow replaced by our own) */}
-                <span style={{ position: 'relative', display: 'inline-flex' }} title={t('Language')}>
-                    <select
-                        value={lang}
-                        onChange={e => setLang(e.target.value as 'en' | 'zh')}
-                        aria-label={t('Language')}
-                        style={{
-                            appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
-                            padding: '10px 32px 10px 14px', backgroundColor: '#333333', color: '#eee',
-                            border: '1px solid #555555', borderRadius: '6px', fontSize: '0.95em', fontFamily: 'inherit', cursor: 'pointer',
-                        }}
-                    >
-                        <option value="en" lang="en">English</option>
-                        <option value="zh" lang="zh-CN">简体中文</option>
-                    </select>
-                    <span aria-hidden="true" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#aaa', fontSize: '0.7em' }}>▼</span>
-                </span>
+                <div role="radiogroup" aria-label={t('Language')} title={t('Language')}
+                    style={{ display: 'flex', alignItems: 'stretch', backgroundColor: '#333333', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden' }}>
+                    {([['en', 'EN'], ['zh', '中文']] as const).map(([code, label], i) => (
+                        <button key={code} role="radio" aria-checked={lang === code} lang={code === 'zh' ? 'zh-CN' : 'en'}
+                            onClick={() => setLang(code)}
+                            style={{
+                                padding: '10px 12px', border: 'none', borderLeft: i > 0 ? '1px solid #555555' : 'none', borderRadius: 0, fontSize: '0.95em', cursor: 'pointer',
+                                backgroundColor: lang === code ? '#2e4a35' : '#333333',
+                                color: lang === code ? '#fff' : '#aaa', fontWeight: lang === code ? 'bold' : 'normal',
+                            }}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
                 </div>
                 </div>
             </div>
