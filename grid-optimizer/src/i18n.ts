@@ -16,7 +16,11 @@ const initial = (): Lang => {
         const saved = localStorage.getItem(LANG_KEY);
         if (saved === 'en' || saved === 'zh') return saved;
     } catch { /* storage unavailable */ }
-    return typeof navigator !== 'undefined' && /^zh/i.test(navigator.language) ? 'zh' : 'en';
+    // First visit: the first of the browser's languages that the page has (a Japanese-first browser that also lists Chinese gets Chinese)
+    if (typeof navigator === 'undefined') return 'en';
+    const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
+    const first = preferred.find(code => /^(zh|en)/i.test(code ?? ''));
+    return first && /^zh/i.test(first) ? 'zh' : 'en';
 };
 
 let lang: Lang = initial();
