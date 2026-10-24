@@ -3,6 +3,7 @@ import type { InventoryItem, ItemEffect, ModuleColor, ModuleTemplate, Stats } fr
 import { COLOR_MAP, MODULE_TEMPLATES, NODE_TEMPLATE } from '../constants';
 import { applyInternalEffects, getBaseStats, PRECOMPUTED_OFFSETS } from '../utils';
 import MiniShape from './MiniShape';
+import { t, useLang, moduleName } from '../i18n';
 
 type StatKey = keyof Stats;
 const STATS: { key: StatKey; label: string; color: ModuleColor }[] = [
@@ -45,6 +46,7 @@ const entriesFor = (stat: StatKey): Entry[] => {
 const fmt = (v: number) => (v > 0 ? `+${v}` : `${v}`);
 
 export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: InventoryItem) => void; disabled?: boolean }) {
+    useLang();
     const [open, setOpen] = useState(false);
     const [stat, setStat] = useState<StatKey>('Performance');
     const [added, setAdded] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
             shape: template.shape, color: template.color, displayName: template.displayName,
             effects: [effect, 'None'], effectValues: [value, 0], isInfinite: false, isLocked: false,
         });
-        setAdded(`${template.displayName}${effect !== 'None' ? ` · ${effect}` : ''}`);
+        setAdded(`${moduleName(template.displayName)}${effect !== 'None' ? ` · ${t(effect)}` : ''}`);
     };
 
     const row = (key: string, template: ModuleTemplate, effect: ItemEffect, value: number, stats: Stats | null, size: number) => (
@@ -82,18 +84,18 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                 <MiniShape shape={template.shape} colorHex={COLOR_MAP[template.color]} />
             </span>
             <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ color: COLOR_MAP[template.color], fontWeight: 'bold' }}>{template.displayName}</span>
-                <span style={{ color: '#777' }}> · {size} cells</span>
-                {effect !== 'None' && <span style={{ color: '#9ab' }}> · {effect}{EFFECT_NOTE[effect] ? ` (${EFFECT_NOTE[effect]})` : ''}</span>}
+                <span style={{ color: COLOR_MAP[template.color], fontWeight: 'bold' }}>{moduleName(template.displayName)}</span>
+                <span style={{ color: '#777' }}> · {t('{n} cells', { n: size })}</span>
+                {effect !== 'None' && <span style={{ color: '#9ab' }}> · {t(effect)}{EFFECT_NOTE[effect] ? t(' ({note})', { note: t(EFFECT_NOTE[effect]!) }) : ''}</span>}
             </span>
             {stats && (
                 <span style={{ flex: 'none', color: '#aaa', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {STATS.filter(s => stats[s.key] !== 0).map(s => (
                         <span key={s.key} style={{ marginLeft: '8px', color: s.key === stat ? COLOR_MAP[s.color] : '#888', fontWeight: s.key === stat ? 'bold' : 'normal' }}>
-                            {s.label[0]} {fmt(stats[s.key])}
+                            {t(s.label)[0]} {fmt(stats[s.key])}
                         </span>
                     ))}
-                    <span style={{ marginLeft: '8px', color: '#666' }}>{fmt(Math.round((stats[stat] / size) * 10) / 10)}/cell</span>
+                    <span style={{ marginLeft: '8px', color: '#666' }}>{t('{v}/cell', { v: fmt(Math.round((stats[stat] / size) * 10) / 10) })}</span>
                 </span>
             )}
         </button>
@@ -104,13 +106,13 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
             <button
                 onClick={() => { setOpen(o => !o); setAdded(null); }}
                 disabled={disabled}
-                title="Add a module that is not in your save"
+                title={t('Add a module that is not in your save')}
                 style={{
                     background: '#333', border: '1px solid #555', borderRadius: '6px', color: '#eee',
                     cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, fontSize: '0.9em', padding: '6px 14px'
                 }}
             >
-                + Add Module
+                {t('+ Add Module')}
             </button>
             {open && (
                 <div style={{
@@ -128,12 +130,12 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                                     border: `1px solid ${COLOR_MAP[s.color]}`
                                 }}
                             >
-                                {s.label}
+                                {t(s.label)}
                             </button>
                         ))}
                     </div>
                     <div style={{ padding: '6px 10px', fontSize: '0.72em', color: '#888', borderBottom: '1px solid #333' }}>
-                        {added ? <span style={{ color: '#4caf50' }}>Added {added} to storage</span> : `Best ${stat} per cell first. Click one to add it to storage`}
+                        {added ? <span style={{ color: '#4caf50' }}>{t('Added {item} to storage', { item: added })}</span> : t('Best {stat} per cell first. Click one to add it to storage', { stat: t(stat) })}
                     </div>
                     <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
                         {entries.map((e, i) => row(`${i}`, e.template, e.effect, e.value, e.stats, e.size))}

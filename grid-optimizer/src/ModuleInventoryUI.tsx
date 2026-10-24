@@ -5,7 +5,7 @@ import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats,
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
-import type { Stats, GridTier, InventoryItem, ItemEffect, ModuleColor, Point } from './types';
+import type { Stats, GridTier, InventoryItem, ModuleColor, Point } from './types';
 import { COLOR_MAP } from './constants';
 import { formatStatValue, getStatColor, PRECOMPUTED_OFFSETS } from './utils';
 import { createPortal } from 'react-dom';
@@ -54,6 +54,17 @@ const lockSpot = (cells: Point[]) => {
 };
 import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
+import { t, plural, useLang, setLang, gameName, pathLabel, moduleName } from './i18n';
+
+const MACHINE_TYPES = ['Moisture Farm', 'Furnace', 'Water Purifier', 'Alarm System', 'AgeWell', 'Cryptographic Desequencer', 'Mirage Projector'];
+// A card's machine as shown, and where a module is: stock game names in the page's language, names the player gave as they are
+const machineLabel = gameName;
+const placeLabel = pathLabel;
+// A module's effects as shown, with the values of the ones that have one
+const effectsLabel = (item: InventoryItem, withParens: boolean) => item.effects
+    .map((eff, i) => (eff === 'None' ? null : (eff === 'Learning Algorithm' || eff === 'Degrading')
+        ? (withParens ? t('{effect} ({v}%)', { effect: t(eff), v: item.effectValues[i] }) : `${t(eff)} ${item.effectValues[i]}%`) : t(eff)))
+    .filter(Boolean) as string[];
 
 // offload mouse tracking to useRef; performance
 const DragGhost = ({ dragState, cellSize }: { dragState: any, cellSize: number }) => {
@@ -144,6 +155,7 @@ const MachineInstance = React.memo(forwardRef(({
                                                    onRunMachine,
                                                    solverKind
                                                }: any, ref) => {
+    useLang();
     // Machine state loading handles fallback defaults from localStorage automatically
     const optimizer = useOptimizer(inventory, setInventory, machineId, getUsedItems, 3, isAnySolving);
     // One lock per locked module, in the middle of the piece (see lockSpot): cell index -> offset from that cell's centre
@@ -481,8 +493,8 @@ const MachineInstance = React.memo(forwardRef(({
                         backgroundColor: 'rgba(0, 0, 0, 0.95)', border: '1px solid #4fb3bf', padding: '10px 15px', borderRadius: '6px',
                         zIndex: 1000, pointerEvents: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', minWidth: '150px'
                     }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#eee' }}>{machineType.split(' > ').pop()}</div>
-                        <div style={{ fontSize: '0.75em', color: '#4fb3bf', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>[Machine]</div>
+                        <div style={{ fontWeight: 'bold', marginBottom: '2px', color: '#eee' }}>{machineLabel(machineType.split(' > ').pop() ?? '')}</div>
+                        <div style={{ fontSize: '0.75em', color: '#4fb3bf', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>{t('[Machine]')}</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9em' }}>
                             {([['Perf', 'Performance'], ['Qual', 'Quality'], ['Effic', 'Efficiency']] as const).map(([label, stat]) => {
                                 const effect = statEffect(typeKey, stat);
@@ -490,7 +502,7 @@ const MachineInstance = React.memo(forwardRef(({
                                 return (
                                     <div key={stat} style={{ opacity: none ? 0.5 : 1 }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                                            <span style={{ color: '#aaa' }}>{label}:</span>
+                                            <span style={{ color: '#aaa' }}>{t(label)}:</span>
                                             <span style={{ color: getStatColor(optimizer.bestTotals[stat]) }}>{formatStatValue(optimizer.bestTotals[stat])}</span>
                                         </div>
                                         {effect && <div style={{ fontSize: '0.8em', color: '#777', maxWidth: '240px', lineHeight: 1.3 }}>{effect}</div>}
@@ -500,7 +512,7 @@ const MachineInstance = React.memo(forwardRef(({
                         </div>
                         {isImportedMachine && (
                             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #333', fontSize: '0.75em', color: '#888', wordBreak: 'break-word', maxWidth: '250px' }}>
-                                <span style={{ color: '#aaa' }}>Path: </span>{machineType}
+                                <span style={{ color: '#aaa' }}>{t('Path: ')}</span>{pathLabel(machineType)}
                             </div>
                         )}
                     </div>,
@@ -516,7 +528,7 @@ const MachineInstance = React.memo(forwardRef(({
                                 padding: '4px 8px', fontWeight: 'bold'
                             }}
                         >
-                            {showPaths ? 'Hide Paths' : 'Show Paths'}
+                            {showPaths ? t('Hide Paths') : t('Show Paths')}
                         </button>
                         <button
                             onClick={() => setIsMachineLocked(!isMachineLocked)}
@@ -529,16 +541,16 @@ const MachineInstance = React.memo(forwardRef(({
                                 padding: '4px 8px', fontWeight: 'bold'
                             }}
                         >
-                            {isMachineLocked ? 'Unlock' : 'Lock'}
+                            {isMachineLocked ? t('Unlock') : t('Lock')}
                         </button>
                     </div>
                     <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
                         {isImportedMachine ? (
                             <span
-                                title={machineType}
+                                title={pathLabel(machineType)}
                                 style={{ color: '#eee', fontSize: '0.95em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', textAlign: 'right' }}
                             >
-                                {machineType.split(' > ').pop()}
+                                {machineLabel(machineType.split(' > ').pop() ?? '')}
                             </span>
                         ) : (
                             <select
@@ -577,19 +589,13 @@ const MachineInstance = React.memo(forwardRef(({
                                     textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden'
                                 }}
                             >
-                                <option value="Select Machine..." disabled>Select Machine...</option>
-                                {machineType !== "Select Machine..." && !["Moisture Farm", "Furnace", "Water Purifier", "Alarm System", "AgeWell", "Cryptographic Desequencer", "Mirage Projector"].includes(machineType) && (
+                                <option value="Select Machine..." disabled>{t('Select Machine...')}</option>
+                                {machineType !== "Select Machine..." && !MACHINE_TYPES.includes(machineType) && (
                                     <option value={machineType}>
-                                        {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineType}
+                                        {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineLabel(machineType)}
                                     </option>
                                 )}
-                                <option value="Moisture Farm">Moisture Farm</option>
-                                <option value="Furnace">Furnace</option>
-                                <option value="Water Purifier">Water Purifier</option>
-                                <option value="Alarm System">Alarm System</option>
-                                <option value="AgeWell">AgeWell</option>
-                                <option value="Cryptographic Desequencer">Cryptographic Desequencer</option>
-                                <option value="Mirage Projector">Mirage Projector</option>
+                                {MACHINE_TYPES.map(type => <option key={type} value={type}>{t(type)}</option>)}
                             </select>
                         )}
                     </div>
@@ -602,7 +608,7 @@ const MachineInstance = React.memo(forwardRef(({
                             background: 'none', border: 'none', color: isAnySolving ? '#444' : '#666',
                             cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '1.2em', padding: '0 4px', alignSelf: 'flex-start', lineHeight: 1
                         }}
-                        title="Delete Machine"
+                        title={t('Delete Machine')}
                     >
                         &times;
                     </button>
@@ -744,7 +750,7 @@ const MachineInstance = React.memo(forwardRef(({
                 <div style={{ minHeight: '18px', marginTop: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                     {optimizer.warningMsg && (
                         <span style={{ color: '#ff4d4d', fontSize: '0.75em', textAlign: 'center', width: '100%' }}>
-                            ⚠ {optimizer.warningMsg}
+                            ⚠ {t(optimizer.warningMsg)}
                         </span>
                     )}
                 </div>
@@ -810,29 +816,29 @@ const MachineInstance = React.memo(forwardRef(({
                                 opacity: (inventory.length === 0 && !currentSolving) ? 0.5 : 1
                             }}
                         >
-                            {currentSolving ? 'Stop' : 'Run'}
+                            {currentSolving ? t('Stop') : t('Run')}
                         </button>
                         <button
                             onClick={optimizer.resetBoard}
                             disabled={isAnySolving}
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer' }}
                         >
-                            Clear
+                            {t('Clear')}
                         </button>
                         <button
                             onClick={() => onDuplicate(machineId)}
                             disabled={isAnySolving}
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer' }}
                         >
-                            Duplicate
+                            {t('Duplicate')}
                         </button>
                         <button
                             onClick={() => { const entry = modExportEntry(); if (entry) navigator.clipboard.writeText(encodeModExport([entry])); }}
                             disabled={!boardHasModules}
-                            title="Copy this machine's layout for the Module Optimizer Import mod"
+                            title={t("Copy this machine's layout for the Module Optimizer Import mod")}
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !boardHasModules ? 'not-allowed' : 'pointer', opacity: !boardHasModules ? 0.5 : 1 }}
                         >
-                            Export
+                            {t('Export')}
                         </button>
                     </div>
 
@@ -846,18 +852,16 @@ const MachineInstance = React.memo(forwardRef(({
                     overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px',
                     zIndex: 5
                 }}>
-                    <h4 style={{ margin: '0 0 10px 0', color: '#ccc', textAlign: 'center', fontSize: '0.9em', textTransform: 'uppercase' }}>Module Paths</h4>
+                    <h4 style={{ margin: '0 0 10px 0', color: '#ccc', textAlign: 'center', fontSize: '0.9em', textTransform: 'uppercase' }}>{t('Module Paths')}</h4>
                     {uniqueModules.length > 0 ? uniqueModules.map(mod => {
-                        const effs = mod.effects.filter(e => e !== 'None');
-                        const effStr = effs.length > 0
-                            ? ` (${effs.map(e => `${e}${e === 'Learning Algorithm' || e === 'Degrading' ? ` ${mod.effectValues[mod.effects.indexOf(e)]}%` : ''}`).join(', ')})`
-                            : '';
-                        const actualPath = (mod as any).originalPath || 'Manual';
+                        const effs = effectsLabel(mod, false);
+                        const effStr = effs.length > 0 ? t(' ({note})', { note: effs.join(t(', ')) }) : '';
+                        const actualPath = (mod as any).originalPath ? placeLabel((mod as any).originalPath) : t('Manual');
 
                         return (
                             <div key={mod.id} style={{ padding: '8px', backgroundColor: '#252526', borderRadius: '4px', borderLeft: `3px solid ${COLOR_MAP[mod.color as ModuleColor]}` }}>
                                 <div style={{ fontWeight: 'bold', fontSize: '0.85em', color: '#eee', marginBottom: '4px' }}>
-                                    {mod.displayName}<span style={{ color: '#aaa', fontWeight: 'normal' }}>{effStr}</span>
+                                    {moduleName(mod.displayName)}<span style={{ color: '#aaa', fontWeight: 'normal' }}>{effStr}</span>
                                 </div>
                                 <div style={{ fontSize: '0.75em', color: '#888', wordBreak: 'break-word' }}>
                                     {actualPath}
@@ -865,7 +869,7 @@ const MachineInstance = React.memo(forwardRef(({
                             </div>
                         );
                     }) : (
-                        <div style={{ color: '#888', fontSize: '0.85em', textAlign: 'center', marginTop: '20px' }}>No modules placed.</div>
+                        <div style={{ color: '#888', fontSize: '0.85em', textAlign: 'center', marginTop: '20px' }}>{t('No modules placed.')}</div>
                     )}
                 </div>
             )}
@@ -874,6 +878,7 @@ const MachineInstance = React.memo(forwardRef(({
 }))
 
 export default function ModuleInventoryUI() {
+    const lang = useLang();
     const [inventory, setInventory] = useState<InventoryItem[]>(() => {
         const savedInventory = localStorage.getItem('optimizer_inventory');
         if (savedInventory) {
@@ -1251,7 +1256,7 @@ export default function ModuleInventoryUI() {
                 cell.style.visibility = out ? 'hidden' : '';
                 if (out) hidden.push(cell.querySelector('.store-stat-label')?.textContent ?? '');
             });
-            area.title = hidden.length ? `Not enough room for: ${hidden.filter(Boolean).join(', ')}` : '';
+            area.title = hidden.length ? t('Not enough room for: {list}', { list: hidden.filter(Boolean).join(', ') }) : '';
         };
         const observer = new ResizeObserver(fit);
         observer.observe(area);
@@ -1391,9 +1396,9 @@ export default function ModuleInventoryUI() {
         setStoredLayouts(layouts);
         const left = candidates.length - stored.length;
         const moved = Object.keys(layouts).length;
-        setStoreNote(stored.length === 0 ? 'No spot takes a module without lowering a machine\'s stats'
-            : [left > 0 ? `${left} module${left === 1 ? '' : 's'} found no spot that leaves the machine's stats as they are` : '',
-               moved > 0 ? `modules moved in ${moved} machine${moved === 1 ? '' : 's'} to make room` : ''].filter(Boolean).join('; ') || null);
+        setStoreNote(stored.length === 0 ? t("No spot takes a module without lowering a machine's stats")
+            : [left > 0 ? t("{n} module{s} found no spot that leaves the machine's stats as they are", { n: left, s: plural(left) }) : '',
+               moved > 0 ? t('modules moved in {n} machine{s} to make room', { n: moved, s: plural(moved) }) : ''].filter(Boolean).join(t('; ')) || null);
     };
     const handleRetrieve = () => {
         const byId = indexInventoryById(expandedInventory);
@@ -2079,47 +2084,43 @@ export default function ModuleInventoryUI() {
                     minWidth: '150px'
                 }}>
                     <div style={{ fontWeight: 'bold', marginBottom: '4px', color: COLOR_MAP[hoveredItem.color] }}>
-                        {hoveredItem.displayName}
+                        {moduleName(hoveredItem.displayName)}
                     </div>
                     {(hoveredItem.effects[0] !== 'None' || hoveredItem.effects[1] !== 'None') && (
                         <div style={{ fontSize: '0.75em', color: '#aaa', fontStyle: 'italic', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>
-                            {hoveredItem.effects.filter(e => e !== 'None').map((e) => {
-                                const actualIdx = hoveredItem.effects.indexOf(e as ItemEffect);
-                                const val = hoveredItem.effectValues[actualIdx];
-                                return `${e}${e === 'Learning Algorithm' || e === 'Degrading' ? ` (${val}%)` : ''}`;
-                            }).join(', ')}
+                            {effectsLabel(hoveredItem, true).join(t(', '))}
                         </div>
                     )}
                     {hoverInfo.stats ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9em', marginTop: '5px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#aaa' }}>Perf:</span>
+                                <span style={{ color: '#aaa' }}>{t('Perf')}:</span>
                                 <span style={{ color: getStatColor(hoverInfo.stats.Performance) }}>{formatStatValue(hoverInfo.stats.Performance)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#aaa' }}>Qual:</span>
+                                <span style={{ color: '#aaa' }}>{t('Qual')}:</span>
                                 <span style={{ color: getStatColor(hoverInfo.stats.Quality) }}>{formatStatValue(hoverInfo.stats.Quality)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#aaa' }}>Effic:</span>
+                                <span style={{ color: '#aaa' }}>{t('Effic')}:</span>
                                 <span style={{ color: getStatColor(hoverInfo.stats.Efficiency) }}>{formatStatValue(hoverInfo.stats.Efficiency)}</span>
                             </div>
                         </div>
                     ) : (
-                        <div style={{ color: '#888', fontSize: '0.9em' }}>Calculating...</div>
+                        <div style={{ color: '#888', fontSize: '0.9em' }}>{t('Calculating...')}</div>
                     )}
 
                     {lockedToMachine(hoveredItem) && (
                         <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#9a9a9a' }}>
-                            Locked to this machine · right-click to unlock
+                            {t('Locked to this machine · right-click to unlock')}
                         </div>
                     )}
                     {!lockedToMachine(hoveredItem) && (
-                        <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#666' }}>Right-click to lock it to this machine</div>
+                        <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#666' }}>{t('Right-click to lock it to this machine')}</div>
                     )}
                     {hoveredItem.originalPath && (
                         <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #333', fontSize: '0.75em', color: '#888', wordBreak: 'break-word', maxWidth: '250px' }}>
-                            <span style={{ color: '#aaa' }}>Path: </span>{hoveredItem.originalPath}
+                            <span style={{ color: '#aaa' }}>{t('Path: ')}</span>{placeLabel(hoveredItem.originalPath)}
                         </div>
                     )}
                 </div>
@@ -2134,83 +2135,83 @@ export default function ModuleInventoryUI() {
                 <div className="store-stats">
                     {storeStats.farms > 0 && (
                         <div className="store-stat store-stat-tall" title={[
-                            `What ${storeStats.farms} Moisture Farm${storeStats.farms === 1 ? '' : 's'} make a day, as the boards stand, at the game's price per grade`,
-                            '(credits a litre: ' + WATER_GRADES.slice().reverse().map(g => `${g.name} ${g.price}`).join(', ') + '; without the store\'s markup)',
-                            'A farm makes 1000 ml a day, +10 ml per 1% Performance, up to 6000 ml',
-                            'Under it: the water made a day, by grade',
+                            t("What {n} Moisture Farm{s} make a day, as the boards stand, at the game's price per grade", { n: storeStats.farms, s: plural(storeStats.farms) }),
+                            t("(credits a litre: {list}; without the store's markup)", { list: WATER_GRADES.slice().reverse().map(g => `${t(g.name)} ${g.price}`).join(', ') }),
+                            t('A farm makes 1000 ml a day, +10 ml per 1% Performance, up to 6000 ml'),
+                            t('Under it: the water made a day, by grade'),
                         ].join('\n')}>
-                            <span className="store-stat-label">Water value</span>
-                            <span className="store-stat-value" style={{ color: '#4fb3bf' }}>{storeStats.water.toLocaleString()}<span className="store-stat-unit"> credits / day</span></span>
+                            <span className="store-stat-label">{t('Water value')}</span>
+                            <span className="store-stat-value" style={{ color: '#4fb3bf' }}>{storeStats.water.toLocaleString()}<span className="store-stat-unit">{t(' credits / day')}</span></span>
                             <span className="store-stat-grades">
                                 {WATER_GRADES.slice().reverse().filter(g => storeStats.mlByGrade.has(g.name)).map(g => (
-                                    <span key={g.name}><b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} ml</b> {g.name}</span>
+                                    <span key={g.name}><b>{storeStats.mlByGrade.get(g.name)!.toLocaleString()} {t('ml')}</b> {t(g.name)}</span>
                                 ))}
                             </span>
                         </div>
                     )}
                     {storeStats.purifiers > 0 && (
                         <div className="store-stat" title={[
-                            `The Removal of ${storeStats.purifiers} Water Purifier${storeStats.purifiers === 1 ? '' : 's'} added up, as each card shows it:`,
-                            'the extra a day Performance removes of each contaminant, 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05).',
-                            'Never below the purity floor that Quality sets',
+                            t('The Removal of {n} Water Purifier{s} added up, as each card shows it:', { n: storeStats.purifiers, s: plural(storeStats.purifiers) }),
+                            t('the extra a day Performance removes of each contaminant, 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05).'),
+                            t('Never below the purity floor that Quality sets'),
                         ].join('\n')}>
-                            <span className="store-stat-label">Purified</span>
-                            <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit"> ml / day</span></span>
+                            <span className="store-stat-label">{t('Purified')}</span>
+                            <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit">{t(' ml / day')}</span></span>
                         </div>
                     )}
                     {storeStats.furnaces > 0 && (
                         <div className="store-stat" title={[
-                            `${storeStats.furnaces} Furnace${storeStats.furnaces === 1 ? '' : 's'}: ${storeStats.ingots} ingots a day from ${storeStats.sources} sources (scrap or ore)`,
-                            'A Furnace makes 1 ingot from 2 sources, with a Blast module 2 from 3',
+                            t('{n} Furnace{s}: {ingots} ingots a day from {sources} sources (scrap or ore)', { n: storeStats.furnaces, s: plural(storeStats.furnaces), ingots: storeStats.ingots, sources: storeStats.sources }),
+                            t('A Furnace makes 1 ingot from 2 sources, with a Blast module 2 from 3'),
                         ].join('\n')}>
-                            <span className="store-stat-label">Ingots a day</span>
-                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit"> from {storeStats.sources} mats</span></span>
+                            <span className="store-stat-label">{t('Ingots a day')}</span>
+                            <span className="store-stat-value" style={{ color: '#e0a050' }}>{storeStats.ingots}<span className="store-stat-unit">{t(' from {n} mats', { n: storeStats.sources })}</span></span>
                         </div>
                     )}
                     {storeStats.agewells > 0 && (
                         <div className="store-stat" title={[
-                            `${storeStats.agewells} AgeWell${storeStats.agewells === 1 ? '' : 's'}, ${WINE_PER_AGEWELL} bottles each: ${storeStats.agewells * WINE_PER_AGEWELL} bottles`,
-                            `With all of them full, the modules add ${storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL} aging days a night`,
-                            `(${storeStats.agingDays} in all, against ${storeStats.agewells * WINE_PER_AGEWELL} with no modules: 1 day a bottle,`,
-                            '+1 for every full 125% Quality)',
+                            t('{n} AgeWell{s}, {per} bottles each: {bottles} bottles', { n: storeStats.agewells, s: plural(storeStats.agewells), per: WINE_PER_AGEWELL, bottles: storeStats.agewells * WINE_PER_AGEWELL }),
+                            t('With all of them full, the modules add {n} aging days a night', { n: storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL }),
+                            t('({all} in all, against {base} with no modules: 1 day a bottle,', { all: storeStats.agingDays, base: storeStats.agewells * WINE_PER_AGEWELL }),
+                            t('+1 for every full 125% Quality)'),
                         ].join('\n')}>
-                            <span className="store-stat-label">Wine</span>
+                            <span className="store-stat-label">{t('Wine')}</span>
                             <span className="store-stat-value" style={{ color: '#c25b7f' }}>
                                 {storeStats.agingDays - storeStats.agewells * WINE_PER_AGEWELL}
-                                <span className="store-stat-words"><span>extra days at</span><span>max capacity</span></span>
+                                <span className="store-stat-words"><span>{t('extra days at')}</span><span>{t('max capacity')}</span></span>
                             </span>
                         </div>
                     )}
                     {storeStats.desequencers > 0 && (
-                        <div className="store-stat" title={`Decoding work a day over ${storeStats.desequencers} Cryptographic Desequencer${storeStats.desequencers === 1 ? '' : 's'}: 33 + 33 × Performance / 100 each (a keycard needs 75 to 150 work by chipset)`}>
-                            <span className="store-stat-label">Desequencer</span>
-                            <span className="store-stat-value" style={{ color: '#6fa8ff' }}>{storeStats.work}<span className="store-stat-unit"> / day</span></span>
+                        <div className="store-stat" title={t('Decoding work a day over {n} Cryptographic Desequencer{s}: 33 + 33 × Performance / 100 each (a keycard needs 75 to 150 work by chipset)', { n: storeStats.desequencers, s: plural(storeStats.desequencers) })}>
+                            <span className="store-stat-label">{t('Desequencer')}</span>
+                            <span className="store-stat-value" style={{ color: '#6fa8ff' }}>{storeStats.work}<span className="store-stat-unit">{t(' / day')}</span></span>
                         </div>
                     )}
                     {storeStats.powered > 0 && (
-                        <div className="store-stat" title={`Energy a day over ${storeStats.powered} machine${storeStats.powered === 1 ? '' : 's'}, by the game's rule for each (Efficiency, and Performance on the AgeWell)`}>
-                            <span className="store-stat-label">Power</span>
-                            <span className="store-stat-value" style={{ color: '#f2d24b' }}>{storeStats.power}<span className="store-stat-unit"> / day</span></span>
+                        <div className="store-stat" title={t("Energy a day over {n} machine{s}, by the game's rule for each (Efficiency, and Performance on the AgeWell)", { n: storeStats.powered, s: plural(storeStats.powered) })}>
+                            <span className="store-stat-label">{t('Power')}</span>
+                            <span className="store-stat-value" style={{ color: '#f2d24b' }}>{storeStats.power}<span className="store-stat-unit">{t(' / day')}</span></span>
                         </div>
                     )}
                     {(storeStats.base !== null || storeStats.projector !== null) && (
                         <div className="store-stat" title={[
-                            'Projected store attractiveness:',
-                            `  last night's base, without bonuses (from the save): ${storeStats.base ?? 'import a save to see it'}`,
-                            `  best Mirage Projector: ${storeStats.projector === null ? 'none' : `+${storeStats.projector}`} (100 + Performance + Quality; projectors do not stack)`,
+                            t('Projected store attractiveness:'),
+                            t("  last night's base, without bonuses (from the save): {v}", { v: storeStats.base ?? t('import a save to see it') }),
+                            t('  best Mirage Projector: {v} (100 + Performance + Quality; projectors do not stack)', { v: storeStats.projector === null ? t('none') : `+${storeStats.projector}` }),
                         ].join('\n')}>
-                            <span className="store-stat-label">Attractiveness</span>
+                            <span className="store-stat-label">{t('Attractiveness')}</span>
                             <span className="store-stat-value" style={{ color: '#c58af9' }}>
                                 {storeStats.base === null ? '?' : (storeStats.base + (storeStats.projector ?? 0)).toLocaleString()}
-                                {storeStats.projector !== null && <span className="store-stat-unit"> (+{storeStats.projector} projector)</span>}
+                                {storeStats.projector !== null && <span className="store-stat-unit">{t(' (+{n} projector)', { n: storeStats.projector })}</span>}
                             </span>
                         </div>
                     )}
                     {storeStats.farms + storeStats.furnaces + (storeStats.alarms ? 1 : 0) + (storeStats.projector !== null ? 1 : 0) > 0 && (
                         <div className="store-stat" title={storeStats.alarms
-                            ? "Chance a theft goes through: 100% minus the best Alarm System's stop chance (50% + Performance, up to 100%; alarms do not stack)"
-                            : 'No Alarm System: nothing stops a theft'}>
-                            <span className="store-stat-label">Theft chance</span>
+                            ? t("Chance a theft goes through: 100% minus the best Alarm System's stop chance (50% + Performance, up to 100%; alarms do not stack)")
+                            : t('No Alarm System: nothing stops a theft')}>
+                            <span className="store-stat-label">{t('Theft chance')}</span>
                             <span className="store-stat-value" style={{ color: storeStats.theft > 0 ? '#ff4d4d' : '#4caf50' }}>{storeStats.theft}%</span>
                         </div>
                     )}
@@ -2233,29 +2234,29 @@ export default function ModuleInventoryUI() {
                         fontSize: '0.95em'
                     }}
                 >
-                    {isAnySolving ? 'Stop All Optimizers' : 'Run All Optimizers'}
+                    {isAnySolving ? t('Stop All Optimizers') : t('Run All Optimizers')}
                 </button>
                 <button
                     onClick={handleClearAll}
                     disabled={isAnySolving}
                     style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
-                    Clear All
+                    {t('Clear All')}
                 </button>
                 <button
                     onClick={handleAddMachine}
                     disabled={isAnySolving}
                     style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
-                    + Add Machine
+                    {t('+ Add Machine')}
                 </button>
                 <button
                     onClick={handleCopyAllForMod}
                     disabled={isAnySolving}
-                    title="Copy every machine's code with its name, for the Module Optimizer Import mod"
+                    title={t("Copy every machine's code with its name, for the Module Optimizer Import mod")}
                     style={{ padding: '10px 24px', backgroundColor: '#2e4a35', color: '#eee', border: '1px solid #4caf50', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
-                    {copiedAllForMod ? 'Copied!' : 'Export All'}
+                    {copiedAllForMod ? t('Copied!') : t('Export All')}
                 </button>
                 </div>
                 <div className="toolbar-row">
@@ -2265,12 +2266,12 @@ export default function ModuleInventoryUI() {
                     disabled={isAnySolving}
                     style={{ padding: '10px 24px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
-                    Delete All
+                    {t('Delete All')}
                 </button>
-                <div role="radiogroup" aria-label="Solver" title="Which solver lays the modules out (when a solve starts)"
+                <div role="radiogroup" aria-label={t('Solver')} title={t('Which solver lays the modules out (when a solve starts)')}
                     style={{ display: 'flex', alignItems: 'center', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden', opacity: isAnySolving ? 0.5 : 1 }}>
                     {SOLVERS.map(s => (
-                        <button key={s.value} role="radio" aria-checked={solverKind === s.value} title={s.title}
+                        <button key={s.value} role="radio" aria-checked={solverKind === s.value} title={t(s.title)}
                             disabled={isAnySolving}
                             onClick={() => { writeSolver(s.value); setSolverKind(s.value); }}
                             style={{
@@ -2283,6 +2284,20 @@ export default function ModuleInventoryUI() {
                         </button>
                     ))}
                 </div>
+                <div role="radiogroup" aria-label="Language" title={t('Language')}
+                    style={{ display: 'flex', alignItems: 'center', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden' }}>
+                    {([['en', 'EN'], ['zh', '中文']] as const).map(([code, label]) => (
+                        <button key={code} role="radio" aria-checked={lang === code} lang={code === 'zh' ? 'zh-CN' : 'en'}
+                            onClick={() => setLang(code)}
+                            style={{
+                                padding: '10px 12px', border: 'none', borderRadius: 0, fontSize: '0.95em', cursor: 'pointer',
+                                backgroundColor: lang === code ? '#2e4a35' : '#333333',
+                                color: lang === code ? '#fff' : '#aaa', fontWeight: lang === code ? 'bold' : 'normal',
+                            }}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
                 </div>
                 </div>
             </div>
@@ -2291,15 +2306,15 @@ export default function ModuleInventoryUI() {
             {/* Card order is priority: a small left-to-right arrow over the machine cards */}
             {machines.length > 1 && (
                 <div
-                    title="Run All gives the best modules to the first card, then the next, and so on. Drag a card by its header to change the order."
+                    title={t('Run All gives the best modules to the first card, then the next, and so on. Drag a card by its header to change the order.')}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 12px 4px', color: '#888', fontSize: '0.75em', userSelect: 'none' }}
                 >
-                    <span style={{ fontWeight: 'bold', letterSpacing: '0.08em', color: '#aaa' }}>PRIORITY</span>
+                    <span style={{ fontWeight: 'bold', letterSpacing: '0.08em', color: '#aaa' }}>{t('PRIORITY')}</span>
                     <span style={{ display: 'flex', alignItems: 'center', width: '140px' }}>
                         <span style={{ flex: 1, height: '2px', background: 'linear-gradient(to right, rgba(76, 175, 80, 0.15), rgba(76, 175, 80, 0.9))' }} />
                         <span style={{ width: 0, height: 0, borderTop: '5px solid transparent', borderBottom: '5px solid transparent', borderLeft: '8px solid rgba(76, 175, 80, 0.9)' }} />
                     </span>
-                    <span>drag cards to reorder</span>
+                    <span>{t('drag cards to reorder')}</span>
                 </div>
             )}
             <div className="machines-container" ref={containerRef}>
@@ -2354,25 +2369,25 @@ export default function ModuleInventoryUI() {
                 {/* Unused Module Storage */}
                 <div style={{ flex: '1', minWidth: 0, backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '8px', border: '1px solid #2c2c2e', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '15px', paddingBottom: '12px', borderBottom: '1px solid #333' }}>
-                        <span style={{ color: '#eee', fontWeight: 'bold', fontSize: '1em' }}>Unused Module Storage</span>
+                        <span style={{ color: '#eee', fontWeight: 'bold', fontSize: '1em' }}>{t('Unused Module Storage')}</span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <span style={{ color: '#888', fontSize: '0.85em' }}>
-                                {unusedModules.length} of {inventory.length} module{inventory.length === 1 ? '' : 's'}
+                                {t('{a} of {b} module{s}', { a: unusedModules.length, b: inventory.length, s: plural(inventory.length) })}
                             </span>
                             <AddModuleMenu onAdd={item => setInventory(prev => [...prev, item])} disabled={isAnySolving} />
                             <button
                                 onClick={storedIds.length > 0 ? handleRetrieve : handleStore}
                                 disabled={isAnySolving || (storedIds.length === 0 && unusedModules.every(item => item.isInfinite))}
                                 title={storedIds.length > 0
-                                    ? `Take the ${storedIds.length} stored module${storedIds.length === 1 ? '' : 's'} back out of the machines`
-                                    : 'Put unused modules into free machine cells, only where they lower none of that machine\'s stats (energy included)'}
+                                    ? t('Take the {n} stored module{s} back out of the machines', { n: storedIds.length, s: plural(storedIds.length) })
+                                    : t("Put unused modules into free machine cells, only where they lower none of that machine's stats (energy included)")}
                                 style={{
                                     background: '#4caf50', border: '1px solid #2e4a35', borderRadius: '6px', color: 'white',
                                     cursor: isAnySolving ? 'not-allowed' : 'pointer', opacity: isAnySolving ? 0.5 : 1,
                                     fontSize: '0.9em', padding: '6px 16px', fontWeight: 'bold'
                                 }}
                             >
-                                {storedIds.length > 0 ? '↓ Retrieve' : '↑ Store'}
+                                {storedIds.length > 0 ? t('↓ Retrieve') : t('↑ Store')}
                             </button>
                         </span>
                     </div>
@@ -2381,18 +2396,14 @@ export default function ModuleInventoryUI() {
                     {unusedModules.length === 0 ? (
                         <div style={{ color: '#777', fontSize: '0.85em', textAlign: 'center', padding: '30px 10px' }}>
                             {inventory.length === 0
-                                ? 'Import a save to see your modules here.'
-                                : 'Every module you own is placed in a machine.'}
+                                ? t('Import a save to see your modules here.')
+                                : t('Every module you own is placed in a machine.')}
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', overflowY: 'auto', alignContent: 'flex-start', padding: '5px 5px 20px 5px', justifyContent: 'center' }}>
                             {unusedModules.map(item => {
-                                const effects = item.effects
-                                    .map((eff, i) => eff === 'None' ? null
-                                        : (eff === 'Learning Algorithm' || eff === 'Degrading') ? `${eff} ${item.effectValues[i]}%` : eff)
-                                    .filter(Boolean)
-                                    .join(' · ');
-                                const where = item.originalPath ? item.originalPath.split(' > ').pop() : null;
+                                const effects = effectsLabel(item, false).join(' · ');
+                                const where = item.originalPath ? placeLabel(item.originalPath).split(' > ').pop() : null;
                                 const canDrag = !isAnySolving;
                                 const added = item.uid === undefined && item.id.includes('_added_');
                                 return (
@@ -2400,7 +2411,7 @@ export default function ModuleInventoryUI() {
                                         key={item.id}
                                         className="catalog-card"
                                         onMouseDown={(e) => { if (canDrag) handleInventoryDragStart(e, item); }}
-                                        title={[item.displayName, effects, item.originalPath ? `In game: ${item.originalPath}` : added ? 'Added here, not in your save' : null, canDrag ? 'Drag onto a machine to place it' : null].filter(Boolean).join('\n')}
+                                        title={[moduleName(item.displayName), effects, item.originalPath ? t('In game: {path}', { path: placeLabel(item.originalPath) }) : added ? t('Added here, not in your save') : null, canDrag ? t('Drag onto a machine to place it') : null].filter(Boolean).join('\n')}
                                         style={{
                                             padding: '14px 10px', width: '135px', backgroundColor: '#252526',
                                             border: `1px solid ${COLOR_MAP[item.color as ModuleColor]}`, borderRadius: '6px',
@@ -2413,7 +2424,7 @@ export default function ModuleInventoryUI() {
                                                 onMouseDown={e => e.stopPropagation()}
                                                 onClick={() => handleRemoveItem(item.id)}
                                                 disabled={isAnySolving}
-                                                title="Remove this added module"
+                                                title={t('Remove this added module')}
                                                 style={{ position: 'absolute', top: '2px', right: '4px', background: 'none', border: 'none', color: '#777', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '1.1em', lineHeight: 1, padding: '2px' }}
                                             >
                                                 &times;
@@ -2423,7 +2434,7 @@ export default function ModuleInventoryUI() {
                                             <MiniShape shape={item.shape} colorHex={COLOR_MAP[item.color as ModuleColor]} />
                                         </div>
                                         <span style={{ fontSize: '0.7em', color: '#ccc', marginTop: '12px', textAlign: 'center', fontWeight: 'bold' }}>
-                                            {item.displayName}
+                                            {moduleName(item.displayName)}
                                         </span>
                                         {effects && (
                                             <span style={{ fontSize: '0.62em', color: '#9ab', marginTop: '5px', textAlign: 'center' }}>{effects}</span>

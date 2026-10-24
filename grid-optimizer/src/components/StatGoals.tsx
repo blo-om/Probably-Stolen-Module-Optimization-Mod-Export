@@ -7,6 +7,7 @@ import {
     desequencerChipsetKey, desequencerAutoDaysKey, STORE_BASE_ATTRACTIVENESS_KEY,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
+import { t, useLang } from '../i18n';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
 // auto: optimize; target: reach the value set (for energy, optionally as a ceiling that is still optimized under, see limitStats); off: ignore
@@ -40,7 +41,7 @@ const belowFirst = (first: StatBreakpoint) => (first.short && /^\+\d/.test(first
 
 // Mirage attractiveness, as points: the base plus Performance plus Quality
 const POINTS: StatUnit = {
-    unit: 'pts',
+    get unit() { return t('pts'); },
     fromPercent: (pct) => pct + MIRAGE_BASE_POINTS,
     toPercent: (pts) => Math.ceil(pts - MIRAGE_BASE_POINTS),
     step: 1,
@@ -95,7 +96,8 @@ const Choice = ({ label, selected, title, onClick, disabled }: { label: string; 
     </button>
 );
 
-const CHIPSET_PAD = Math.max(...DESEQUENCER_CHIPSETS.map(c => c.name.length)) + 2;
+const columns = (text: string) => [...text].reduce((w, ch) => w + (/[\u2E80-\uFFEF]/.test(ch) ? 2 : 1), 0);
+const padColumns = (text: string, width: number) => text + ' '.repeat(Math.max(0, width - columns(text)));
 const selectStyle: React.CSSProperties = { padding: '3px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' };
 
 type Props = {
@@ -149,6 +151,7 @@ const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', target: 'Target', off: 
 // One card per stat (the Mirage Projector's Performance and Quality share one): the stat's name, the result it gives this machine,
 // and its modes in a strip along the bottom. A mode that takes a value opens its choices under the cards
 export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width, autoLabel = 'Auto', toggles = false }: Props) => {
+    useLang();
     const [open, setOpen] = useState<string | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -214,27 +217,27 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const reached = breakpoints ? [...breakpoints].reverse().find(b => total >= b.value) : undefined;
         const result = unit
             ? (unit.readout ? unit.readout(unit.fromPercent(total, totals)) : withUnit(unit.fromPercent(total, totals), unit.unit))
-            : deseq ? `${desequencerSpeed(total)}/day`
+            : deseq ? `${desequencerSpeed(total)}${t('/day')}`
             : breakpoints ? (reached ? stepName(reached) : belowFirst(breakpoints[0]))
             : fmtPct(total);
 
-        const goal = deseq && autoDays && target === null ? `${chip.short}, days on Auto`
+        const goal = deseq && autoDays && target === null ? t('{chip}, days on Auto', { chip: t(chip.short) })
             : target === null ? null
-            : deseq ? (() => { const d = desequencerDayOptions(work).find(o => o.value === target)?.days; return d !== undefined ? `${chip.short} ${d}d` : `${target}%`; })()
+            : deseq ? (() => { const d = desequencerDayOptions(work).find(o => o.value === target)?.days; return d !== undefined ? t('{chip} {d}d', { chip: t(chip.short), d }) : `${target}%`; })()
             : breakpoints?.find(b => b.value === target) ? stepName(breakpoints.find(b => b.value === target)!)
             : unit ? withUnit(unit.fromPercent(target, totals), unit.unit)
             : `${target}%`;
         const met = target !== null && total >= target;
         const progress = target === null || met ? null : closeness(total, target);
         const gap = target === null || met ? null
-            : unit?.lowerIsBetter ? `${withUnit(round2(unit.fromPercent(total, totals) - unit.fromPercent(target, totals)), unit.unit)} over`
-            : unit ? `${withUnit(round2(unit.fromPercent(target, totals) - unit.fromPercent(total, totals)), unit.unit)} short`
-            : `${Math.ceil(target - total)}% short`;
+            : unit?.lowerIsBetter ? t('{v} over', { v: withUnit(round2(unit.fromPercent(total, totals) - unit.fromPercent(target, totals)), unit.unit) })
+            : unit ? t('{v} short', { v: withUnit(round2(unit.fromPercent(target, totals) - unit.fromPercent(total, totals)), unit.unit) })
+            : t('{v} short', { v: `${Math.ceil(target - total)}%` });
         const color = off ? C.muted : progress !== null ? colorFor(progress) : (mode === 'target' && !limited ? C.met : C.text);
 
         // Auto on a stat with breakpoints (and the Desequencer's days on Auto): how far from the last step reached to the next one
         const autoSteps = off || target !== null ? null
-            : deseq ? desequencerDayOptions(work).map(o => ({ value: o.value, name: `${chip.short} ${o.days}d` }))
+            : deseq ? desequencerDayOptions(work).map(o => ({ value: o.value, name: t('{chip} {d}d', { chip: t(chip.short), d: o.days }) }))
             : mode === 'auto' && breakpoints ? breakpoints.map(b => ({ value: b.value, name: stepName(b) }))
             : null;
         const nextStep = autoSteps ? [...autoSteps].sort((a, b) => a.value - b.value).find(s => s.value > total) : undefined;
@@ -261,8 +264,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             if (energy && !toggles) {
                 panel = (
                     <>
-                        <Choice label="Exactly" selected={!limited} title="Reach this and stop spending modules on it" onClick={() => setLimit(stat, false)} disabled={disabled} />
-                        <Choice label="At most" selected={limited} title="Never use more than this a day, and less if the layout allows" onClick={() => setLimit(stat, true)} disabled={disabled} />
+                        <Choice label={t('Exactly')} selected={!limited} title={t('Reach this and stop spending modules on it')} onClick={() => setLimit(stat, false)} disabled={disabled} />
+                        <Choice label={t('At most')} selected={limited} title={t('Never use more than this a day, and less if the layout allows')} onClick={() => setLimit(stat, true)} disabled={disabled} />
                         <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />
                     </>
                 );
@@ -272,14 +275,17 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                         <select value={work} disabled={disabled} style={{ ...selectStyle, fontFamily: 'ui-monospace, Consolas, monospace' }}
                             onChange={(e) => { const wk = Number(e.target.value); setChipset(wk); if (!autoDays) setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); }}>
                             {/* The work each card type needs, lined up on the right; a monospace font is the only way to align inside a native select */}
-                            {DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{c.name.padEnd(CHIPSET_PAD, ' ')}{String(c.work).padStart(4, ' ')}</option>)}
+                            {(() => {
+                                const pad = Math.max(...DESEQUENCER_CHIPSETS.map(c => columns(t(c.name)))) + 2;
+                                return DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{padColumns(t(c.name), pad)}{String(c.work).padStart(4, ' ')}</option>);
+                            })()}
                         </select>
                         {/* The days on their own line under the chipset */}
                         <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px' }}>
-                            <Choice label="Auto" selected={autoDays && target === null} title="As fast as the modules allow, counted in this chipset's whole days"
+                            <Choice label={t('Auto')} selected={autoDays && target === null} title={t("As fast as the modules allow, counted in this chipset's whole days")}
                                 onClick={() => { setAutoDays(true); setTarget(stat, null); }} disabled={disabled} />
                             {desequencerDayOptions(work).map(o => (
-                                <Choice key={o.value} label={`${o.days}d`} selected={target === o.value} title={`${o.value}%`}
+                                <Choice key={o.value} label={t('{d}d', { d: o.days })} selected={target === o.value} title={`${o.value}%`}
                                     onClick={() => { setAutoDays(false); setTarget(stat, o.value); }} disabled={disabled} />
                             ))}
                         </div>
@@ -287,7 +293,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                 );
             } else if (breakpoints) {
                 panel = breakpoints.map(b => (
-                    <Choice key={b.value} label={b.label} selected={target === b.value} title={`${b.hint} (${b.value}%)`} onClick={() => setTarget(stat, b.value)} disabled={disabled} />
+                    <Choice key={b.value} label={b.label} selected={target === b.value} title={b.hint + t(' ({note})', { note: `${b.value}%` })} onClick={() => setTarget(stat, b.value)} disabled={disabled} />
                 ));
             } else {
                 panel = <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />;
@@ -322,7 +328,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             progress: progress ?? autoProgress,
             barColor: progress === null && autoProgress !== null ? colorFor(autoProgress) : undefined,
             tooltip: autoProgress !== null && nextStep
-                ? `${goal ? `${goal} · ` : ''}Next: ${nextStep.name} · ${Math.floor(autoProgress * 100)}%`
+                ? `${goal ? `${goal} · ` : ''}${t('Next: {name}', { name: nextStep.name })} · ${Math.floor(autoProgress * 100)}%`
                 : goal ? `${goal}${met ? ' ✓' : progress !== null ? ` · ${Math.floor(progress * 100)}%` : ''}` : undefined,
             noEffect: off && statHasNoEffect(machineType, stat),
             modes: ['auto', 'target', 'off'],
@@ -367,9 +373,9 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         };
         const edit = () => { if (targetOn) setOpen(open === 'attract' ? null : 'attract'); };
         return {
-            key: 'attract', name: 'Attractiveness', result: `${total + MIRAGE_BASE_POINTS} pts`, color, progress, mode, choose, isOn, toggle, edit,
-            gap: target === null || met ? null : `${Math.ceil(target - total)} pts short`,
-            tooltip: target !== null ? `${target + MIRAGE_BASE_POINTS} pts${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
+            key: 'attract', name: t('Attractiveness'), result: t('{n} pts', { n: total + MIRAGE_BASE_POINTS }), color, progress, mode, choose, isOn, toggle, edit,
+            gap: target === null || met ? null : t('{v} short', { v: t('{n} pts', { n: Math.ceil(target - total) }) }),
+            tooltip: target !== null ? `${t('{n} pts', { n: target + MIRAGE_BASE_POINTS })}${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
             noEffect: false,
             modes: ['auto', 'target', 'off'],
             // Last night's base store attractiveness (from the save) + the projector's target = the store's total
@@ -379,9 +385,9 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                     try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
                     return (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                            {base !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title="Last night's base store attractiveness, without bonuses (from the save)">{base} +</span>}
+                            {base !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title={t("Last night's base store attractiveness, without bonuses (from the save)")}>{base} +</span>}
                             <TargetInput unit={POINTS} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget('Performance', pct)} disabled={disabled} />
-                            {base !== null && target !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title="The store's total attractiveness with the projector at its target">= {base + target + MIRAGE_BASE_POINTS}</span>}
+                            {base !== null && target !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title={t("The store's total attractiveness with the projector at its target")}>= {base + target + MIRAGE_BASE_POINTS}</span>}
                         </span>
                     );
                 })()
@@ -409,7 +415,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                             <div style={{ flex: 1, padding: '5px 4px 4px', display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'center' }}>
                                 <span style={{ fontSize: '0.66em', color: C.sub, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.name}</span>
                                 {card.noEffect ? (
-                                    <span style={{ fontSize: '0.75em', color: C.muted, padding: '8px 0' }}>No effect</span>
+                                    <span style={{ fontSize: '0.75em', color: C.muted, padding: '8px 0' }}>{t('No effect')}</span>
                                 ) : (
                                     <>
                                         <div title={card.tooltip} onClick={toggles && !disabled ? card.edit : undefined}
@@ -442,7 +448,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                                                     color: on ? (m === 'off' ? '#ccc' : C.accentText) : C.sub,
                                                 }}
                                             >
-                                                {m === 'auto' ? autoLabel : MODE_LABEL[m]}
+                                                {t(m === 'auto' ? autoLabel : MODE_LABEL[m])}
                                             </button>
                                         );
                                     })}

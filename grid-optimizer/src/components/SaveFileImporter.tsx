@@ -5,6 +5,7 @@ import { STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
 import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import { getSaveItemName, readSaveInventory } from '../saveImport';
+import { t, useLang } from '../i18n';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
 interface SaveFileImporterProps {
@@ -13,6 +14,7 @@ interface SaveFileImporterProps {
 }
 
 export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
+    useLang();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     // Name of the last imported save (without .es3), kept across reloads like the rest of the page state
@@ -97,7 +99,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                  * loose modules, under their own name; machines there are not machine cards (the mod finds machines by their path from the
                  * main inventory). Their uuids are moved past the main inventory's so the three don't mix
                  */
-                const STORE_INVENTORIES: [string, string][] = [['showcaseInvJSON', 'Display window'], ['backInvJSON', 'Counter']];
+                const STORE_INVENTORIES: [string, string][] = [['showcaseInvJSON', 'Display Case'], ['backInvJSON', 'Counter']];
                 STORE_INVENTORIES.forEach(([key, label], k) => {
                     const offset = (k + 1) * 10_000_000;
                     for (const item of readInventory(key) ?? []) {
@@ -473,7 +475,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 setSaveName(importedName);
             } catch (err) {
                 console.error("Failed to parse save:", err);
-                setErrorMsg("Failed to parse save file. Please ensure it is a valid .es3 save string.");
+                setErrorMsg('Failed to parse save file. Please ensure it is a valid .es3 save string.');
             }
 
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -504,11 +506,11 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     display: 'inline-block'
                 }}
             >
-                Import Save (.es3)
+                {t('Import Save (.es3)')}
             </label>
             {errorMsg ? (
                 <div style={{ position: 'absolute', top: '100%', marginTop: '5px', left: 0, color: '#ff4d4d', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
-                    {errorMsg}
+                    {t(errorMsg)}
                 </div>
             ) : saveName && (
                 <div style={{ position: 'absolute', top: '100%', marginTop: '5px', left: 0, right: 0, textAlign: 'center', color: '#888', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
