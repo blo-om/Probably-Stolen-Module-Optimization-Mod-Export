@@ -3,7 +3,7 @@ import type { Stats } from '../types';
 import { rememberSaveSettings } from '../saveSettings';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, isAgeWell,
-    isDesequencer, isMirage, MIRAGE_BASE_POINTS, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
+    isDesequencer, isMirage, MIRAGE_BASE_POINTS, MIRAGE_SUM_PER_POINT, MIRAGE_QUALITY_WEIGHT, miragePoints, mirageSumFor, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
     desequencerChipsetKey, desequencerAutoDaysKey, STORE_BASE_ATTRACTIVENESS_KEY,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
@@ -47,11 +47,11 @@ const splitUnit = (result: string): React.ReactNode => {
     return <>{m[1]}<span style={{ fontSize: '0.72em', fontWeight: 'normal', marginLeft: m[2] ? '3px' : '1px' }}>{m[3]}</span></>;
 };
 
-// Mirage attractiveness, as points: the base plus Performance plus Quality
+// Mirage attractiveness, as points, from Performance + 2 x Quality (what the solver works on): 4 of it make a point
 const POINTS: StatUnit = {
     get unit() { return t('pts'); },
-    fromPercent: (pct) => pct + MIRAGE_BASE_POINTS,
-    toPercent: (pts) => Math.ceil(pts - MIRAGE_BASE_POINTS),
+    fromPercent: (sum) => MIRAGE_BASE_POINTS + Math.floor(sum / MIRAGE_SUM_PER_POINT),
+    toPercent: (pts) => mirageSumFor(pts),
     step: 1,
 };
 
@@ -343,11 +343,14 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         };
     };
 
-    // Mirage Projector: Performance and Quality as one card of attractiveness points (the solver takes their sum, see MachineConfig.sumPQ)
+    // Mirage Projector: Performance and Quality as one card of attractiveness points (the solver takes Performance + 2 x Quality, see
+    // MachineConfig.sumPQ)
     const attractivenessCard = (): Card => {
         const off = Boolean(ignoreStats.Performance);
         const target = targetStats.Performance;
-        const total = totals.Performance + totals.Quality;
+        const total = totals.Performance + MIRAGE_QUALITY_WEIGHT * totals.Quality;
+        const points = miragePoints(totals.Performance, totals.Quality);
+        const targetPoints = target === null ? null : POINTS.fromPercent(target);
         const mode: Mode = off ? 'off' : target === null ? 'auto' : 'target';
         const met = target !== null && total >= target;
         const progress = target === null || met ? null : closeness(total, target);
@@ -381,9 +384,9 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         };
         const edit = () => { if (targetOn) setOpen(open === 'attract' ? null : 'attract'); };
         return {
-            key: 'attract', name: t('Attractiveness'), result: t('{n} pts', { n: total + MIRAGE_BASE_POINTS }), color, progress, mode, choose, isOn, toggle, edit,
-            gap: target === null || met ? null : t('{v} short', { v: t('{n} pts', { n: Math.ceil(target - total) }) }),
-            tooltip: target !== null ? `${t('{n} pts', { n: target + MIRAGE_BASE_POINTS })}${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
+            key: 'attract', name: t('Attractiveness'), result: t('{n} pts', { n: points }), color, progress, mode, choose, isOn, toggle, edit,
+            gap: targetPoints === null || met ? null : t('{v} short', { v: t('{n} pts', { n: Math.max(1, targetPoints - points) }) }),
+            tooltip: targetPoints !== null ? `${t('{n} pts', { n: targetPoints })}${met ? ' ✓' : ` · ${Math.floor((progress ?? 0) * 100)}%`}` : undefined,
             noEffect: false,
             modes: ['auto', 'target', 'off'],
             // Last night's base store attractiveness (from the save) + the projector's target = the store's total
@@ -395,7 +398,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
                             {base !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title={t("Last night's base store attractiveness, without bonuses (from the save)")}>{base} +</span>}
                             <TargetInput unit={POINTS} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget('Performance', pct)} disabled={disabled} />
-                            {base !== null && target !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title={t("The store's total attractiveness with the projector at its target")}>= {base + target + MIRAGE_BASE_POINTS}</span>}
+                            {base !== null && targetPoints !== null && <span style={{ fontSize: '0.85em', color: C.sub }} title={t("The store's total attractiveness with the projector at its target")}>= {base + targetPoints}</span>}
                         </span>
                     );
                 })()

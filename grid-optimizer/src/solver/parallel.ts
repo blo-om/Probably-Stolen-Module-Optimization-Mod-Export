@@ -190,7 +190,7 @@ export const runParallelEngine = async (
             const update = record.get(m.id);
             const t = update?.ownTotals ?? update?.totals;
             if (!t) return 0;
-            return m.sumPQ && s === 0 ? t.Performance + t.Quality : t[STATS[s]];
+            return m.sumPQ && s === 0 ? t.Performance + 2 * t.Quality : t[STATS[s]];
         });
         if (orders.length === 0) return;
         // Easing comes after EASE_STALL of the stall time, relaxing a target after RELAX_STALL (see solver/stall.ts)

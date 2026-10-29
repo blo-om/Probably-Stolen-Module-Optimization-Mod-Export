@@ -31,12 +31,12 @@ export const STORE_ATTRACTIVENESS_GOAL = 900;
 /* Targets a machine starts with:
  *   Alarm System     a 100% chance to stop a theft (50% + Performance, so +50%)
  *   Mirage Projector STORE_ATTRACTIVENESS_GOAL for the whole store: last night's base from the save (`baseAttractiveness`) plus the
- *                    projector's 100 + Performance + Quality; without a save it stays on Auto
+ *                    projector's 100 + Performance / 4 + Quality / 2; without a save it stays on Auto
  */
 export const defaultTargetStats = (machineType: string, baseAttractiveness: number | null = null): { Performance: number | null; Quality: number | null; Efficiency: number | null } => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     if (name.includes('mirage') && baseAttractiveness !== null) {
-        return { Performance: Math.max(0, STORE_ATTRACTIVENESS_GOAL - baseAttractiveness - MIRAGE_BASE_POINTS), Quality: null, Efficiency: null };
+        return { Performance: mirageSumFor(STORE_ATTRACTIVENESS_GOAL - baseAttractiveness), Quality: null, Efficiency: null };
     }
     return { Performance: name.includes('alarm') ? 50 : null, Quality: null, Efficiency: null };
 };
@@ -52,8 +52,7 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 // The pick becomes that stat's target, and since a target is a threshold, nothing is spent past it.
 // From the community guides (Maslak):
 //   Moisture Farm  - every 50% steps the water it makes up a grade; 49% still makes ghostwater
-//   Water Purifier - lowers the contaminant floor at 50 / 75 / 100 / 200%. A basic source needs 100% for pure (75% if
-//                    pitcher-filtered first), which puts its floor at 0.5-1.25%: basewater at 0%, high-quality by 50%
+//   Water Purifier - cleans water up to a purity cap: 99% (high-quality), 99.9% (pure) from 100%, 100% at 200%
 //   Furnace        - every full 100% raises the ingot one purity stage (negative Quality does nothing). Flux only lifts 0 stages to 1,
 //                    so from 100% it is not consumed. A Blast module takes one stage off, so every step needs 100% more.
 //                    Checked against the game (MachineFurnace day lambda, IngotPurityHelper): stages = Quality / 100 (RNG.ModuloWithCount is
@@ -90,17 +89,14 @@ const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] =
         { value: 100, label: t('High-quality'), short: t('HQ'), hint: t('99-99.9% water. Pitcher: 26% pure') },
         { value: 150, label: t('Pure'), hint: t('99.9%+ water, no filtering needed') },
     ]],
-    /* The Purifier cleans each contaminant down to a floor (heavy metal 0.25%, chemicals 0.16%, organic waste 0.10%, microbes 0.09%,
-     * physical and minerals 0.07%: 0.74% for water from a basic source) times a factor set by Quality:
-     * 1 below 15%, 0.85 from 15, 0.65 from 25, 0.35 from 50, 0.2 from 75, 0.1 from 100, 0 from 200 (MachinePurifier.GetPurityMult)
-     * Basic source water: 99.26% (high-quality) with no Quality, 99.85% at 75%, 99.93% (pure) at 100%
-     * Pitcher-filtered water (heavy metals and chemicals left, 0.41%): 99.59% with none, 99.92% (pure) at 75%
+    /* The Purifier cleans water up to a purity cap, 100% minus a share set by Quality (MachinePurifier.GetMaxPurityCap, GetPurityMult):
+     * 1% below 15%, 0.85% from 15, 0.65% from 25, 0.35% from 50, 0.2% from 75, 0.1% from 100, 0 from 200. The grades are 99% high-quality,
+     * 99.9% pure (WaterFeatureHelper.WATER_PURITIES), so only 100% and 200% change what comes out
      */
     ['water purifier', () => [
-        { value: 0, label: t('High-quality'), short: t('HQ'), hint: t('Any basic source already comes out high-quality (99.26%+) with no Quality at all') },
-        { value: 75, label: t('Pure (pre-filtered)'), short: t('Pure (pitcher)'), hint: t('Pure (99.92%) from basic-source water filtered in a pitcher first') },
-        { value: 100, label: t('Pure'), hint: t('Pure (99.93%) from any basic source: traders, tap, moisture farm') },
-        { value: 200, label: t('100% water'), short: t('100%'), hint: t('Contaminant floors 0%: converts everything') },
+        { value: 0, label: t('High-quality'), short: t('HQ'), hint: t('Cleans up to 99% (high-quality); 15-75% Quality only lifts that to 99.8%') },
+        { value: 100, label: t('Pure'), hint: t('Cleans up to 99.9% (pure)') },
+        { value: 200, label: t('100% water'), short: t('100%'), hint: t('Cleans out every contaminant: 100% water') },
     ]],
     ['furnace', furnaceBreakpoints],
     ['agewell', () => [1, 2, 3, 4].map(extra => ({
@@ -173,13 +169,21 @@ export const desequencerDaysAt = (work: number, performance: number): number => 
 // Every Performance value where some chipset's card gets a day faster
 export const desequencerCutoffs = (): number[] => DESEQUENCER_CUTOFFS.map(([value]) => value);
 
-// The Mirage Projector's Performance and Quality both add 1 attractiveness point per 1% on top of its base 100,
-// so its card shows one stat, attractiveness, and the solver treats the two as their sum (MachineConfig.sumPQ)
+/* The Mirage Projector's attractiveness is 100 + Quality / 2 + Performance / 4, each divided on its own and rounded down
+ * (MachineProjector.GetAttractivenessBoost: quality ratio 2, performance ratio 4). Its card shows one stat, attractiveness, and the
+ * solver works on Performance + 2 x Quality (MachineConfig.sumPQ, MIRAGE_QUALITY_WEIGHT), 4 of which make a point
+ */
 export const isMirage = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('mirage');
 export const MIRAGE_BASE_POINTS = 100;
+export const MIRAGE_QUALITY_WEIGHT = 2;
+export const MIRAGE_SUM_PER_POINT = 4;
+export const miragePoints = (performance: number, quality: number) =>
+    Math.max(0, MIRAGE_BASE_POINTS + Math.trunc(Math.trunc(quality) / 2) + Math.trunc(Math.trunc(performance) / 4));
+// The Performance + 2 x Quality that makes `points` for sure: each of the two divisions can lose up to 3/4 of a point
+export const mirageSumFor = (points: number) => Math.max(0, (points - MIRAGE_BASE_POINTS) * MIRAGE_SUM_PER_POINT + 5);
 
 /* Stats where nothing below the first breakpoint counts, checked against the game: Furnace stages = Quality / 100 (0 below 100),
- * AgeWell days = max(0, Quality) / 125 + 1, Water Purifier floor multiplier 1 for all Quality under 15. Not the Moisture Farm (Rust and
+ * AgeWell days = max(0, Quality) / 125 + 1, Water Purifier cap 99% for all Quality under 15. Not the Moisture Farm (Rust and
  * Gutterflow below 0) or the Desequencer (negative Performance works slower)
  */
 export const worthlessBelowSteps = (machineType: string): Partial<Record<'Performance' | 'Quality' | 'Efficiency', boolean>> => {
@@ -197,20 +201,20 @@ export const hiddenStat = (machineType: string, stat: 'Performance' | 'Quality' 
 
 // What each stat does on each machine, for the machine tooltip (numbers from the game code, see the notes above)
 const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][] = [
-    ['moisture farm', 'Performance', 'Water made: 1000 ml a day, +10 ml per 1%, up to 6000 ml (the biggest water container)'],
+    ['moisture farm', 'Performance', 'Water made: 850 ml a day, +8.5 ml per 1%; farms running the same night share the air (each makes 1 / (1 + 0.25 per other farm))'],
     ['moisture farm', 'Quality', 'Water grade: Ghost from 0%, Base 50%, High-quality 100%, Pure 150% (Rust and Gutterflow below 0)'],
-    ['moisture farm', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
-    ['water purifier', 'Performance', 'Cleaning speed: every contaminant removed faster (+0.02 ml a day per 1%)'],
-    ['water purifier', 'Quality', 'How clean it gets: Pure from 100% (75% for pitcher-filtered water), 100% water at 200%'],
-    ['water purifier', 'Efficiency', 'Energy use: 5 a day, 1 less per full 20%'],
+    ['moisture farm', 'Efficiency', 'Energy use: 6 a day, 1 less per ~16.7%'],
+    ['water purifier', 'Performance', 'Cleaning speed: +1% per 1% (dirty water is cleaned up to 20 times faster)'],
+    ['water purifier', 'Quality', 'How clean it gets: up to 99% (high-quality), 99.9% (pure) from 100%, 100% water at 200%'],
+    ['water purifier', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
     ['furnace', 'Performance', 'No effect'],
     ['furnace', 'Quality', 'Ingot purity: one stage up per full 100% (Blast module: one stage less)'],
     ['furnace', 'Efficiency', 'Energy use: 8 a day, 1 less per full 12.5%'],
     ['agewell', 'Performance', 'Energy use, the same as Efficiency (both are on the Efficiency card)'],
     ['agewell', 'Quality', 'Aging: one more day per night for every full 125%'],
     ['agewell', 'Efficiency', 'Energy use: 24 a day, 1 less per ~8.3% of Efficiency and Performance together'],
-    ['mirage', 'Performance', 'Attractiveness: 100 points, +1 per 1% (with Quality)'],
-    ['mirage', 'Quality', 'Attractiveness: 100 points, +1 per 1% (with Performance)'],
+    ['mirage', 'Performance', 'Attractiveness: 100 points, +1 per 4% (with Quality)'],
+    ['mirage', 'Quality', 'Attractiveness: 100 points, +1 per 2% (with Performance)'],
     ['mirage', 'Efficiency', 'Energy use: 16 a day, 1 less per full 6.25%'],
     ['desequencer', 'Performance', 'Decoding speed: 33 work a day, +0.33 per 1%'],
     ['desequencer', 'Quality', 'No effect'],
@@ -225,11 +229,10 @@ export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' 
     return effect === undefined ? null : t(effect);
 };
 
-// Moisture Farm Performance that still counts: +500% makes 6000 ml, as much as the biggest water container holds
-export const MOISTURE_FARM_CAP = 500;
-
 /* What a Moisture Farm's water sells for a day, from the game (checked against the decompiled game and the save's stored values):
- *   MachineMoistureFarm.GetOutputVolume: (100 + Performance) * 10 ml a day, never below 0; a farm fills up to 6000 ml, the biggest container
+ *   MachineMoistureFarm.GetOutputVolume: 850 * (100 + Performance) / 100 ml a day, never below 0 (no cap: the Water Tank holds 20 L
+ *   and can be enlarged)
+ *   MachineMoistureFarm.ApplySharedAir: farms running the same night share the air, each makes its volume / (1 + 0.25 * (farms - 1))
  *   The liquid's own value: 40 credits a litre whatever its grade, rounded down (WaterFeatureHelper.GetWaterPrice; a full jug's stored
  *   unitValue is 239-240)
  *   The grade is an item condition with a value modifier on that (ItemConditionList.CreatePureWater ... CreateGutterflow): Pure +100%,
@@ -248,8 +251,10 @@ export const WATER_GRADES: { name: string; from: number; modifier: number; price
     { name: 'High-quality', from: 100, modifier: 50 },
     { name: 'Pure', from: 150, modifier: 100 },
 ].map(g => ({ ...g, price: (WATER_PRICE_PER_LITRE * (100 + g.modifier)) / 100 }));
-export const moistureFarmOutput = (performance: number, quality: number) => {
-    const ml = Math.min(6000, Math.max(0, (100 + Math.trunc(performance)) * 10));
+export const MOISTURE_FARM_BASE_ML = 850;
+export const moistureFarmOutput = (performance: number, quality: number, farms = 1) => {
+    const solo = Math.max(0, Math.trunc((MOISTURE_FARM_BASE_ML * 1000 * (100 + Math.trunc(performance))) / 100));
+    const ml = Math.round(solo / (1 + 0.25 * (Math.max(1, farms) - 1)) / 1000);
     const grade = [...WATER_GRADES].reverse().find(g => quality >= g.from)!;
     const liquid = Math.floor((ml * WATER_PRICE_PER_LITRE) / 1000);
     return { ml, grade: grade.name, value: Math.round((liquid * (100 + grade.modifier)) / 100) };
@@ -294,9 +299,8 @@ export const statHasNoEffect = (machineType: string, stat: 'Performance' | 'Qual
 };
 
 // Some stats are linear in something players think in, so their target is entered in that unit instead of %
-//   Moisture Farm  - 1000 ml/day base, every 1% Performance adds 10 ml
-//   Water Purifier - every 1% Performance removes 0.02 ml/day more of each contaminant type. The base rate depends on the
-//                    water's concentrations, so only the extra can be targeted
+//   Moisture Farm  - 850 ml/day base, every 1% Performance adds 8.5 ml
+//   Water Purifier - contaminants removed a night from a full 6 L jug of near-clean water, +1% per 1% Performance
 // `totals` is there for units that depend on another stat too (AgeWell's energy also moves with Performance)
 export type StatUnit = {
     unit: string;
@@ -357,10 +361,13 @@ const combinedEnergyUnit = (rule: EnergyRule): StatUnit => ({
     lowerIsBetter: true,
 });
 
+// What a Purifier takes out a night from a full 6 L jug of near-clean water with no Performance: (25 + 6000 * 0.003) ml x 1.25
+const PURIFIER_JUG_ML = 53.75;
+
 const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][] = [
     // Base energy and ratios from each machine's constructor in the game code
-    ['moisture farm', 'Efficiency', energyUnit({ base: 4 })],
-    ['water purifier', 'Efficiency', energyUnit({ base: 5 })],
+    ['moisture farm', 'Efficiency', energyUnit({ base: 6 })],
+    ['water purifier', 'Efficiency', energyUnit({ base: 4 })],
     ['furnace', 'Efficiency', energyUnit({ base: 8 })],
     ['desequencer', 'Efficiency', energyUnit({ base: 10 })],
     ['agewell', 'Efficiency', combinedEnergyUnit({ base: 24, effRatio: 2, perfRatio: 2 })],
@@ -374,29 +381,25 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
         step: 1,
         get hint() { return t('Chance to stop a theft: 50% plus Performance'); },
     }],
-    // Up to 6000 ml: the biggest water container holds that much, so Performance past +500% fills nothing more (MOISTURE_FARM_CAP)
+    // One farm on its own: farms running the same night share the air (moistureFarmOutput)
     ['moisture farm', 'Performance', {
         get unit() { return t('ml/d'); },
-        fromPercent: pct => Math.min(6000, Math.max(0, 1000 + 10 * pct)),
+        fromPercent: pct => Math.max(0, Math.trunc((MOISTURE_FARM_BASE_ML * (100 + Math.trunc(pct))) / 100)),
         // Rounded up, so the target always reaches the volume asked for
-        toPercent: ml => Math.ceil((Math.min(ml, 6000) - 1000) / 10),
+        toPercent: ml => Math.ceil((ml * 100) / MOISTURE_FARM_BASE_ML - 100 - 1e-9),
         step: 10,
     }],
-    /* Purifier: each contaminant is removed at its own base amount a day (2 ml heavy metals, 3 ml chemicals, 5 ml the rest) times
-     * (water-dependent factor + Performance / 100). The factor is 1 for water above 96% and up to 20 for very dirty water
-     * (MachinePurifier.PurifyContainer), so Performance reads as the removal speed on clean-ish water
-     */
-    /* Shown as the guide had it: the extra a day that Performance adds to a contaminant's removal, 0.02 ml per 1%
-     * (the game's rate for heavy metals; chemicals get 0.03 and the rest 0.05, MachinePurifier.PurifyContainer). Each contaminant is
-     * handled on its own, but never below its purity floor, so what actually goes (the tooltip's "removed") is capped by how much of each
-     * is left above its floor, and shrinks as the water gets cleaner
+    /* Purifier: a night removes up to (25 ml + 0.3% of the water, at most 10 L of it) x 1.25 x (dirt factor + Performance / 100) of
+     * contaminants, largest first, never past the purity cap Quality sets (MachinePurifier.PurifyContainer, RemoveLargestFirst). The dirt
+     * factor is 1 for water at 98% or better and rises to 20 for very dirty water, so this reads it for a full 6 L jug of near-clean water:
+     * 53.75 ml a night, +1% per 1%
      */
     ['water purifier', 'Performance', {
         get unit() { return t('ml/d'); },
-        fromPercent: pct => Math.round(pct * 2) / 100,
-        toPercent: ml => Math.ceil(ml * 50 - 1e-9),
-        step: 0.1,
-        get hint() { return t('Extra removed a day per contaminant from Performance: 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05). The real amount is capped by what is left above the purity floor'); },
+        fromPercent: pct => Math.floor(PURIFIER_JUG_ML * 10 * Math.max(0, 1 + Math.trunc(pct) / 100)) / 10,
+        toPercent: ml => Math.ceil((ml / PURIFIER_JUG_ML - 1) * 100 - 1e-9),
+        step: 1,
+        get hint() { return t('Contaminants removed a night from a full 6 L jug of near-clean water: 53.75 ml, +1% per 1% Performance (dirty water goes up to 20 times faster). Never past the purity cap that Quality sets'); },
     }],
 ];
 
@@ -409,5 +412,5 @@ export const statUnit = (machineType: string, stat: 'Performance' | 'Quality' | 
 // Energy a day at which a machine counts as cheap to run: Efficiency past that is worth much less on Auto (MachineConfig.cheapEnergyAt)
 export const CHEAP_ENERGY = 4;
 // The Efficiency (AgeWell: Efficiency + Performance) that gets a machine down to CHEAP_ENERGY a day. Machines that start there
-// (Moisture Farm, Alarm: 4 a day) get a value below 0, so all their Efficiency counts less
+// (Water Purifier, Alarm: 4 a day) get a value below 0, so all their Efficiency counts less
 export const cheapEnergyAt = (machineType: string): number | undefined => statUnit(machineType, 'Efficiency')?.toPercent(CHEAP_ENERGY);

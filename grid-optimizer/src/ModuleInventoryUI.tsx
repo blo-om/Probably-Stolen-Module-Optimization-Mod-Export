@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, MOISTURE_FARM_CAP, isAgeWell, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, MIRAGE_BASE_POINTS, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -329,7 +329,7 @@ const MachineInstance = React.memo(forwardRef(({
     }, [showPaths, optimizer.board]);
 
     const runSolo = () => optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
-        isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined, cheapEnergyAt(typeKey), qualityCap());
+        undefined, cheapEnergyAt(typeKey), qualityCap());
     useImperativeHandle(ref, () => ({
         run: optimizer.runOptimization,
         runSolo,
@@ -347,7 +347,7 @@ const MachineInstance = React.memo(forwardRef(({
             sumPQ: isMirage(typeKey),
             water: waterMode(),
             sumPE: isAgeWell(typeKey),
-            performanceCap: isMoistureFarm(typeKey) ? MOISTURE_FARM_CAP : undefined,
+            performanceCap: undefined,
             qualityCap: qualityCap(),
             worthlessBelowSteps: worthlessBelowSteps(typeKey),
             cheapEnergyAt: cheapEnergyAt(typeKey),
@@ -1175,8 +1175,8 @@ export default function ModuleInventoryUI() {
 
     const WINE_PER_AGEWELL = 6;
     /* Store stats at the top of the page, from the boards as they stand:
-     *   water     what every Moisture Farm makes a day, by grade, and what it is worth (moistureFarmOutput)
-     *   attract   last night's base attractiveness from the save plus the best Mirage Projector's 100 + Performance + Quality
+     *   water     what every Moisture Farm makes a day, by grade, and what it is worth (moistureFarmOutput, the farms sharing the air)
+     *   attract   last night's base attractiveness from the save plus the best Mirage Projector's 100 + Quality / 2 + Performance / 4
      *             (projectors do not stack: the game takes the highest)
      *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
      *             (alarms do not stack either)
@@ -1184,12 +1184,13 @@ export default function ModuleInventoryUI() {
      *   power     every machine's energy a day (statUnit Efficiency: the game's rule per machine, AgeWell with its Performance)
      *   wine      an AgeWell holds 6 bottles and ages them 1 day a night, +1 per full 125% Quality; shown is what the modules add
      *             a night with every AgeWell full (6 bottles x its extra days)
-     *   cleaning  the sum of the Water Purifiers' Removal readouts: the extra a day Performance adds to each contaminant's removal,
-     *             0.02 ml per 1% (statUnit Performance)
+     *   cleaning  the sum of the Water Purifiers' Removal readouts: what each takes out a night from a full 6 L jug of near-clean
+     *             water (statUnit Performance)
      *   work      a Desequencer decodes 33 + 33 * Performance / 100 work a day (desequencerSpeed)
      */
     const storeStats = useMemo(() => {
         let water = 0, farms = 0, projector: number | null = null, stop: number | null = null;
+        const farmStats: [number, number][] = [];
         const mlByGrade = new Map<string, number>();
         let ingots = 0, furnaces = 0, sources = 0;
         let power = 0, powered = 0, agewells = 0, agingDays = 0, purifiers = 0, cleaning = 0, desequencers = 0, work = 0;
@@ -1222,12 +1223,10 @@ export default function ModuleInventoryUI() {
                 work += desequencerSpeed(p);
             }
             if (farm) {
-                const out = moistureFarmOutput(p, q);
-                water += out.value;
+                farmStats.push([p, q]);
                 farms++;
-                mlByGrade.set(out.grade, (mlByGrade.get(out.grade) ?? 0) + out.ml);
             }
-            if (mirage) projector = Math.max(projector ?? -Infinity, MIRAGE_BASE_POINTS + p + q);
+            if (mirage) projector = Math.max(projector ?? -Infinity, miragePoints(p, q));
             if (alarm) stop = Math.max(stop ?? -Infinity, Math.min(100, Math.max(0, 50 + p)));
             if (furnace) {
                 const blast = board.some((row: any[]) => row.some(c => c && c !== 'Locked' && c.displayName.includes('(Blast)')));
@@ -1235,6 +1234,12 @@ export default function ModuleInventoryUI() {
                 ingots += blast ? 2 : 1;
                 sources += blast ? 3 : 2;
             }
+        }
+        // Every farm shares the air with the others (all running the same night)
+        for (const [p, q] of farmStats) {
+            const out = moistureFarmOutput(p, q, farms);
+            water += out.value;
+            mlByGrade.set(out.grade, (mlByGrade.get(out.grade) ?? 0) + out.ml);
         }
         let base: number | null = null;
         try { const v = localStorage.getItem(STORE_BASE_ATTRACTIVENESS_KEY); base = v === null ? null : Number(v); } catch { /* none */ }
@@ -2137,7 +2142,7 @@ export default function ModuleInventoryUI() {
                         <div className="store-stat store-stat-tall" title={[
                             t("What {n} Moisture Farm{s} make a day, as the boards stand, at the game's price per grade", { n: storeStats.farms, s: plural(storeStats.farms) }),
                             t("(credits a litre: {list}; without the store's markup)", { list: WATER_GRADES.slice().reverse().map(g => `${t(g.name)} ${g.price}`).join(', ') }),
-                            t('A farm makes 1000 ml a day, +10 ml per 1% Performance, up to 6000 ml'),
+                            t('A farm makes 850 ml a day, +8.5 ml per 1% Performance; farms running the same night share the air (each makes 1 / (1 + 0.25 per other farm))'),
                             t('Under it: the water made a day, by grade'),
                         ].join('\n')}>
                             <span className="store-stat-label">{t('Water value')}</span>
@@ -2152,8 +2157,8 @@ export default function ModuleInventoryUI() {
                     {storeStats.purifiers > 0 && (
                         <div className="store-stat" title={[
                             t('The Removal of {n} Water Purifier{s} added up, as each card shows it:', { n: storeStats.purifiers, s: plural(storeStats.purifiers) }),
-                            t('the extra a day Performance removes of each contaminant, 0.02 ml per 1% (heavy metals; chemicals 0.03, the rest 0.05).'),
-                            t('Never below the purity floor that Quality sets'),
+                            t('contaminants each takes out a night from a full 6 L jug of near-clean water, 53.75 ml +1% per 1% Performance.'),
+                            t('Never past the purity cap that Quality sets'),
                         ].join('\n')}>
                             <span className="store-stat-label">{t('Purified')}</span>
                             <span className="store-stat-value" style={{ color: '#7fc8a9' }}>{storeStats.cleaning.toLocaleString()}<span className="store-stat-unit">{t(' ml / day')}</span></span>
@@ -2198,7 +2203,7 @@ export default function ModuleInventoryUI() {
                         <div className="store-stat" title={[
                             t('Projected store attractiveness:'),
                             t("  last night's base, without bonuses (from the save): {v}", { v: storeStats.base ?? t('import a save to see it') }),
-                            t('  best Mirage Projector: {v} (100 + Performance + Quality; projectors do not stack)', { v: storeStats.projector === null ? t('none') : `+${storeStats.projector}` }),
+                            t('  best Mirage Projector: {v} (100 + Quality / 2 + Performance / 4; projectors do not stack)', { v: storeStats.projector === null ? t('none') : `+${storeStats.projector}` }),
                         ].join('\n')}>
                             <span className="store-stat-label">{t('Attractiveness')}</span>
                             <span className="store-stat-value" style={{ color: '#c58af9' }}>
