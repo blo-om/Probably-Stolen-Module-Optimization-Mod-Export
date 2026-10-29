@@ -1,8 +1,9 @@
-export type GridTier = 1 | 2 | 3;
+// 1-3: a machine's 7x5 bay, upgraded 0-2 times. 0: the Evaporator's 4x4 bay (the board's top-left 4x4)
+export type GridTier = 0 | 1 | 2 | 3;
 export type ModuleColor = 'White' | 'Red' | 'Yellow' | 'Green' | 'Purple' | 'DarkRed' | 'Grey';
 export type ModuleShape =
     | 'Node1x2' | 'L3' | 'L4_Base' | 'T4_Base' | 'Square4_Base'
-    | 'L4_High' | 'T4_High' | 'Square4_High' | 'P5' | 'C5' | 'Line4';
+    | 'L4_High' | 'T4_High' | 'Square4_High' | 'P5' | 'C5' | 'Line4' | 'Line2';
 
 export type FilterGroup = 'All' | 'Performance' | 'Quality' | 'Efficiency' | 'Special';
 export type ItemEffect = 'None' | 'Premium' | 'Inferior' | 'Overcharged' | 'Degrading' | 'Negative Feedback' | 'Receiver' | 'Side Mount' | 'Top Mount' | 'Learning Algorithm';

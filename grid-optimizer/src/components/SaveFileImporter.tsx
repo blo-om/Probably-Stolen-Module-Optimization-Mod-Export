@@ -5,6 +5,7 @@ import { STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
 import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import { getSaveItemName, readSaveInventory } from '../saveImport';
+import { isMachineModuleName } from '../constants';
 import { t, useLang } from '../i18n';
 import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTier} from '../types';
 
@@ -175,7 +176,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     });
                 });
 
-                const machineKeywords = ['purifier', 'furnace', 'farm', 'agewell', 'projector', 'desequencer', 'alarm'];
+                const machineKeywords = ['purifier', 'furnace', 'farm', 'agewell', 'projector', 'desequencer', 'alarm', 'hydroponic system', 'dna manipulator',
+                    '3d printer', 'deal maker', 'evaporator'];
 
                 // parse + import machines
                 saveItems.forEach((item: any) => {
@@ -206,18 +208,22 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                             typesStr.includes("MODULE")) &&
                         (nameLower.includes('module') || nameLower.includes('node') ||
                             nameLower.includes('core') || nameLower.includes('alarm transmitter module') ||
-                            nameLower.includes('(junk processing)') || nameLower.includes('(blast)')) && (!nameLower.includes('ruined') && !nameLower.includes('corrupted'));
+                            nameLower.includes('(junk processing)') || nameLower.includes('(blast)')) && (!nameLower.includes('ruined') && !nameLower.includes('corrupted'))
+                        && !nameLower.includes('extractor') && !nameLower.includes('expansion');
 
                     if (!isModule) return;
 
                     let color: ModuleColor = 'White';
-                    let isHighTier = nameLower.includes('overclock') || nameLower.includes('refinement') || nameLower.includes('eco') || nameLower.includes('uncapped');
+                    let isHighTier = nameLower.includes('overclock') || nameLower.includes('refinement') || nameLower.includes('eco') || nameLower.includes('streamlining') || nameLower.includes('uncapped');
+                    const machineModule = isMachineModuleName(name);
 
-                    if (nameLower.includes('performance') || nameLower.includes('overclock')) {
+                    if (machineModule) {
+                        color = 'Grey';
+                    } else if (nameLower.includes('performance') || nameLower.includes('overclock')) {
                         color = 'Red';
                     } else if (nameLower.includes('quality') || nameLower.includes('refinement')) {
                         color = 'Yellow';
-                    } else if (nameLower.includes('efficiency') || nameLower.includes('eco')) {
+                    } else if (nameLower.includes('efficiency') || nameLower.includes('eco') || nameLower.includes('streamlining')) {
                         color = 'Green';
                     } else if (nameLower.includes('neural core')) {
                         color = 'Purple';
@@ -226,6 +232,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     } else if (nameLower.includes('(junk processing)') || nameLower.includes('(blast)')) {
                         color = 'Grey';
                     }
+                    // Only nodes are plain white: other items that say "module" (the Blender's chem modules...) are not optimizer pieces
+                    if (color === 'White' && !nameLower.includes('node')) return;
 
                     const shapeData = item.itemShape?.data;
                     const w = item.itemShape?.['<width>k__BackingField'];
@@ -234,6 +242,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
 
                     const blocks = shapeData.filter((b: number) => b === 1).length;
                     let shape = getShapeFromData(w, shapeData, isHighTier, blocks);
+                    // Two cells is a node, except for the 1x2 machine modules (Dream Cap Nightmare, Smuggler)
+                    if (machineModule && blocks === 2) shape = 'Line2';
 
                     if (!shape) {
                         if (blocks <= 2) shape = 'Node1x2';
@@ -397,6 +407,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         if (stageVal !== null && stageVal >= 0 && stageVal <= 2) {
                             machineTier = (stageVal + 1) as GridTier;
                         }
+                        // The Evaporator's bay is 4x4 and never upgrades
+                        if (getSaveItemName(parentItem) === 'Evaporator') machineTier = 0;
 
                         let machinePathStr = '';
                         let currNodeId: number | undefined = machineId;
@@ -414,13 +426,18 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         if (machinePathStr) {
                             dropdownName = machinePathStr;
                         } else {
-                            const pName = (parentItem.name || '').toLowerCase();
+                            const pName = getSaveItemName(parentItem).toLowerCase();
                             if (pName.includes("purifier")) dropdownName = "Water Purifier";
                             else if (pName.includes("furnace")) dropdownName = "Furnace";
                             else if (pName.includes("farm")) dropdownName = "Moisture Farm";
                             else if (pName.includes("agewell")) dropdownName = "AgeWell";
                             else if (pName.includes("projector")) dropdownName = "Mirage Projector";
                             else if (pName.includes("desequencer")) dropdownName = "Cryptographic Desequencer";
+                            else if (pName.includes("hydroponic")) dropdownName = "Hydroponic System";
+                            else if (pName.includes("dna manipulator")) dropdownName = "DNA Manipulator";
+                            else if (pName.includes("3d printer")) dropdownName = "3D Printer";
+                            else if (pName.includes("deal maker")) dropdownName = "Deal Maker";
+                            else if (pName.includes("evaporator")) dropdownName = "Evaporator";
                             else if (pName.includes("alarm") || pName.includes("machine")) dropdownName = "Alarm System";
                         }
                     }

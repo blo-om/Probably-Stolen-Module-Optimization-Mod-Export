@@ -57,6 +57,30 @@ const ITEM_NAMES: Readonly<Record<string, string>> = {
     furnace_module_junk: 'Furnace Module (Junk Processing)',
     system_capped_neural_core: 'Neural Core Module (Capped)',
     system_uncapped_neural_core: 'Neural Core Module (Uncapped)',
+    // Full release: the new machines with a module bay, Streamlining (named in the game's tables, never spawned) and the
+    // machine-only modules (the same names as constants.ts MACHINE_MODULES; this file is kept free of imports for its tests)
+    hydroponic: 'Hydroponic System',
+    plant_dna_manipulator: 'DNA Manipulator',
+    printer: '3D Printer',
+    deal_maker: 'Deal Maker',
+    evaporator: 'Evaporator',
+    system_module_streamlining: 'Streamlining Module',
+    node_small: 'Node (Small)',
+    farm_module_nutrifruit: 'Nutrifruit Hydroponic Module',
+    farm_module_dream_cap: 'Dream Cap Neutralizer Hydroponic Module',
+    farm_module_kotton_loom: 'Kotton Auto Loom Hydroponic Module',
+    farm_module_nightmare_cap: 'Dream Cap Nightmare Hydroponic Module',
+    farm_module_fillerweed_production: 'Fillerweed Production Hydroponic Module',
+    farm_module_hydroreed_filter: 'Hydroreed Filter Hydroponic Module',
+    farm_module_smuggler: 'Hydroponic Smuggler Module',
+    dna_manipulator_module_stabilizer: 'Genetic Stabilizer Module',
+    dna_manipulator_module_positive_filter: 'Positive Trait Filter Module',
+    dna_manipulator_module_negative_filter: 'Negative Trait Filter Module',
+    dna_manipulator_module_precision: 'Precision Extraction Module',
+    printer_module_metal: 'Metal Printer Module',
+    printer_module_cnc: 'Computer Numerical Control Module',
+    printer_module_melee_batch: 'Melee Batch Module',
+    evaporator_module_solvent_recovery: 'Evaporator Solvent Recovery Module',
 };
 
 export function getSaveItemName(item: { identifier?: string; name?: string }): string {

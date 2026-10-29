@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Stats } from '../types';
 import { rememberSaveSettings } from '../saveSettings';
 import {
-    statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, isAgeWell,
+    statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, sumsPE,
     isDesequencer, isMirage, MIRAGE_BASE_POINTS, MIRAGE_SUM_PER_POINT, MIRAGE_QUALITY_WEIGHT, miragePoints, mirageSumFor, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
     desequencerChipsetKey, desequencerAutoDaysKey, STORE_BASE_ATTRACTIVENESS_KEY,
 } from '../machineDefaults';
@@ -203,7 +203,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const off = Boolean(ignoreStats[stat]);
         const target = targetStats[stat];
         // AgeWell: Performance lowers energy like Efficiency, so this card covers both (MachineConfig.sumPE)
-        const total = stat === 'Efficiency' && isAgeWell(machineType) ? totals.Efficiency + totals.Performance : totals[stat];
+        const total = stat === 'Efficiency' && sumsPE(machineType) ? totals.Efficiency + totals.Performance : totals[stat];
         const unit = statUnit(machineType, stat);
         const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);

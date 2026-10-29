@@ -2,12 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 import type {GridTier, InventoryItem, Stats, TargetStats, Point, ModuleShape, ModuleColor, ItemEffect} from '../types';
 import type { Orientation } from '../utils';
 import { getBaseStats, applyInternalEffects, PRECOMPUTED_ORIENTATIONS, roundStat } from '../utils';
-import { MODULE_TEMPLATES } from '../constants';
+import { MODULE_TEMPLATES, isMachineModuleName } from '../constants';
 import { readSolver, runSelectedSolver } from '../solvers';
 import { rememberSaveSettings } from '../saveSettings';
 
 
-const SHAPE_MAP: ModuleShape[] = ['Node1x2', 'L3', 'L4_Base', 'T4_Base', 'Square4_Base', 'L4_High', 'T4_High', 'Square4_High', 'P5', 'C5', 'Line4'];
+const SHAPE_MAP: ModuleShape[] = ['Node1x2', 'L3', 'L4_Base', 'T4_Base', 'Square4_Base', 'L4_High', 'T4_High', 'Square4_High', 'P5', 'C5', 'Line4', 'Line2'];
 const COLOR_MAP_KEYS: ModuleColor[] = ['White', 'Red', 'Yellow', 'Green', 'Purple', 'DarkRed', 'Grey'];
 const EFFECT_MAP: ItemEffect[] = ['None', 'Premium', 'Inferior', 'Overcharged', 'Degrading', 'Negative Feedback', 'Receiver', 'Side Mount', 'Top Mount', 'Learning Algorithm'];
 
@@ -179,6 +179,10 @@ export const generateCodeFromState = (
 
 export function initializeBoard(currentTier: GridTier, initialIds?: (string | 'Locked' | null)[][], inventory?: InventoryItem[]) {
     const grid = Array.from({ length: 5 }, () => Array.from({ length: 7 }, () => null as any));
+    // The Evaporator's 4x4 bay: the top-left 4x4, so its cells keep the same (x, y) as in the game
+    if (currentTier === 0) {
+        for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) if (x >= 4 || y >= 4) grid[y][x] = 'Locked';
+    }
     if (currentTier === 1 || currentTier === 2) {
         grid[0][0] = grid[0][6] = grid[4][0] = grid[4][6] = 'Locked';
     }
@@ -696,7 +700,7 @@ const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 // their machines for their Efficiency cost.)
 // What kind of module an item is never changes, but the checks are string searches and the solver asks millions of times
 // So each item object is classified once
-const KIND_ALARM = 1, KIND_JUNK = 2, KIND_BLAST = 4, KIND_OVERCLOCK = 8;
+const KIND_ALARM = 1, KIND_JUNK = 2, KIND_BLAST = 4, KIND_OVERCLOCK = 8, KIND_MACHINE = 16;
 const kindCache = new WeakMap<InventoryItem, number>();
 const kindOf = (item: InventoryItem) => {
     let kind = kindCache.get(item);
@@ -705,7 +709,8 @@ const kindOf = (item: InventoryItem) => {
         kind = (name.includes('Alarm Transmitter') ? KIND_ALARM : 0)
             | (name.includes('Junk Processing') ? KIND_JUNK : 0)
             | (name.includes('(Blast)') ? KIND_BLAST : 0)
-            | (name.includes('Overclock') ? KIND_OVERCLOCK : 0);
+            | (name.includes('Overclock') ? KIND_OVERCLOCK : 0)
+            | (isMachineModuleName(name) ? KIND_MACHINE : 0);
         kindCache.set(item, kind);
     }
     return kind;
@@ -714,8 +719,9 @@ const isAlarmModule = (item: InventoryItem) => (kindOf(item) & KIND_ALARM) !== 0
 const isJunkModule = (item: InventoryItem) => (kindOf(item) & KIND_JUNK) !== 0;
 const isBlastModule = (item: InventoryItem) => (kindOf(item) & KIND_BLAST) !== 0;
 
+// The new machines' own modules (constants.ts MACHINE_MODULES) are special the same way
 export const isSpecialModule = (item: InventoryItem) =>
-    isAlarmModule(item) || isJunkModule(item) || isBlastModule(item);
+    isAlarmModule(item) || isJunkModule(item) || isBlastModule(item) || (kindOf(item) & KIND_MACHINE) !== 0;
 
 // Overclocks are worth placing even where their Performance is not needed (a Learning Algorithm one only grows while it
 // sits in a machine), so each placed one earns a little more in the tiebreak than the "fewer pieces" nudge costs
@@ -847,7 +853,7 @@ export function useOptimizer(
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                if (parsed.tier && [1, 2, 3].includes(parsed.tier)) {
+                if ([0, 1, 2, 3].includes(parsed.tier)) {
                     return parsed.tier as GridTier;
                 }
             } catch (e) {
