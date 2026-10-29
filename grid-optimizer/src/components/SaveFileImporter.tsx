@@ -503,9 +503,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 /* The save's slot, which the mod compares with the loaded game before trusting module uids. The game takes the slot from the
                  * file name (save_26.es3 is slot 26); the saveSlotId inside the file is only rewritten when the game saves, so a save copied
                  * into another slot still carries its old one (a copy of save_14 as save_26 says 14 until it is saved again). The id inside
-                 * is only used when the file name is not save_<n> (a renamed download such as "save_20 (1).es3")
+                 * is only used when the file name is not save_<n> (a renamed download such as "save_20 (1).es3"). The full release's day
+                 * backups (save_<n>_day<d>_<yyyyMMdd-HHmmss>, SaveFiles.HistoryFile) belong to slot n
                  */
-                const slotFromName = /^save_(\d+)$/i.exec(importedName)?.[1];
+                const slotFromName = /^save_(\d+)(?:_day\d+_\d{8}-\d{6})?$/i.exec(importedName)?.[1];
                 const slot = slotFromName ?? /"saveSlotId"\s*:\s*(\d+)/.exec(text)?.[1];
                 if (slot !== undefined) localStorage.setItem(SAVE_SLOT_KEY, slot);
                 else localStorage.removeItem(SAVE_SLOT_KEY);
