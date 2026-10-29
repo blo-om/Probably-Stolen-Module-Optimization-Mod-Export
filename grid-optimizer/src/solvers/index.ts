@@ -16,6 +16,7 @@ import type { MachineConfig } from '../hooks/useOptimizer';
 import { calculateBoardStats, generateCodeFromState, indexInventoryById } from '../hooks/useOptimizer';
 import type { InventoryItem, Stats } from '../types';
 import { runParallelEngine } from '../solver/parallel';
+import { isMachineModuleName } from '../constants';
 import { runOptimizationEngine as runHoydoy } from './hoydoy/engine';
 import { runSolver as runRazboy } from './razboy/solver/client';
 
@@ -66,6 +67,55 @@ const plainConfig = (m: MachineConfig) => {
     };
 };
 
+/* Stuck modules (InventoryItem.isStuck) never move, which no solver knows. So each machine with one is solved with the stuck module's
+ * cells locked and its targets, steps and caps moved down by what the stuck modules add (on their own, without neighbours), and every
+ * layout reported gets them back, described with the machine's real settings. Sums move the way the solver counts them: Mirage
+ * Performance + 2 x Quality (sumPQ), AgeWell / Deal Maker Efficiency + Performance (sumPE). A water farm's value is not a sum, so a stuck
+ * module there only counts through its targets
+ * Razboy and hoydoy keep only their own specials (Alarm Transmitter, Furnace modules) on a board, and would take a machine-only module
+ * (constants.ts MACHINE_MODULES) off it, so for them those are pinned the same way
+ */
+const pinStuck = (machines: MachineConfig[], boards: any[][][], fullInventory: InventoryItem[], inventoryById: Map<string, InventoryItem>,
+    pinned: (item: InventoryItem) => boolean) => {
+    const stuck = boards.map(board => {
+        const cells: { x: number; y: number; item: InventoryItem }[] = [];
+        board.forEach((row, y) => row.forEach((cell: any, x) => { if (cell && cell !== 'Locked' && pinned(cell)) cells.push({ x, y, item: cell }); }));
+        return cells;
+    });
+    const solved = machines.map((m, k) => {
+        if (stuck[k].length === 0) return m;
+        const alone = boards[k].map(row => row.map(() => null as any));
+        stuck[k].forEach(({ x, y, item }) => { alone[y][x] = item; });
+        const o = calculateBoardStats(alone, fullInventory, inventoryById).totals;
+        const by: Stats = {
+            Performance: m.sumPQ ? o.Performance + 2 * o.Quality : o.Performance,
+            Quality: o.Quality,
+            Efficiency: m.sumPE ? o.Efficiency + o.Performance : o.Efficiency,
+        };
+        const less = (v: number | null | undefined, s: keyof Stats) => (v === null || v === undefined ? v : v - by[s]);
+        return {
+            ...m,
+            targetStats: { Performance: less(m.targetStats.Performance, 'Performance'), Quality: less(m.targetStats.Quality, 'Quality'), Efficiency: less(m.targetStats.Efficiency, 'Efficiency') },
+            targetSteps: m.targetSteps && Object.fromEntries(Object.entries(m.targetSteps).map(([s, steps]) => [s, steps!.map(v => v - by[s as keyof Stats])])),
+            performanceCap: less(m.performanceCap, 'Performance'),
+            qualityCap: less(m.qualityCap, 'Quality'),
+            cheapEnergyAt: less(m.cheapEnergyAt, 'Efficiency'),
+        } as MachineConfig;
+    });
+    const solvedBoards = boards.map((board, k) => stuck[k].length === 0 ? board : board.map(row => row.map((cell: any) => (cell && cell !== 'Locked' && pinned(cell) ? 'Locked' : cell))));
+    const restore = (updates: Updates) => {
+        updates.forEach((u, id) => {
+            const k = machines.findIndex(m => m.id === id);
+            if (k === -1 || stuck[k].length === 0) return;
+            const board = u.board.map(row => row.slice());
+            stuck[k].forEach(({ x, y, item }) => { board[y][x] = item; });
+            updates.set(id, { ...u, ...describe(machines[k], board, fullInventory, inventoryById) });
+        });
+        return updates;
+    };
+    return { solved, solvedBoards, restore, any: stuck.some(cells => cells.length > 0) };
+};
+
 const boardIds = (board: any[][]) => {
     const ids = new Set<string>();
     board.forEach(row => row.forEach((cell: any) => { if (cell && cell !== 'Locked') ids.add(cell.id); }));
@@ -84,8 +134,17 @@ export const runSelectedSolver = async (
     isSolvingRef: { current: boolean },
     onUpdate: (updates: Updates, tiers?: number[]) => void
 ): Promise<void> => {
-    if (kind === 'bloom') return runParallelEngine(machines, boards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
     const inventoryById = indexInventoryById(fullInventory);
+    const pinned = (item: InventoryItem) => Boolean(item.isStuck) || (kind !== 'bloom' && isMachineModuleName(item.displayName));
+    const pin = pinStuck(machines, boards, fullInventory, inventoryById, pinned);
+    if (pin.any) {
+        machines = pin.solved;
+        boards = pin.solvedBoards;
+        searchPoolInventory = searchPoolInventory.filter(item => !pinned(item));
+        const report = onUpdate;
+        onUpdate = (updates, tiers) => report(pin.restore(updates), tiers);
+    }
+    if (kind === 'bloom') return runParallelEngine(machines, boards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
     // This site's module locks off. The callers mark a module held by a machine outside the solve with a locked copy of it, which their
     // sites keep out of reach too; a lock on the module itself (the player's right-click, or a special locked by default) is this site's
     const unlocked = (item: any) => { const { isLocked: _lock, ...rest } = item; return rest as InventoryItem; };

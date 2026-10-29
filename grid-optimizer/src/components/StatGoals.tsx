@@ -3,7 +3,7 @@ import type { Stats } from '../types';
 import { rememberSaveSettings } from '../saveSettings';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, sumsPE,
-    isDesequencer, isMirage, MIRAGE_BASE_POINTS, MIRAGE_SUM_PER_POINT, MIRAGE_QUALITY_WEIGHT, miragePoints, mirageSumFor, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
+    machineJobs, machineJobKey, isDesequencer, isMirage, MIRAGE_BASE_POINTS, MIRAGE_SUM_PER_POINT, MIRAGE_QUALITY_WEIGHT, miragePoints, mirageSumFor, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
     desequencerChipsetKey, desequencerAutoDaysKey, STORE_BASE_ATTRACTIVENESS_KEY,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
@@ -190,7 +190,33 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         rememberSaveSettings();
     };
 
+    // The job a Hydroponic / DNA Manipulator / 3D Printer works on (machineJobs): a plant, a complexity, a chip. Shared by the machine's
+    // cards; its steps are what the targets pick from and what the solve eases to on Auto
+    const jobs = machineJobs(machineType);
+    const jobKey = machineJobKey(machineId);
+    const [jobPick, setJobPick] = useState<string | null>(() => {
+        try { return localStorage.getItem(jobKey); } catch { return null; }
+    });
+    const job = jobs ? jobs.jobs.find(j => j.key === jobPick) ?? jobs.jobs[0] : null;
+
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));
+    // A new job moves the targets set on its steps to the new job's next step up
+    const pickJob = (key: string) => {
+        setJobPick(key);
+        try { localStorage.setItem(jobKey, key); } catch { /* per-viewer convenience only */ }
+        rememberSaveSettings();
+        const next = jobs?.jobs.find(j => j.key === key);
+        if (!next) return;
+        setTargetStats((prev: any) => {
+            const out = { ...prev };
+            for (const stat of ['Performance', 'Quality'] as StatKey[]) {
+                const steps = next.steps[stat];
+                if (!steps || out[stat] === null || out[stat] === undefined) continue;
+                out[stat] = (steps.find(s => s.value >= out[stat]) ?? steps[steps.length - 1]).value;
+            }
+            return out;
+        });
+    };
     const setOff = (stat: StatKey, off: boolean) => setIgnoreStats((prev: any) => ({ ...prev, [stat]: off }));
     const setLimit = (stat: StatKey, on: boolean) => setLimitStats(prev => ({ ...prev, [stat]: on }));
 
@@ -207,7 +233,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const unit = statUnit(machineType, stat);
         const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);
-        const breakpoints = deseq ? null : statBreakpoints(machineType, stat, hasBlast);
+        const jobStepList = job?.steps[stat] ?? null;
+        const breakpoints = deseq ? null : jobStepList ?? statBreakpoints(machineType, stat, hasBlast);
         const mode: Mode = off ? 'off' : target === null && !(deseq && autoDays) ? 'auto' : 'target';
         // Energy only: the target is a ceiling (at most this much a day, and less if it can) rather than a value to reach and stop at
         const limited = energy && limitStats[stat];
@@ -295,6 +322,20 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                             {desequencerDayOptions(work).map(o => (
                                 <Choice key={o.value} label={t('{d}d', { d: o.days })} selected={target === o.value} title={`${o.value}%`}
                                     onClick={() => { setAutoDays(false); setTarget(stat, o.value); }} disabled={disabled} />
+                            ))}
+                        </div>
+                    </>
+                );
+            } else if (jobs && jobStepList) {
+                panel = (
+                    <>
+                        <select value={job!.key} disabled={disabled} style={selectStyle} title={jobs.label} onChange={(e) => pickJob(e.target.value)}>
+                            {jobs.jobs.map(j => <option key={j.key} value={j.key}>{j.name}</option>)}
+                        </select>
+                        <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px' }}>
+                            {jobStepList.map(b => (
+                                <Choice key={b.value} label={b.short ?? b.label} selected={target === b.value} title={b.hint + t(' ({note})', { note: `${b.value}%` })}
+                                    onClick={() => setTarget(stat, b.value)} disabled={disabled} />
                             ))}
                         </div>
                     </>

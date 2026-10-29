@@ -11,7 +11,7 @@ export const getBaseStats = (template: { shape: ModuleShape, color: ModuleColor,
 
     const { shape, color, displayName } = template;
 
-    if (displayName.includes('Neural Core Module (Uncapped)')) return { Performance: 200, Quality: 100, Efficiency: -200 };
+    if (displayName.includes('Neural Core Module (Uncapped)')) return { Performance: 200, Quality: 100, Efficiency: -100 };
     if (displayName.includes('Neural Core Module (Capped)')) return { Performance: 100, Quality: 50, Efficiency: -100 };
     if (displayName.includes('Alarm Transmitter Module')) return { Performance: 0, Quality: 0, Efficiency: -50 };
     if (displayName.includes('(Junk Processing)')) return { Performance: 0, Quality: 0, Efficiency: 0 };

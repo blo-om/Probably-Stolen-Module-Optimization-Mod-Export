@@ -6,12 +6,15 @@ export const roundStat = (val: number) => val < 0 ? Math.ceil(val - STAT_EPSILON
 
 export const getBaseStats = (template: { shape: ModuleShape, color: ModuleColor, displayName: string }): Stats => {
     const stats = { Performance: 0, Quality: 0, Efficiency: 0 };
+    // A stuck module's stats come from the save (see InventoryItem.baseStats)
+    const own = (template as { baseStats?: Stats }).baseStats;
+    if (own) return { ...own };
 
     if (template.shape === 'Node1x2') return stats;
 
     const { shape, color, displayName } = template;
 
-    if (displayName.includes('Neural Core Module (Uncapped)')) return { Performance: 200, Quality: 100, Efficiency: -200 };
+    if (displayName.includes('Neural Core Module (Uncapped)')) return { Performance: 200, Quality: 100, Efficiency: -100 };
     if (displayName.includes('Neural Core Module (Capped)')) return { Performance: 100, Quality: 50, Efficiency: -100 };
     if (displayName.includes('Alarm Transmitter Module')) return { Performance: 0, Quality: 0, Efficiency: -50 };
     if (displayName.includes('(Junk Processing)')) return { Performance: 0, Quality: 0, Efficiency: 0 };

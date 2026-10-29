@@ -721,7 +721,7 @@ const isBlastModule = (item: InventoryItem) => (kindOf(item) & KIND_BLAST) !== 0
 
 // The new machines' own modules (constants.ts MACHINE_MODULES) are special the same way
 export const isSpecialModule = (item: InventoryItem) =>
-    isAlarmModule(item) || isJunkModule(item) || isBlastModule(item) || (kindOf(item) & KIND_MACHINE) !== 0;
+    isAlarmModule(item) || isJunkModule(item) || isBlastModule(item) || (kindOf(item) & KIND_MACHINE) !== 0 || Boolean(item.isStuck);
 
 // Overclocks are worth placing even where their Performance is not needed (a Learning Algorithm one only grows while it
 // sits in a machine), so each placed one earns a little more in the tiebreak than the "fewer pieces" nudge costs
