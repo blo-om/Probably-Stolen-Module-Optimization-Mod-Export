@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -56,7 +56,8 @@ import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
 import { t, plural, useLang, setLang, gameName, pathLabel, moduleName } from './i18n';
 
-const MACHINE_TYPES = ['Moisture Farm', 'Furnace', 'Water Purifier', 'Alarm System', 'AgeWell', 'Cryptographic Desequencer', 'Mirage Projector'];
+const MACHINE_TYPES = ['Moisture Farm', 'Furnace', 'Water Purifier', 'Alarm System', 'AgeWell', 'Cryptographic Desequencer', 'Mirage Projector',
+    'Hydroponic System', 'DNA Manipulator', '3D Printer', 'Deal Maker', 'Evaporator'];
 // A card's machine as shown, and where a module is: stock game names in the page's language, names the player gave as they are
 const machineLabel = gameName;
 const placeLabel = pathLabel;
@@ -125,6 +126,11 @@ const MACHINE_ICONS: [string, string][] = [
     ['agewell', 'agewell'],
     ['projector', 'mirage_projector'],
     ['furnace', 'furnace'],
+    ['hydroponic', 'hydroponic'],
+    ['dna manipulator', 'dna_manipulator'],
+    ['3d printer', 'printer'],
+    ['deal maker', 'deal_maker'],
+    ['evaporator', 'evaporator'],
 ];
 
 const machineIcon = (machineType: string): string | null => {
@@ -220,7 +226,8 @@ const MachineInstance = React.memo(forwardRef(({
      * shared priority took Purity far past Pure while the others made Ghost water: 12 farms with the first four at 6000 ml (15 workers,
      * 40 s, 6 runs) 76,360 credits a day, those four Pure, Pure, Ghost, Ghost at worst; capped (with staging) 85,970, never below High-quality
      */
-    const qualityCap = () => isMoistureFarm(typeKey)
+    // Evaporator: Quality past 100% keeps nothing more
+    const qualityCap = () => isEvaporator(typeKey) ? EVAPORATOR_QUALITY_CAP : isMoistureFarm(typeKey)
         && !optimizer.ignoreStats.Performance && optimizer.targetStats.Performance !== null && !optimizer.maximizeStats.Performance
         && !optimizer.ignoreStats.Quality && optimizer.maximizeStats.Quality && optimizer.targetStats.Quality === null
         ? WATER_GRADES[WATER_GRADES.length - 1].from : undefined;
@@ -328,7 +335,7 @@ const MachineInstance = React.memo(forwardRef(({
         return Array.from(mods.values());
     }, [showPaths, optimizer.board]);
 
-    const runSolo = () => optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), isAgeWell(typeKey),
+    const runSolo = () => optimizer.runOptimization(targetSteps(), isMirage(typeKey), waterMode(), worthlessBelowSteps(typeKey), sumsPE(typeKey),
         undefined, cheapEnergyAt(typeKey), qualityCap());
     useImperativeHandle(ref, () => ({
         run: optimizer.runOptimization,
@@ -346,7 +353,7 @@ const MachineInstance = React.memo(forwardRef(({
             targetSteps: targetSteps(),
             sumPQ: isMirage(typeKey),
             water: waterMode(),
-            sumPE: isAgeWell(typeKey),
+            sumPE: sumsPE(typeKey),
             performanceCap: undefined,
             qualityCap: qualityCap(),
             worthlessBelowSteps: worthlessBelowSteps(typeKey),
@@ -576,6 +583,9 @@ const MachineInstance = React.memo(forwardRef(({
                                         }
                                     });
                                     setMachineType(`${selected} ${max + 1}`);
+                                    // The Evaporator's bay is 4x4 (tier 0); any other machine coming from it starts fully upgraded
+                                    if (isEvaporator(selected)) optimizer.handleTierChange(0);
+                                    else if (optimizer.tier === 0) optimizer.handleTierChange(3);
                                     optimizer.setIgnoreStats(defaultIgnoreStats(selected));
                                     // Goals are in the old machine's terms, so a new type starts from Max
                                     optimizer.setTargetStats(defaultTargetStats(selected));
@@ -757,7 +767,7 @@ const MachineInstance = React.memo(forwardRef(({
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
 
-                    {!isImportedMachine && (
+                    {!isImportedMachine && !isEvaporator(typeKey) && (
                     <div style={{ display: 'flex', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', gap: '5px', backgroundColor: '#222', padding: '5px', borderRadius: '6px' }}>
                             {[1, 2, 3].map((t) => (
@@ -1207,7 +1217,7 @@ export default function ModuleInventoryUI() {
             const p = Math.trunc(totals.Performance), q = Math.trunc(totals.Quality);
             const energy = statUnit(kind, 'Efficiency');
             if (energy) {
-                power += energy.fromPercent(isAgeWell(kind) ? totals.Efficiency + totals.Performance : totals.Efficiency, totals);
+                power += energy.fromPercent(sumsPE(kind) ? totals.Efficiency + totals.Performance : totals.Efficiency, totals);
                 powered++;
             }
             if (isAgeWell(kind)) {

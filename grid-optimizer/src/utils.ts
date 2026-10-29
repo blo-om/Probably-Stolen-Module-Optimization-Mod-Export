@@ -1,5 +1,5 @@
 import type {ModuleShape, ModuleColor, Stats, Point, InventoryItem} from './types';
-import { SHAPE_DEFINITIONS } from './constants';
+import { SHAPE_DEFINITIONS, MACHINE_MODULES } from './constants';
 
 const STAT_EPSILON = 1e-9;
 export const roundStat = (val: number) => val < 0 ? Math.ceil(val - STAT_EPSILON) : Math.floor(val + STAT_EPSILON);
@@ -16,6 +16,9 @@ export const getBaseStats = (template: { shape: ModuleShape, color: ModuleColor,
     if (displayName.includes('Alarm Transmitter Module')) return { Performance: 0, Quality: 0, Efficiency: -50 };
     if (displayName.includes('(Junk Processing)')) return { Performance: 0, Quality: 0, Efficiency: 0 };
     if (displayName.includes('(Blast)')) return { Performance: 0, Quality: 0, Efficiency: -100 };
+    if (displayName.includes('Streamlining Module')) return { Performance: 8, Quality: -16, Efficiency: 25 };
+    const machineModule = MACHINE_MODULES.find(m => m.name === displayName);
+    if (machineModule) return { Performance: machineModule.P, Quality: machineModule.Q, Efficiency: machineModule.E };
 
     const isL3 = shape === 'L3';
     const isBase4 = shape.includes('_Base');

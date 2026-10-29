@@ -12,6 +12,7 @@ export const SHAPE_DEFINITIONS: { [key in ModuleShape]: number[][] } = {
     P5: [[1, 1], [1, 1], [1, 0]],
     C5: [[1, 1], [1, 0], [1, 1]],
     Line4: [[1, 1, 1, 1]],
+    Line2: [[1, 1]],
 };
 
 export const COLOR_MAP: { [key in ModuleColor]: string } = {
@@ -53,5 +54,32 @@ MODULE_TEMPLATES.push({ shape: 'Square4_Base', color: 'Purple', size: 4, tier: '
 MODULE_TEMPLATES.push({ shape: 'Line4', color: 'DarkRed', size: 4, tier: 'Special', shapeType: 'Line', displayName: 'Alarm Transmitter Module', group: 'Special' });
 MODULE_TEMPLATES.push({ shape: 'Line4', color: 'Grey', size: 4, tier: 'Special', shapeType: 'Line', displayName: 'Furnace Module (Junk Processing)', group: 'Special' });
 MODULE_TEMPLATES.push({ shape: 'Line4', color: 'Grey', size: 4, tier: 'Special', shapeType: 'Line', displayName: 'Furnace Module (Blast)', group: 'Special' });
+
+/* Modules that only fit one machine (ModuleDirectory: MODULE_TYPE_HYDROPONIC, _DNA_MANIPULATOR, _PRINTER, _EVAPORATOR). Like the Blast,
+ * they are there for what they do, not their stats, so they stay on their machine (isSpecialModule). Stats as the game gives them
+ * (InitModuleItem: Performance, Efficiency, Quality), shape from their sprite (1x4, the two Dream Cap Nightmare / Smuggler ones 1x2)
+ */
+export const MACHINE_MODULES: { id: string; name: string; shape: ModuleShape; P: number; Q: number; E: number }[] = [
+    { id: 'farm_module_nutrifruit', name: 'Nutrifruit Hydroponic Module', shape: 'Line4', P: -10, Q: 0, E: -10 },
+    { id: 'farm_module_dream_cap', name: 'Dream Cap Neutralizer Hydroponic Module', shape: 'Line4', P: 15, Q: 0, E: 15 },
+    { id: 'farm_module_kotton_loom', name: 'Kotton Auto Loom Hydroponic Module', shape: 'Line4', P: -50, Q: 0, E: -100 },
+    { id: 'farm_module_nightmare_cap', name: 'Dream Cap Nightmare Hydroponic Module', shape: 'Line2', P: -33, Q: 0, E: -50 },
+    { id: 'farm_module_fillerweed_production', name: 'Fillerweed Production Hydroponic Module', shape: 'Line4', P: 0, Q: 0, E: -25 },
+    { id: 'farm_module_hydroreed_filter', name: 'Hydroreed Filter Hydroponic Module', shape: 'Line4', P: 0, Q: 0, E: -15 },
+    { id: 'farm_module_smuggler', name: 'Hydroponic Smuggler Module', shape: 'Line2', P: 0, Q: 0, E: 0 },
+    { id: 'dna_manipulator_module_stabilizer', name: 'Genetic Stabilizer Module', shape: 'Line4', P: -50, Q: 0, E: -25 },
+    { id: 'dna_manipulator_module_positive_filter', name: 'Positive Trait Filter Module', shape: 'Line4', P: 0, Q: 0, E: -25 },
+    { id: 'dna_manipulator_module_negative_filter', name: 'Negative Trait Filter Module', shape: 'Line4', P: 0, Q: 0, E: -25 },
+    { id: 'dna_manipulator_module_precision', name: 'Precision Extraction Module', shape: 'Line4', P: -75, Q: 0, E: -75 },
+    { id: 'printer_module_metal', name: 'Metal Printer Module', shape: 'Line4', P: 0, Q: 0, E: -50 },
+    { id: 'printer_module_cnc', name: 'Computer Numerical Control Module', shape: 'Line4', P: -25, Q: 0, E: -25 },
+    { id: 'printer_module_melee_batch', name: 'Melee Batch Module', shape: 'Line4', P: -50, Q: 0, E: -50 },
+    { id: 'evaporator_module_solvent_recovery', name: 'Evaporator Solvent Recovery Module', shape: 'Line4', P: 0, Q: 50, E: -25 },
+];
+const MACHINE_MODULE_NAMES = new Set(MACHINE_MODULES.map(m => m.name));
+export const isMachineModuleName = (name: string) => MACHINE_MODULE_NAMES.has(name);
+for (const m of MACHINE_MODULES) {
+    MODULE_TEMPLATES.push({ shape: m.shape, color: 'Grey', size: m.shape === 'Line2' ? 2 : 4, tier: 'Special', shapeType: 'Line', displayName: m.name, group: 'Special' });
+}
 
 export const NODE_TEMPLATE: ModuleTemplate = { shape: 'Node1x2', color: 'White', size: 2, tier: 'Base', shapeType: 'Node', displayName: 'Node (Medium)', group: 'All' };

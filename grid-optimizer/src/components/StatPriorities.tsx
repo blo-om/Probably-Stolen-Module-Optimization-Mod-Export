@@ -1,6 +1,6 @@
 // Per-stat priority (1 matters most), as Razboy's and hoydoy's own pages have it under each stat. Shown only while one of their solvers is
 // picked (solvers/index.ts): this site's solver ranks machines by card order instead
-import { hiddenStat, isAgeWell, statName } from '../machineDefaults';
+import { hiddenStat, sumsPE, statName } from '../machineDefaults';
 import { t, useLang } from '../i18n';
 
 type StatKey = 'Performance' | 'Quality' | 'Efficiency';
@@ -17,7 +17,7 @@ export const StatPriorities = ({ machineType, statPriority, setStatPriority, ign
     // AgeWell's Performance has no card of its own (it lowers energy like Efficiency, so the Efficiency card covers both), but their solvers
     // see it as a stat of its own (solvers/index.ts plainConfig), so it gets a priority of its own, on or off with Efficiency
     useLang();
-    const linkedTo = (stat: StatKey): StatKey | null => (stat === 'Performance' && isAgeWell(machineType) ? 'Efficiency' : null);
+    const linkedTo = (stat: StatKey): StatKey | null => (stat === 'Performance' && sumsPE(machineType) ? 'Efficiency' : null);
     const shown = STATS.filter(stat => !hiddenStat(machineType, stat) || linkedTo(stat) !== null);
     if (shown.length === 0) return null;
     return (

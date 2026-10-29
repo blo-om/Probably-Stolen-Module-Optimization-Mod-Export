@@ -5,6 +5,8 @@ import { t, plural } from './i18n';
 //   Alarm System     - Quality N/A; Performance = theft prevention
 //   AgeWell          - Performance only changes energy use (like Efficiency); Quality = extra aging
 //   Moisture Farm, Water Purifier, Mirage Projector - both Performance and Quality matter
+//   Full release (from the game code): Hydroponic System, DNA Manipulator, 3D Printer and Evaporator use both; the Deal Maker's
+//   Performance only lowers its energy use (like the AgeWell), Quality raises the accept chance on a haggle
 // Efficiency only ever changes energy use, so it starts off everywhere except the Furnace. Players can still switch any of them.
 
 type StatFlags = { Performance: boolean; Quality: boolean; Efficiency: boolean };
@@ -14,6 +16,7 @@ const IGNORED_BY_TYPE: [string, StatFlags][] = [
     ['desequencer', { Performance: false, Quality: true, Efficiency: true }],
     ['alarm', { Performance: false, Quality: true, Efficiency: true }],
     ['agewell', { Performance: true, Quality: false, Efficiency: true }],
+    ['deal maker', { Performance: true, Quality: false, Efficiency: true }],
 ];
 
 const DEFAULT_IGNORED: StatFlags = { Performance: false, Quality: false, Efficiency: true };
@@ -192,12 +195,19 @@ export const worthlessBelowSteps = (machineType: string): Partial<Record<'Perfor
 };
 
 export const isAgeWell = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('agewell');
+export const isEvaporator = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('evaporator');
+// Machines whose Performance only lowers their energy use, exactly as Efficiency does: the AgeWell (both at ratio 2) and the Deal Maker
+// (MachineDealMaker.UpdatePowerUse: 25 - 25 * (Efficiency + Performance) / 100)
+export const sumsPE = (machineType: string) => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    return name.includes('agewell') || name.includes('deal maker');
+};
 
-/* Stats that get no card of their own: the ones with no effect, and the AgeWell's Performance, which only lowers the machine's
- * energy use exactly as Efficiency does (same ratio in the game), so both share the Efficiency card (MachineConfig.sumPE)
+/* Stats that get no card of their own: the ones with no effect, and Performance on a sumsPE machine, which only lowers its energy use
+ * exactly as Efficiency does, so both share the Efficiency card (MachineConfig.sumPE)
  */
 export const hiddenStat = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency') =>
-    statHasNoEffect(machineType, stat) || (stat === 'Performance' && isAgeWell(machineType));
+    statHasNoEffect(machineType, stat) || (stat === 'Performance' && sumsPE(machineType));
 
 // What each stat does on each machine, for the machine tooltip (numbers from the game code, see the notes above)
 const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][] = [
@@ -222,6 +232,22 @@ const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][]
     ['alarm', 'Performance', 'Chance to stop a theft: 50%, +1% per 1%'],
     ['alarm', 'Quality', 'No effect'],
     ['alarm', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
+    // Full release machines (MachineHydroponic, MachineDnaManipulator, MachinePrinter, MachineDealMaker, MachineEvaporator)
+    ['hydroponic', 'Performance', 'Growth: 8 a day, +1 per full 25%'],
+    ['hydroponic', 'Quality', 'Harvest: +1% per 2%'],
+    ['hydroponic', 'Efficiency', 'Energy use: 8 a day, 1 less per full 12.5%'],
+    ['dna manipulator', 'Performance', 'Work speed: 10 a day, +1 per full 20%'],
+    ['dna manipulator', 'Quality', 'Success chance: +1% per 2% (95% at no complexity, 5% less per point of it)'],
+    ['dna manipulator', 'Efficiency', 'Energy use: 12 a day, 1 less per ~8.3%'],
+    ['3d printer', 'Performance', 'Print speed: 24 a day, +0.24 per 1%'],
+    ['3d printer', 'Quality', 'Print quality: +1 per 4%'],
+    ['3d printer', 'Efficiency', 'Energy use: 8 a day, 1 less per full 12.5%'],
+    ['deal maker', 'Performance', 'Energy use, the same as Efficiency (both are on the Efficiency card)'],
+    ['deal maker', 'Quality', 'Accept chance on a haggle: 10%, +1% per 10%'],
+    ['deal maker', 'Efficiency', 'Energy use: 25 a use, 1 less per full 4% of Efficiency and Performance together'],
+    ['evaporator', 'Performance', 'Evaporates 300 ml a day, +3 ml per 1%'],
+    ['evaporator', 'Quality', 'Distillate: 1% of what evaporates is kept per 1%, up to 100%'],
+    ['evaporator', 'Efficiency', 'Energy use: 6 a day, 1 less per ~16.7%'],
 ];
 export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
@@ -278,6 +304,15 @@ const STAT_NAMES: [string, 'Performance' | 'Quality' | 'Efficiency', string][] =
     ['agewell', 'Quality', 'Extra aging'],
     ['desequencer', 'Performance', 'Work speed'],
     ['alarm', 'Performance', 'Theft prevention'],
+    ['hydroponic', 'Performance', 'Growth speed'],
+    ['hydroponic', 'Quality', 'Harvest'],
+    ['dna manipulator', 'Performance', 'Work speed'],
+    ['dna manipulator', 'Quality', 'Success bonus'],
+    ['3d printer', 'Performance', 'Print speed'],
+    ['3d printer', 'Quality', 'Print quality'],
+    ['deal maker', 'Quality', 'Accept chance'],
+    ['evaporator', 'Performance', 'Evaporation'],
+    ['evaporator', 'Quality', 'Recovery'],
 ];
 
 export const statName = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string => {
@@ -361,6 +396,32 @@ const combinedEnergyUnit = (rule: EnergyRule): StatUnit => ({
     lowerIsBetter: true,
 });
 
+/* Work a day on the machines that work in steps (ModuleHelper.ApplyBasicModuleEffect): base + base * P / 100, or with a performance ratio r
+ * (int)(base + (base * P / r) / 100), all in whole numbers. The target asked for is the least Performance that reaches it
+ */
+const workSpeed = (base: number, ratio?: number) => (pct: number) => {
+    const p = Math.trunc(pct);
+    return Math.max(0, ratio ? Math.trunc(base + Math.trunc((base * p) / ratio) / 100) : base + Math.trunc((base * p) / 100));
+};
+const speedUnit = (speed: (pct: number) => number): StatUnit => ({
+    get unit() { return t('/day'); },
+    fromPercent: speed,
+    toPercent: value => {
+        for (let p = -500; p <= 2000; p++) if (speed(p) >= value) return p;
+        return 2000;
+    },
+    step: 1,
+});
+// A stat read as a plain number: base + Quality / per (rounded toward zero), `min`/`max` where the game clamps it
+const linearUnit = (unit: () => string, base: number, per: number, min = -Infinity, max = Infinity): StatUnit => ({
+    get unit() { return unit(); },
+    fromPercent: pct => Math.min(max, Math.max(min, base + Math.trunc(Math.trunc(pct) / per))),
+    toPercent: value => (Math.min(value, max) - base) * per,
+    step: 1,
+});
+// The Evaporator keeps at most all of what it evaporates: Quality past 100% does nothing (MachineEvaporator: Math.Clamp(Quality, 0, 100))
+export const EVAPORATOR_QUALITY_CAP = 100;
+
 // What a Purifier takes out a night from a full 6 L jug of near-clean water with no Performance: (25 + 6000 * 0.003) ml x 1.25
 const PURIFIER_JUG_ML = 53.75;
 
@@ -373,6 +434,33 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
     ['agewell', 'Efficiency', combinedEnergyUnit({ base: 24, effRatio: 2, perfRatio: 2 })],
     ['mirage', 'Efficiency', energyUnit({ base: 16 })],
     ['alarm', 'Efficiency', energyUnit({ base: 4 })],
+    ['hydroponic', 'Efficiency', energyUnit({ base: 8 })],
+    ['dna manipulator', 'Efficiency', energyUnit({ base: 12 })],
+    ['3d printer', 'Efficiency', energyUnit({ base: 8 })],
+    ['deal maker', 'Efficiency', combinedEnergyUnit({ base: 25 })],
+    ['evaporator', 'Efficiency', energyUnit({ base: 6 })],
+    // Hydroponic: growth a day, base 8 at performance ratio 2; DNA Manipulator: work a day, base 10 at ratio 2; 3D Printer: base 24
+    ['hydroponic', 'Performance', speedUnit(workSpeed(8, 2))],
+    ['dna manipulator', 'Performance', speedUnit(workSpeed(10, 2))],
+    ['3d printer', 'Performance', speedUnit(workSpeed(24))],
+    // Evaporator: 300 ml a day times (1 + Performance / 100), never below 0
+    ['evaporator', 'Performance', {
+        get unit() { return t('ml/d'); },
+        fromPercent: pct => Math.max(0, 3 * (100 + Math.trunc(pct))),
+        toPercent: ml => Math.ceil(ml / 3 - 100 - 1e-9),
+        step: 10,
+    }],
+    // Quality at each machine's quality ratio (ModuleHelper.GetAjustedQuality: Quality / ratio)
+    //   Hydroponic (ratio 2): harvest x (1 + Q/2 %) (HydroponicHelper.GetHarvestCount)
+    //   DNA Manipulator (ratio 2): success chance + Q/2 points (PlantGeneticsHelper.GetSuccessChance)
+    //   3D Printer (ratio 4): print quality + Q/4 (MachinePrinter.HandlePrintedItemQuality)
+    //   Deal Maker (ratio 10): accept chance on a haggle 10 + Q/10 %, never below 0 (MachineDealMaker.GetChanceIncrease)
+    //   Evaporator: Quality % of the evaporated liquid goes to the distillate, 0-100
+    ['hydroponic', 'Quality', linearUnit(() => '%', 100, 2, 0)],
+    ['dna manipulator', 'Quality', linearUnit(() => '%', 0, 2)],
+    ['3d printer', 'Quality', linearUnit(() => t('pts'), 0, 4)],
+    ['deal maker', 'Quality', linearUnit(() => '%', 10, 10, 0)],
+    ['evaporator', 'Quality', linearUnit(() => '%', 0, 1, 0, EVAPORATOR_QUALITY_CAP)],
     // Alarm: chance to stop a theft = 50% + Performance (MachineAlarm.GetAlarmeStopRate), never below 0
     ['alarm', 'Performance', {
         unit: '%',
@@ -411,6 +499,6 @@ export const statUnit = (machineType: string, stat: 'Performance' | 'Quality' | 
 
 // Energy a day at which a machine counts as cheap to run: Efficiency past that is worth much less on Auto (MachineConfig.cheapEnergyAt)
 export const CHEAP_ENERGY = 4;
-// The Efficiency (AgeWell: Efficiency + Performance) that gets a machine down to CHEAP_ENERGY a day. Machines that start there
+// The Efficiency (AgeWell, Deal Maker: Efficiency + Performance) that gets a machine down to CHEAP_ENERGY a day. Machines that start there
 // (Water Purifier, Alarm: 4 a day) get a value below 0, so all their Efficiency counts less
 export const cheapEnergyAt = (machineType: string): number | undefined => statUnit(machineType, 'Efficiency')?.toPercent(CHEAP_ENERGY);
