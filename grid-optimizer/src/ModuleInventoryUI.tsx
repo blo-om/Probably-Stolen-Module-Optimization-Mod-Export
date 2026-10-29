@@ -3,7 +3,7 @@ import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
-import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
+import { readSolver, runSelectedSolver, SOLVERS, SOLVER_SITES, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
 import type { Stats, GridTier, InventoryItem, ModuleColor, Point } from './types';
 import { COLOR_MAP } from './constants';
@@ -2324,6 +2324,18 @@ export default function ModuleInventoryUI() {
                 </div>
                 </div>
             </div>
+
+            {/* Razboy's or hoydoy's solver picked: theirs is a copy here, and their own site has the latest version */}
+            {SOLVER_SITES[solverKind] && (() => {
+                const site = SOLVER_SITES[solverKind]!;
+                const [before, after] = t("You're using a copy of {author}'s optimizer included on this site, which may be behind their own. It's recommended to use {link} for the latest version.", { author: site.author }).split('{link}');
+                return (
+                    <div style={{ margin: '-6px 16px 14px', padding: '8px 12px', border: '1px solid #3a4a3e', borderRadius: '6px', backgroundColor: 'rgba(46, 74, 53, 0.25)', color: '#bbb', fontSize: '0.8em', lineHeight: 1.5 }}>
+                        {before}<a href={site.url} target="_blank" rel="noopener noreferrer" style={{ color: '#8fd19e' }}>{t("{author}'s own optimizer", { author: site.author })}</a>{after}
+                        {' '}{t('Huge thanks to hoydoy and Razboy20 for their insane contributions to the community!')}
+                    </div>
+                );
+            })()}
 
             {/* Main Grid & Controls */}
             {/* Card order is priority: a small left-to-right arrow over the machine cards */}
