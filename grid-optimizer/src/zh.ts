@@ -23,6 +23,12 @@ export const ZH: Record<string, string> = {
     '3D Printer': '3D打印机',
     'Deal Maker': '谈判专家',
     'Glitched Module': '故障模组',
+    // ---- credits for hoydoy's and Razboy20's optimizers
+    "You're using a copy of {author}'s optimizer included on this site, which may be behind their own. It's recommended to use {link} for the latest version.":
+        '你正在使用本站收录的 {author} 优化器副本，它可能落后于原版。建议使用{link}以获得最新版本。',
+    "{author}'s own optimizer": '{author} 自己的优化器',
+    'Huge thanks to hoydoy and Razboy20 for their insane contributions to the community!': '衷心感谢 hoydoy 和 Razboy20 为社区做出的巨大贡献！',
+    'Huge thanks to hoydoy and Razboy20 for their insane contributions to the community. Their own optimizers:': '衷心感谢 hoydoy 和 Razboy20 为社区做出的巨大贡献。他们自己的优化器：',
     // ---- jobs (Hydroponic plants, DNA complexity, 3D Printer chips)
     'Plant': '植物',
     'Chip': '芯片',

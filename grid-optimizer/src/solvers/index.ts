@@ -26,6 +26,11 @@ export const SOLVERS: { value: SolverKind; label: string; title: string }[] = [
     { value: 'razboy', label: 'Razboy', title: "Razboy's solver, unchanged (GPU when available)" },
     { value: 'hoydoy', label: 'hoydoy', title: "hoydoy's original solver, unchanged" },
 ];
+// Where hoydoy and Razboy20 keep their own optimizers: the copies bundled here are snapshots, and theirs get the updates first
+export const SOLVER_SITES: Partial<Record<SolverKind, { author: string; url: string }>> = {
+    razboy: { author: 'Razboy20', url: 'https://grid-optimizer.razboy20.workers.dev/' },
+    hoydoy: { author: 'hoydoy', url: 'https://hoydoy.github.io/probably-stolen-module-optimization/' },
+};
 export const SOLVER_KEY = 'optimizer_solver';
 export const readSolver = (): SolverKind => {
     try {
