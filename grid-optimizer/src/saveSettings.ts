@@ -4,7 +4,7 @@
 // A save is known by its file name (save_14); a machine by its name in the save ("Inv. > Machine Bay 1 > Furnace 2"), plus
 // how many cards before it have the same name
 import { SAVE_NAME_KEY } from './modExport';
-import { desequencerAutoDaysKey, desequencerChipsetKey } from './machineDefaults';
+import { desequencerAutoDaysKey, desequencerChipsetKey, machineJobKey } from './machineDefaults';
 
 const settingsKey = (save: string) => `optimizer_save_settings_${save}`;
 
@@ -14,6 +14,8 @@ type MachineSettings = {
     limit: string | null;
     chipset: string | null;
     autoDays: string | null;
+    // The Hydroponic plant, DNA complexity or 3D Printer chip picked on its cards (machineJobs)
+    job?: string | null;
     locked: string | null;
     lockedUids?: number[];
     // Modules on this machine that are unlocked: the specials start locked, so an unlocked one has to be remembered too
@@ -75,6 +77,7 @@ const snapshot = () => {
             limit: get(`optimizer_limit_${id}`),
             chipset: get(desequencerChipsetKey(id)),
             autoDays: get(desequencerAutoDaysKey(id)),
+            job: get(machineJobKey(id)),
             locked: get(`optimizer_machine_locked_${id}`),
             lockedUids,
             unlockedUids,
@@ -119,6 +122,7 @@ export const restoreSaveSettings = <M extends Imported>(save: string, machines: 
         set(`optimizer_limit_${m.id}`, s?.limit ?? null);
         set(desequencerChipsetKey(m.id), s?.chipset ?? null);
         set(desequencerAutoDaysKey(m.id), s?.autoDays ?? null);
+        set(machineJobKey(m.id), s?.job ?? null);
         set(`optimizer_machine_locked_${m.id}`, s?.locked ?? null);
         set(cardKey(m.id), keys[i]);
         for (const kind of SOLVER_KINDS) set(goalsKey(kind, m.id), s?.goals?.[kind] ?? null);

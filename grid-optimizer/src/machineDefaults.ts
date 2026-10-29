@@ -412,6 +412,135 @@ const speedUnit = (speed: (pct: number) => number): StatUnit => ({
     },
     step: 1,
 });
+/* Jobs: the Hydroponic System grows a plant, the DNA Manipulator runs an operation, the 3D Printer prints a chip. Each takes a fixed
+ * amount of work (MachineProgressHelper: the machine adds its work a day until the job's is reached), so Performance pays off in whole
+ * days, and a harvest is whole items. A card picks the job (per machine, shared by its cards); its stats then step at that job's values
+ *   Hydroponic  plants (PlantList: work, harvest): growth 8 + P/25 a day; harvest round(base x (1 + (Q/2)/100)), half up
+ *               (HydroponicHelper.GetHarvestCount); Nutrifruit from a plant at 96-99% health is all Huge once Q/2 > 50
+ *               (PlantHarvest.SplitByHealth), half Huge below. Genetic traits change a seed's work and harvest, so these are plain seeds
+ *   DNA         an operation at complexity c is 20 + 4c work (PlantGeneticsHelper.GetOperationProgress) at 10 + P/20 a day, and succeeds
+ *               at 95 - 5c + Q/2 % (GetSuccessChance), so Q 10 + 10c makes it sure. Complexity is the seed's traits plus heat, which
+ *               every operation adds to (AddHeat: 2 + the trait's complexity)
+ *   3D Printer  each chip's work (ModuleDirectory: InitProgressSourceItem, CreateMeleeChip, CreateCncChip) at 24 + 24P/100 a day; a melee
+ *               weapon's condition rolls 20-30 + Q/4 + the ingot's quality bonus: Fair from 25, Good 60, Excellent 90
+ *               (MachinePrinter.ApplyPrintedMeleeCondition), so without an ingot bonus Q 20 / 160 / 280 make them sure. Chips of 24 work or
+ *               less (scopes, lasers, suppressor, .22 mags, small parts, bottles) already take one day
+ */
+export type StatKey3 = 'Performance' | 'Quality' | 'Efficiency';
+export type StatJob = { key: string; name: string; steps: Partial<Record<StatKey3, StatBreakpoint[]>> };
+export const machineJobKey = (machineId: string) => `optimizer_job_${machineId}`;
+
+// The least Performance for each whole day less a job of `work` takes, the slowest first (at no Performance)
+const daySteps = (work: number, speed: (pct: number) => number, job: string): StatBreakpoint[] => {
+    const out: StatBreakpoint[] = [];
+    let days = Infinity;
+    for (let p = 0; p <= 3000 && days > 1; p++) {
+        const s = speed(p);
+        if (s <= 0) continue;
+        const d = Math.ceil(work / s);
+        if (d >= days) continue;
+        days = d;
+        out.push({ value: p, label: t('{job} {d}d', { job: t(job), d }), short: t('{d}d', { d }),
+            hint: t('{job}: {d} day{s} ({speed} work a day, {work} needed)', { job: t(job), d, s: plural(d), speed: s, work }) });
+    }
+    return out;
+};
+// The least Quality for each extra item a harvest of `base` gives (Quality counts in halves: GetAjustedQuality)
+const yieldSteps = (base: number, job: string): StatBreakpoint[] => {
+    const out: StatBreakpoint[] = [];
+    let have = base;
+    for (let q = 0; q <= 400 && base > 0 && out.length < 4; q += 2) {
+        const n = Math.floor(base + base * (Math.trunc(q / 2) / 100) + 0.5);
+        if (n <= have) continue;
+        have = n;
+        out.push({ value: q, label: t('{job} +{n}', { job: t(job), n: n - base }), short: `+${n - base}`,
+            hint: t('{job}: {n} a harvest instead of {base}', { job: t(job), n, base }) });
+    }
+    return out;
+};
+
+const PLANTS: [string, string, number, number][] = [
+    ['fillerweed', 'Fillerweed', 11, 4],
+    ['hydroreed', 'Hydroreed', 18, 0],
+    ['bloomberry', 'Bloomberry', 18, 8],
+    ['bloomberry_regrowth', 'Bloomberry regrowth', 10, 8],
+    ['coffee', 'Coffee', 21, 8],
+    ['nutrifruit', 'Nutrifruit', 23, 5],
+    ['dream_cap', 'Dream Cap', 28, 8],
+    ['kotton', 'Kotton', 32, 9],
+];
+const PRINTS: [string, string, number, boolean][] = [
+    ['gun_part', 'Gun Parts', 30, false],
+    ['box_cutter', 'Box Cutter', 34, true],
+    ['mag_22_high', 'High Cap. .22 Mag.', 36, false],
+    ['mag_10mm', '10mm Magazine', 36, false],
+    ['mag_22_ext', 'Ext. .22 Mag.', 48, false],
+    ['mag_10mm_high', 'High Cap. 10mm Mag.', 48, false],
+    ['pistol', '.22 Pistol', 50, false],
+    ['pistol_double', '.22 Pistol x2', 60, false],
+    ['nestfire_frame', 'Nestfire Compact Frame', 60, false],
+    ['mag_10mm_ext', 'Ext. 10mm Mag.', 60, false],
+    ['kitchen_knife', 'Kitchen Knife', 64, true],
+    ['ironcraft_frame', 'Ironcraft 10 Frame', 70, false],
+    ['hatchet', 'Hatchet', 75, true],
+    ['meat_cleaver', 'Meat Cleaver', 82, true],
+    ['combat_knife', 'Combat Knife', 98, true],
+    ['combat_machete', 'Combat Machete', 120, true],
+];
+const meleeSteps = (job: string): StatBreakpoint[] => [
+    { value: 20, label: t('Fair+'), hint: t('{job}: never Poor (without an ingot quality bonus)', { job: t(job) }) },
+    { value: 160, label: t('Good+'), hint: t('{job}: always Good or better (without an ingot quality bonus)', { job: t(job) }) },
+    { value: 280, label: t('Excellent'), hint: t('{job}: always Excellent (without an ingot quality bonus)', { job: t(job) }) },
+];
+
+export const machineJobs = (machineType: string): { label: string; jobs: StatJob[] } | null => {
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    if (name.includes('hydroponic')) {
+        return {
+            label: t('Plant'),
+            jobs: PLANTS.map(([key, plant, work, harvest]) => ({
+                key, name: t(plant),
+                steps: {
+                    Performance: daySteps(work, workSpeed(8, 2), plant),
+                    Quality: [...yieldSteps(harvest, plant), ...(key === 'nutrifruit' ? [{ value: 102, label: t('All Huge'), short: t('Huge'),
+                        hint: t('Every Nutrifruit Huge from a plant at 96-99% health (half of them below this)') }] : [])].sort((a, b) => a.value - b.value),
+                },
+            })),
+        };
+    }
+    if (name.includes('dna manipulator')) {
+        return {
+            label: t('Complexity'),
+            jobs: Array.from({ length: 16 }, (_, c) => ({
+                key: String(c), name: t('Complexity {c}', { c }),
+                steps: {
+                    Performance: daySteps(20 + 4 * c, workSpeed(10, 2), t('Complexity {c}', { c })),
+                    Quality: [{ value: 10 + 10 * c, label: t('Sure success'), hint: t('Complexity {c}: 100% success ({base}% with no Quality)', { c, base: Math.max(5, 95 - 5 * c) }) }],
+                },
+            })),
+        };
+    }
+    if (name.includes('3d printer')) {
+        return {
+            label: t('Chip'),
+            jobs: PRINTS.map(([key, chip, work, melee]) => ({
+                key, name: t(chip),
+                steps: { Performance: daySteps(work, workSpeed(24), chip), ...(melee ? { Quality: meleeSteps(chip) } : {}) },
+            })),
+        };
+    }
+    return null;
+};
+// The steps a machine's stat has with its picked job (the first job when none is picked)
+export const jobSteps = (machineType: string, machineId: string, stat: StatKey3): StatBreakpoint[] | null => {
+    const jobs = machineJobs(machineType);
+    if (!jobs) return null;
+    let key: string | null = null;
+    try { key = localStorage.getItem(machineJobKey(machineId)); } catch { /* the first job */ }
+    const job = jobs.jobs.find(j => j.key === key) ?? jobs.jobs[0];
+    return job.steps[stat] ?? null;
+};
+
 // A stat read as a plain number: base + Quality / per (rounded toward zero), `min`/`max` where the game clamps it
 const linearUnit = (unit: () => string, base: number, per: number, min = -Infinity, max = Infinity): StatUnit => ({
     get unit() { return unit(); },

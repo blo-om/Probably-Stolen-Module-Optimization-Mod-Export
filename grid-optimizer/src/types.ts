@@ -17,6 +17,10 @@ export interface InventoryItem {
     effectValues: [number, number];
     isInfinite?: boolean;
     isLocked?: boolean;
+    // Stuck in its machine (the game's MODULE_STUCK_TAG: only a Module Extractor takes it out). It never moves: no solver, drag or Store
+    // touches it, and its stats are the save's own (`baseStats`: a Glitched Module is a Corrupted one renamed to +15% / -15%)
+    isStuck?: boolean;
+    baseStats?: Stats;
     originalPath?: string;
     // The game's uniqueId for modules that came from Import Save - stable across save/load, unique per save
     uid?: number;

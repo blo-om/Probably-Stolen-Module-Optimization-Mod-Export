@@ -176,6 +176,14 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     });
                 });
 
+                // Whether a tag is on: listed in `_keys`, with its value enabled
+                const tagOn = (item: any, key: string) => {
+                    const i = (item._keys || []).indexOf(key);
+                    if (i === -1) return false;
+                    const v = item._values?.[i];
+                    return v?.valueEnabled !== false;
+                };
+
                 const machineKeywords = ['purifier', 'furnace', 'farm', 'agewell', 'projector', 'desequencer', 'alarm', 'hydroponic system', 'dna manipulator',
                     '3d printer', 'deal maker', 'evaporator'];
 
@@ -211,7 +219,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                             nameLower.includes('(junk processing)') || nameLower.includes('(blast)')) && (!nameLower.includes('ruined') && !nameLower.includes('corrupted'))
                         && !nameLower.includes('extractor') && !nameLower.includes('expansion');
 
-                    if (!isModule) return;
+                    // Stuck in a machine (MODULE_STUCK_TAG on): kept whatever it is (a Glitched or Ruined Module too), since it holds its cells
+                    const parentOfItem = parentMap.get(item.uuid);
+                    const stuck = parentOfItem !== undefined && machineContents.has(parentOfItem) && tagOn(item, 'MODULE_STUCK_TAG');
+                    if (!isModule && !stuck) return;
 
                     let color: ModuleColor = 'White';
                     let isHighTier = nameLower.includes('overclock') || nameLower.includes('refinement') || nameLower.includes('eco') || nameLower.includes('streamlining') || nameLower.includes('uncapped');
@@ -233,7 +244,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         color = 'Grey';
                     }
                     // Only nodes are plain white: other items that say "module" (the Blender's chem modules...) are not optimizer pieces
-                    if (color === 'White' && !nameLower.includes('node')) return;
+                    if (color === 'White' && !nameLower.includes('node')) {
+                        if (!stuck) return;
+                        color = 'Grey';
+                    }
 
                     const shapeData = item.itemShape?.data;
                     const w = item.itemShape?.['<width>k__BackingField'];
@@ -365,8 +379,9 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         effects: [eff1, eff2],
                         effectValues: [eff1Val, eff2Val],
                         isInfinite: false,
-                        // Alarm Transmitter, Furnace Blast and Junk Processing start locked to their machine
-                        isLocked: isSpecialModule({ shape, color, displayName: name } as InventoryItem),
+                        // Alarm Transmitter, Furnace Blast and Junk Processing start locked to their machine, stuck modules stay locked
+                        isLocked: stuck || isSpecialModule({ shape, color, displayName: name } as InventoryItem),
+                        ...(stuck ? { isStuck: true, baseStats: { Performance: pVal ?? 0, Quality: qVal ?? 0, Efficiency: eVal ?? 0 } } : {}),
                         originalPath: pathStr,
                         uid: typeof item.uniqueId === 'number' ? item.uniqueId : undefined
                     } as any);

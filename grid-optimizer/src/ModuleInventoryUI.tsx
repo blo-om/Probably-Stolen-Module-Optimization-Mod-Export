@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -248,7 +248,8 @@ const MachineInstance = React.memo(forwardRef(({
             const list = stat === 'Performance' && isDesequencer(typeKey) ? desequencerSteps()
                 // Alarm: the stop chance is 50% + Performance and tops out at 100%, so +50% is its one breakpoint
                 : stat === 'Performance' && typeKey.toLowerCase().includes('alarm') ? [50]
-                : statBreakpoints(typeKey, stat, hasBlast)?.map(b => b.value);
+                // Hydroponic, DNA Manipulator, 3D Printer: the picked job's days and harvest steps
+                : (jobSteps(typeKey, machineId, stat) ?? statBreakpoints(typeKey, stat, hasBlast))?.map(b => b.value);
             if (list && list.length > 0) steps[stat] = [...list].sort((a, b) => a - b);
         }
         return steps;
@@ -666,13 +667,15 @@ const MachineInstance = React.memo(forwardRef(({
                                     onContextMenu={(e) => {
                                         if (!cell || cell === 'Locked') return;
                                         e.preventDefault();
-                                        if (isAnySolving) return;
+                                        if (isAnySolving || cell.isStuck) return;
                                         onToggleLock(cell.id);
                                     }}
                                     onMouseDown={(e) => {
                                         if (e.button !== 0) return;
                                         if (isAnySolving || !cell || cell === 'Locked') return;
                                         e.preventDefault();
+                                        // Stuck in the machine: only a Module Extractor moves it in the game
+                                        if (cell.isStuck) return;
                                         const footprint = getBoardFootprint(cell.id);
                                         if (!footprint) return;
 
@@ -2125,7 +2128,12 @@ export default function ModuleInventoryUI() {
                         <div style={{ color: '#888', fontSize: '0.9em' }}>{t('Calculating...')}</div>
                     )}
 
-                    {lockedToMachine(hoveredItem) && (
+                    {hoveredItem.isStuck && (
+                        <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#d9a05b' }}>
+                            {t('Stuck in this machine: only a Module Extractor takes it out, so it stays where it is')}
+                        </div>
+                    )}
+                    {lockedToMachine(hoveredItem) && !hoveredItem.isStuck && (
                         <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#9a9a9a' }}>
                             {t('Locked to this machine · right-click to unlock')}
                         </div>
