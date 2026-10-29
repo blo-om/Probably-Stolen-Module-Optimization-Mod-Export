@@ -166,14 +166,15 @@ const paramsOf = (m: MachineConfig): MachineParams => ({
     cheapE: m.cheapEnergyAt,
 });
 
-// A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + Quality) or a water one (water value),
+// A machine's value of stat s: its own total, except Performance on a sumPQ machine (Performance + 2 x Quality, the Mirage Projector's
+// attractiveness in quarter points) or a water one (water value),
 // and Efficiency on a sumPE machine (Efficiency + Performance)
 // (Performance past capP counts for nothing: a Moisture Farm's container holds 6000 ml)
 // A water farm's Purity target is the grade it is to make: Quality past it is worth nothing more (so it does not overshoot)
 const waterQuality = (p: MachineParams, q: number) => (p.target[1] !== null ? Math.min(q, p.target[1]) : q);
 const statOf = (p: MachineParams, t: Totals, s: number) => {
     const tp = p.capP !== undefined ? Math.min(t.p, p.capP) : t.p;
-    return s === 0 && p.water ? waterValue(tp, waterQuality(p, t.q)) : s === 0 && p.sumPQ ? tp + t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp
+    return s === 0 && p.water ? waterValue(tp, waterQuality(p, t.q)) : s === 0 && p.sumPQ ? tp + 2 * t.q : s === 2 && p.sumPE ? t.e + t.p : s === 0 ? tp
         : s === 1 && p.capQ !== undefined ? Math.min(t.q, p.capQ) : totalOf(t, s);
 };
 
@@ -567,7 +568,8 @@ export const runOptimizationEngine = async (
                 if (ti !== -1) v += 15 * ((mask & (1 << ti)) !== 0 ? TARGET_MET_DRAW_SCALE : 1);
                 return v * Math.pow(PRIORITY_WEIGHT_STEP, tierCount - 1 - tierOfStat[mIdx][s]);
             });
-            if (p.sumPQ || p.water) w[1] = w[0];
+            if (p.sumPQ) w[1] = 2 * w[0];
+            else if (p.water) w[1] = w[0];
             if (p.sumPE) w[0] = w[2];
             const values = new Float64Array(P);
             const stated: number[] = [];
@@ -1259,7 +1261,7 @@ export const runOptimizationEngine = async (
                 for (const o of orientations) {
                     const r = core.evalPlacement(it, x, y, o, board, empty, 0, 0, 0, 0, 0, 0, params[k], true);
                     if (r <= -9000) continue;
-                    const g = sumPQ ? core.delta[0] + core.delta[1] : core.delta[s];
+                    const g = sumPQ ? core.delta[0] + 2 * core.delta[1] : core.delta[s];
                     if (g <= best) continue;
                     best = g;
                     if (second) { out.it2 = it; out.x2 = x; out.y2 = y; out.o2 = o; } else { out.it = it; out.x = x; out.y = y; out.o = o; }
@@ -1282,7 +1284,7 @@ export const runOptimizationEngine = async (
                 for (const o of orientations) {
                     const r = core.evalPlacement(it, x, y, o, board, empty, 0, 0, 0, 0, 0, 0, params[k], true);
                     if (r <= -9000) continue;
-                    const gain = baseValue + (sumPQ ? core.delta[0] + core.delta[1] : core.delta[s]) - valueNow;
+                    const gain = baseValue + (sumPQ ? core.delta[0] + 2 * core.delta[1] : core.delta[s]) - valueNow;
                     if (gain <= 0) continue;
                     keepMove({ a, it, x, y, o, it2: -1, x2: 0, y2: 0, o2: null, gain });
                 }

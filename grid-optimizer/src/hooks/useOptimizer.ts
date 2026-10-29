@@ -665,7 +665,8 @@ export type MachineConfig = {
     // The values where a stat actually changes something (water grades, ingot purity steps...), ascending
     // A target on such a stat is either reached or worth nothing, and can be relaxed one step when the set cannot reach it
     targetSteps?: Partial<Record<keyof Stats, number[]>>;
-    // Performance and Quality count as one stat, their sum, and Performance's target and priority are that sum's (Mirage Projector attractiveness)
+    // Performance and Quality count as one stat, Performance + 2 x Quality, and Performance's target and priority are that sum's
+    // (Mirage Projector attractiveness: 100 + Quality / 2 + Performance / 4)
     sumPQ?: boolean;
     // Moisture Farm with Volume on Auto and Purity on Auto or a Target: scored by the value of the water it makes a day (volume times its
     // grade's price; see solver/typedCore.ts waterValue). On Auto, Purity counts only through that value; a Purity target stays a target
@@ -676,7 +677,7 @@ export type MachineConfig = {
     worthlessBelowSteps?: Partial<Record<keyof Stats, boolean>>;
     // Performance and Efficiency count as one stat, their sum, under Efficiency (AgeWell: Performance only lowers energy use, like Efficiency)
     sumPE?: boolean;
-    // Performance past this counts for nothing (Moisture Farm: +500% = 6000 ml, the biggest water container)
+    // Performance past this counts for nothing
     performanceCap?: number;
     // Quality past this counts for nothing (Moisture Farm with Volume on a Target and Purity on Auto: Pure, 150, is the best grade there is)
     qualityCap?: number;

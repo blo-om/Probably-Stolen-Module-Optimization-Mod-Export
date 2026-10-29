@@ -347,8 +347,8 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
         let promote = 0;
         if (params.aimS !== undefined && params.aimV !== undefined) {
             const s = params.aimS;
-            const cv = s === 0 && params.sumPQ ? c0 + c1 : s === 2 && params.sumPE ? c2 + c0 : s === 0 ? c0 : s === 1 ? c1 : c2;
-            const dv = s === 0 && params.sumPQ ? dp + dq : s === 2 && params.sumPE ? de + dp : s === 0 ? dp : s === 1 ? dq : de;
+            const cv = s === 0 && params.sumPQ ? c0 + 2 * c1 : s === 2 && params.sumPE ? c2 + c0 : s === 0 ? c0 : s === 1 ? c1 : c2;
+            const dv = s === 0 && params.sumPQ ? dp + 2 * dq : s === 2 && params.sumPE ? de + dp : s === 0 ? dp : s === 1 ? dq : de;
             const ws = s === 0 ? w0 : s === 1 ? w1 : w2;
             if (cv < params.aimV) promote = (Math.min(cv + dv, params.aimV) - cv) * 20 * Math.max(ws, 1);
         }
@@ -356,7 +356,7 @@ export const createTypedCore = (items: InventoryItem[], internal: (item: Invento
             ? scoreStat(0, waterValueSmooth(Math.min(c0 + dp, cap), waterQ(c1 + dq)) - waterValueSmooth(Math.min(c0, cap), waterQ(c1)), 0, w0, params) + scoreStat(2, de, c2, w2, params) + aim
                 + (params.target[1] !== null ? scoreStat(1, dq, c1, w1, params) : 0)
             : params.sumPQ
-            ? scoreStat(0, dp + dq, c0 + c1, w0, params) + scoreStat(2, de, c2, w2, params)
+            ? scoreStat(0, dp + 2 * dq, c0 + 2 * c1, w0, params) + scoreStat(2, de, c2, w2, params)
             : params.sumPE
             ? scoreStat(1, dq, c1, w1, params) + scoreStat(2, de + dp, c2 + c0, w2, params)
             : scoreStat(0, dpc, Math.min(c0, cap), w0, params)
