@@ -23,6 +23,10 @@ export const ZH: Record<string, string> = {
     '3D Printer': '3D打印机',
     'Deal Maker': '谈判专家',
     'Glitched Module': '故障模组',
+    'Add a machine': '添加机器',
+    '⬆ Upgrade to tier {n}': '⬆ 升级到{n}级',
+    'Upgrade the module bay in the optimizer (tier {a} to {b}): the new cells open and every module stays where it is. In the game the machine needs the same upgrade before the mod can import a layout that uses them':
+        '在优化器中升级模组槽（{a}级到{b}级）：新格子开放，所有模组留在原位。在游戏里机器也需要同样的升级，模组才能导入用到这些格子的布局',
     // ---- credits for hoydoy's and Razboy20's optimizers
     "You're using a copy of {author}'s optimizer included on this site, which may be behind their own. It's recommended to use {link} for the latest version.":
         '你正在使用本站收录的 {author} 优化器副本，它可能落后于原版。建议使用{link}以获得最新版本。',

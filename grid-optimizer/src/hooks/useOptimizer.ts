@@ -914,6 +914,15 @@ export function useOptimizer(
         setSolutionCode('');
     };
 
+    // One upgrade of the module bay (tier 1 -> 2 -> 3) in the optimizer: the cells it opens come free, the modules stay where they are
+    const upgradeTier = () => {
+        if (tier !== 1 && tier !== 2) return;
+        const ids = boardRef.current.map(row => row.map(cell => (cell && cell !== 'Locked' ? cell.id : null)));
+        setTier((tier + 1) as GridTier);
+        setBoardSync(initializeBoard((tier + 1) as GridTier, ids, inventory));
+        setWarningMsg(null);
+    };
+
     const resetBoard = () => {
         if (isSolving) {
             isSolvingRef.current = false;
@@ -1201,7 +1210,7 @@ export function useOptimizer(
     };
 
     return {
-        tier, setTier, handleTierChange, targetStats, setTargetStats,
+        tier, setTier, handleTierChange, upgradeTier, targetStats, setTargetStats,
         maximizeStats, setMaximizeStats, ignoreStats, setIgnoreStats,
         statPriority, setStatPriority, board, bestTotals, bestPieceStats,
         isSolving, stopOptimization, warningMsg, setWarningMsg,
