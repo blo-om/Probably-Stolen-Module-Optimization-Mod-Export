@@ -605,7 +605,7 @@ const MachineInstance = React.memo(forwardRef(({
                         </button>
                     </div>
                     <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
-                        {isImportedMachine ? (
+                        {machineType !== 'Select Machine...' ? (
                             <span
                                 title={pathLabel(machineType)}
                                 style={{ color: '#eee', fontSize: '0.95em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', textAlign: 'right' }}
@@ -614,7 +614,6 @@ const MachineInstance = React.memo(forwardRef(({
                             </span>
                         ) : (
                             <select
-                                title={machineType !== "Select Machine..." ? machineType : undefined}
                                 value={machineType}
                                 onChange={(e) => chooseType(e.target.value)}
                                 disabled={currentSolving}
@@ -626,11 +625,6 @@ const MachineInstance = React.memo(forwardRef(({
                                 }}
                             >
                                 <option value="Select Machine..." disabled>{t('Select Machine...')}</option>
-                                {machineType !== "Select Machine..." && !MACHINE_TYPES.includes(machineType) && (
-                                    <option value={machineType}>
-                                        {machineType.length > 45 ? '...' + machineType.substring(machineType.length - 42) : machineLabel(machineType)}
-                                    </option>
-                                )}
                                 {MACHINE_TYPES.map(type => <option key={type} value={type}>{t(type)}</option>)}
                             </select>
                         )}
@@ -1806,16 +1800,43 @@ export default function ModuleInventoryUI() {
         if (typeof type === 'string') { try { localStorage.setItem(pendingTypeKey(id), type); } catch { /* starts unpicked */ } }
         setMachines(prev => [...prev, { id }]);
     };
-    const [addPickerOpen, setAddPickerOpen] = useState(false);
+    // The list of known machines, opened from the "+" card or the toolbar's "+ Add Machine"
+    const [addPickerAt, setAddPickerAt] = useState<'card' | 'toolbar' | null>(null);
+    const addPickerOpen = addPickerAt !== null;
+    const setAddPickerOpen = (open: boolean) => setAddPickerAt(open ? 'card' : null);
     const addCardRef = useRef<HTMLDivElement | null>(null);
+    const addToolbarRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         if (!addPickerOpen) return;
-        const close = (e: MouseEvent) => { if (addCardRef.current && !addCardRef.current.contains(e.target as Node)) setAddPickerOpen(false); };
+        const close = (e: MouseEvent) => {
+            const anchor = addPickerAt === 'card' ? addCardRef.current : addToolbarRef.current;
+            if (anchor && !anchor.contains(e.target as Node)) setAddPickerOpen(false);
+        };
         const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPickerOpen(false); };
         document.addEventListener('mousedown', close);
         document.addEventListener('keydown', esc);
         return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
-    }, [addPickerOpen]);
+    }, [addPickerOpen, addPickerAt]);
+    const machinePicker = (style: React.CSSProperties) => (
+        <div role="menu" style={{
+            position: 'absolute', zIndex: 150, minWidth: '220px', maxHeight: '360px', overflowY: 'auto', padding: '6px',
+            backgroundColor: '#1c1c1e', border: '1px solid #3a3a3c', borderRadius: '8px', boxShadow: '0 8px 20px rgba(0,0,0,0.6)', ...style,
+        }}>
+            {MACHINE_TYPES.map(type => {
+                const icon = machineIcon(type);
+                return (
+                    <button key={type} role="menuitem" onClick={() => { handleAddMachine(type); setAddPickerOpen(false); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '6px 8px', border: 'none', borderRadius: '6px', backgroundColor: 'transparent', color: '#eee', fontSize: '0.85em', textAlign: 'left', cursor: 'pointer' }}
+                        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#2c2c2e'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                        <span style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            {icon && <img src={icon} alt="" style={{ maxWidth: '28px', maxHeight: '28px', imageRendering: 'pixelated' }} />}
+                        </span>
+                        {t(type)}
+                    </button>
+                );
+            })}
+        </div>
+    );
 
     const handleClearAllMachines = () => {
         const preservedMachines: { id: string }[] = [];
@@ -2292,13 +2313,16 @@ export default function ModuleInventoryUI() {
                 >
                     {t('Clear All')}
                 </button>
-                <button
-                    onClick={() => handleAddMachine()}
-                    disabled={isAnySolving}
-                    style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
-                >
-                    {t('+ Add Machine')}
-                </button>
+                <div ref={addToolbarRef} style={{ position: 'relative', display: 'flex' }}>
+                    <button
+                        onClick={() => setAddPickerAt(at => (at === 'toolbar' ? null : 'toolbar'))}
+                        disabled={isAnySolving}
+                        style={{ padding: '10px 24px', backgroundColor: addPickerAt === 'toolbar' ? '#444' : '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
+                    >
+                        {t('+ Add Machine')}
+                    </button>
+                    {addPickerAt === 'toolbar' && machinePicker({ top: 'calc(100% + 6px)', right: 0 })}
+                </div>
                 <button
                     onClick={handleCopyAllForMod}
                     disabled={isAnySolving}
@@ -2425,31 +2449,12 @@ export default function ModuleInventoryUI() {
                 ))}
                 {/* The "+" card: a small square after the last card, with the list of known machines to add */}
                 <div ref={addCardRef} style={{ position: 'relative', alignSelf: 'flex-start' }}>
-                    <button onClick={() => setAddPickerOpen(o => !o)} disabled={isAnySolving} title={t('Add a machine')} aria-label={t('Add a machine')}
+                    <button onClick={() => setAddPickerAt(at => (at === 'card' ? null : 'card'))} disabled={isAnySolving} title={t('Add a machine')} aria-label={t('Add a machine')}
                         style={{
                             width: '72px', height: '72px', borderRadius: '8px', border: '2px dashed #3a3a3c', backgroundColor: addPickerOpen ? '#232325' : '#1c1c1e',
                             color: '#8fd19e', fontSize: '2em', lineHeight: 1, cursor: isAnySolving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>+</button>
-                    {addPickerOpen && (
-                        <div role="menu" style={{
-                            position: 'absolute', top: '78px', left: 0, zIndex: 50, minWidth: '220px', maxHeight: '360px', overflowY: 'auto', padding: '6px',
-                            backgroundColor: '#1c1c1e', border: '1px solid #3a3a3c', borderRadius: '8px', boxShadow: '0 8px 20px rgba(0,0,0,0.6)',
-                        }}>
-                            {MACHINE_TYPES.map(type => {
-                                const icon = machineIcon(type);
-                                return (
-                                    <button key={type} role="menuitem" onClick={() => { handleAddMachine(type); setAddPickerOpen(false); }}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '6px 8px', border: 'none', borderRadius: '6px', backgroundColor: 'transparent', color: '#eee', fontSize: '0.85em', textAlign: 'left', cursor: 'pointer' }}
-                                        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#2c2c2e'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
-                                        <span style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            {icon && <img src={icon} alt="" style={{ maxWidth: '28px', maxHeight: '28px', imageRendering: 'pixelated' }} />}
-                                        </span>
-                                        {t(type)}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
+                    {addPickerAt === 'card' && machinePicker({ top: '78px', left: 0 })}
                 </div>
             </div>
 
