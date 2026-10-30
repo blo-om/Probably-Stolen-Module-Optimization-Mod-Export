@@ -241,6 +241,11 @@ const MachineInstance = React.memo(forwardRef(({
         optimizer.setTargetStats(defaultTargetStats(selected));
         setLimitStats({ Performance: false, Quality: false, Efficiency: false });
     };
+    // A machine added by hand is always fully upgraded (the Evaporator's 4x4 bay aside); one saved at a lower tier moves up, modules kept
+    useEffect(() => {
+        if (!isImportedMachine && (optimizer.tier === 1 || optimizer.tier === 2)) optimizer.upgradeTier();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isImportedMachine, optimizer.tier]);
     // A card added from the "+" card's list comes with its type waiting (pendingTypeKey)
     useEffect(() => {
         let pending: string | null = null;
@@ -566,6 +571,15 @@ const MachineInstance = React.memo(forwardRef(({
                 )}
                 <div style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '2px 0' , boxSizing: 'border-box' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+                        {/* A machine the save has below tier 3: upgrade its bay here, one tier at a time, its modules staying put */}
+                        {isImportedMachine && (optimizer.tier === 1 || optimizer.tier === 2) && (
+                            <button onClick={optimizer.upgradeTier} disabled={currentSolving}
+                                title={t('Upgrade the module bay in the optimizer (tier {a} to {b}): the new cells open and every module stays where it is. In the game the machine needs the same upgrade before the mod can import a layout that uses them', { a: optimizer.tier, b: optimizer.tier + 1 })}
+                                style={{ marginRight: 'auto', background: 'rgba(76, 175, 80, 0.12)', border: '1px solid #2e4a35', borderRadius: '6px', color: '#8fd19e',
+                                    cursor: currentSolving ? 'not-allowed' : 'pointer', fontSize: '0.75em', padding: '4px 8px', fontWeight: 'bold' }}>
+                                {t('Upgrade')}
+                            </button>
+                        )}
                         <button
                             onClick={() => setShowPaths(!showPaths)}
                             style={{
@@ -780,28 +794,6 @@ const MachineInstance = React.memo(forwardRef(({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-
-                    {(optimizer.tier === 1 || optimizer.tier === 2) && (
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                            <button onClick={optimizer.upgradeTier} disabled={currentSolving}
-                                title={t('Upgrade the module bay in the optimizer (tier {a} to {b}): the new cells open and every module stays where it is. In the game the machine needs the same upgrade before the mod can import a layout that uses them', { a: optimizer.tier, b: optimizer.tier + 1 })}
-                                style={{ padding: '3px 10px', fontSize: '0.75em', backgroundColor: 'rgba(76, 175, 80, 0.12)', color: '#8fd19e', border: '1px solid #2e4a35', borderRadius: '4px', cursor: currentSolving ? 'not-allowed' : 'pointer' }}>
-                                {t('⬆ Upgrade to tier {n}', { n: optimizer.tier + 1 })}
-                            </button>
-                        </div>
-                    )}
-
-                    {!isImportedMachine && !isEvaporator(typeKey) && (
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                        <div style={{ display: 'flex', gap: '5px', backgroundColor: '#222', padding: '5px', borderRadius: '6px' }}>
-                            {[1, 2, 3].map((t) => (
-                                <button key={t} onClick={() => optimizer.handleTierChange(t as GridTier)} disabled={currentSolving} style={{ padding: '6px 12px', fontSize: '0.85em', backgroundColor: optimizer.tier === t ? '#555' : 'transparent', color: 'white', border: 'none', borderRadius: '4px', cursor: currentSolving ? 'not-allowed' : 'pointer' }}>
-                                    Tier {t}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    )}
 
                     <StatGoals
                         machineType={typeKey}
