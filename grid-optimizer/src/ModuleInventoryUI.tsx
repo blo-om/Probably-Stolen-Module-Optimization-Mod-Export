@@ -56,6 +56,8 @@ import MiniShape from './components/MiniShape';
 import SaveFileImporter from './components/SaveFileImporter';
 import { t, plural, useLang, setLang, gameName, pathLabel, moduleName } from './i18n';
 
+// The type a card added from the "+" card should start as, picked up by the card when it first shows
+const pendingTypeKey = (machineId: string) => `optimizer_machine_pending_type_${machineId}`;
 const MACHINE_TYPES = ['Moisture Farm', 'Furnace', 'Water Purifier', 'Alarm System', 'AgeWell', 'Cryptographic Desequencer', 'Mirage Projector',
     'Hydroponic System', 'DNA Manipulator', '3D Printer', 'Deal Maker', 'Evaporator'];
 // A card's machine as shown, and where a module is: stock game names in the page's language, names the player gave as they are
@@ -210,6 +212,42 @@ const MachineInstance = React.memo(forwardRef(({
     // Save-imported machines are named by their path in the save ("Inv. > ..."); their name and tier come from
     // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
     const isImportedMachine = machineType.startsWith('Inv.');
+    // A machine type picked for this card (the card's dropdown, or the "+" card's list): numbered after the cards of that type, with
+    // that machine's default goals
+    const chooseType = (selected: string) => {
+        const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
+        let max = 0;
+
+        const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
+
+        allKeys.forEach(k => {
+            if (k === `optimizer_machine_type_${machineId}`) return;
+            const val = localStorage.getItem(k);
+            if (val) {
+                const match = val.match(regex);
+                if (match) {
+                    const num = parseInt(match[1], 10);
+                    if (num > max) max = num;
+                }
+            }
+        });
+        setMachineType(`${selected} ${max + 1}`);
+        // The Evaporator's bay is 4x4 (tier 0); any other machine coming from it starts fully upgraded
+        if (isEvaporator(selected)) optimizer.handleTierChange(0);
+        else if (optimizer.tier === 0) optimizer.handleTierChange(3);
+        optimizer.setIgnoreStats(defaultIgnoreStats(selected));
+        // Goals are in the old machine's terms, so a new type starts from Max
+        optimizer.setTargetStats(defaultTargetStats(selected));
+        setLimitStats({ Performance: false, Quality: false, Efficiency: false });
+    };
+    // A card added from the "+" card's list comes with its type waiting (pendingTypeKey)
+    useEffect(() => {
+        let pending: string | null = null;
+        try { pending = localStorage.getItem(pendingTypeKey(machineId)); localStorage.removeItem(pendingTypeKey(machineId)); } catch { /* none */ }
+        if (pending && MACHINE_TYPES.includes(pending)) chooseType(pending);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     // What kind of machine this is, for its icon, stats, defaults and breakpoints: the save item's own name, kept apart from the
     // card's name, which may be one the player gave it ("CMD Card" for a Desequencer). Cards added by hand are named by their type
     const [machineKind] = useState<string | null>(() => localStorage.getItem(`optimizer_machine_kind_${machineId}`));
@@ -564,34 +602,7 @@ const MachineInstance = React.memo(forwardRef(({
                             <select
                                 title={machineType !== "Select Machine..." ? machineType : undefined}
                                 value={machineType}
-                                onChange={(e) => {
-                                    const selected = e.target.value;
-                                    const allKeys = Object.keys(localStorage).filter(k => k.startsWith('optimizer_machine_type_'));
-                                    let max = 0;
-
-                                    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                    const regex = new RegExp(`(?:^|\\s|>\\s*)${escapeRegex(selected)}\\s+(\\d+)$`);
-
-                                    allKeys.forEach(k => {
-                                        if (k === `optimizer_machine_type_${machineId}`) return;
-                                        const val = localStorage.getItem(k);
-                                        if (val) {
-                                            const match = val.match(regex);
-                                            if (match) {
-                                                const num = parseInt(match[1], 10);
-                                                if (num > max) max = num;
-                                            }
-                                        }
-                                    });
-                                    setMachineType(`${selected} ${max + 1}`);
-                                    // The Evaporator's bay is 4x4 (tier 0); any other machine coming from it starts fully upgraded
-                                    if (isEvaporator(selected)) optimizer.handleTierChange(0);
-                                    else if (optimizer.tier === 0) optimizer.handleTierChange(3);
-                                    optimizer.setIgnoreStats(defaultIgnoreStats(selected));
-                                    // Goals are in the old machine's terms, so a new type starts from Max
-                                    optimizer.setTargetStats(defaultTargetStats(selected));
-                                    setLimitStats({ Performance: false, Quality: false, Efficiency: false });
-                                }}
+                                onChange={(e) => chooseType(e.target.value)}
                                 disabled={currentSolving}
                                 style={{
                                     width: '100%', padding: '3px 6px', backgroundColor: '#222', color: '#eee',
@@ -769,6 +780,16 @@ const MachineInstance = React.memo(forwardRef(({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
+
+                    {(optimizer.tier === 1 || optimizer.tier === 2) && (
+                        <div style={{ display: 'flex', justifyContent: 'center' }}>
+                            <button onClick={optimizer.upgradeTier} disabled={currentSolving}
+                                title={t('Upgrade the module bay in the optimizer (tier {a} to {b}): the new cells open and every module stays where it is. In the game the machine needs the same upgrade before the mod can import a layout that uses them', { a: optimizer.tier, b: optimizer.tier + 1 })}
+                                style={{ padding: '3px 10px', fontSize: '0.75em', backgroundColor: 'rgba(76, 175, 80, 0.12)', color: '#8fd19e', border: '1px solid #2e4a35', borderRadius: '4px', cursor: currentSolving ? 'not-allowed' : 'pointer' }}>
+                                {t('⬆ Upgrade to tier {n}', { n: optimizer.tier + 1 })}
+                            </button>
+                        </div>
+                    )}
 
                     {!isImportedMachine && !isEvaporator(typeKey) && (
                     <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -1787,9 +1808,22 @@ export default function ModuleInventoryUI() {
         });
     };
 
-    const handleAddMachine = () => {
-        setMachines(prev => [...prev, { id: `m_${Math.random().toString(36).substring(2,8)}` }]);
+    // A new card; with a type, it starts as that machine (the "+" card's list)
+    const handleAddMachine = (type?: string) => {
+        const id = `m_${Math.random().toString(36).substring(2,8)}`;
+        if (typeof type === 'string') { try { localStorage.setItem(pendingTypeKey(id), type); } catch { /* starts unpicked */ } }
+        setMachines(prev => [...prev, { id }]);
     };
+    const [addPickerOpen, setAddPickerOpen] = useState(false);
+    const addCardRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        if (!addPickerOpen) return;
+        const close = (e: MouseEvent) => { if (addCardRef.current && !addCardRef.current.contains(e.target as Node)) setAddPickerOpen(false); };
+        const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPickerOpen(false); };
+        document.addEventListener('mousedown', close);
+        document.addEventListener('keydown', esc);
+        return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+    }, [addPickerOpen]);
 
     const handleClearAllMachines = () => {
         const preservedMachines: { id: string }[] = [];
@@ -2267,7 +2301,7 @@ export default function ModuleInventoryUI() {
                     {t('Clear All')}
                 </button>
                 <button
-                    onClick={handleAddMachine}
+                    onClick={() => handleAddMachine()}
                     disabled={isAnySolving}
                     style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
@@ -2397,6 +2431,34 @@ export default function ModuleInventoryUI() {
                       </div>
                     </div>
                 ))}
+                {/* The "+" card: a small square after the last card, with the list of known machines to add */}
+                <div ref={addCardRef} style={{ position: 'relative', alignSelf: 'flex-start' }}>
+                    <button onClick={() => setAddPickerOpen(o => !o)} disabled={isAnySolving} title={t('Add a machine')} aria-label={t('Add a machine')}
+                        style={{
+                            width: '72px', height: '72px', borderRadius: '8px', border: '2px dashed #3a3a3c', backgroundColor: addPickerOpen ? '#232325' : '#1c1c1e',
+                            color: '#8fd19e', fontSize: '2em', lineHeight: 1, cursor: isAnySolving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>+</button>
+                    {addPickerOpen && (
+                        <div role="menu" style={{
+                            position: 'absolute', top: '78px', left: 0, zIndex: 50, minWidth: '220px', maxHeight: '360px', overflowY: 'auto', padding: '6px',
+                            backgroundColor: '#1c1c1e', border: '1px solid #3a3a3c', borderRadius: '8px', boxShadow: '0 8px 20px rgba(0,0,0,0.6)',
+                        }}>
+                            {MACHINE_TYPES.map(type => {
+                                const icon = machineIcon(type);
+                                return (
+                                    <button key={type} role="menuitem" onClick={() => { handleAddMachine(type); setAddPickerOpen(false); }}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '6px 8px', border: 'none', borderRadius: '6px', backgroundColor: 'transparent', color: '#eee', fontSize: '0.85em', textAlign: 'left', cursor: 'pointer' }}
+                                        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#2c2c2e'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                                        <span style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            {icon && <img src={icon} alt="" style={{ maxWidth: '28px', maxHeight: '28px', imageRendering: 'pixelated' }} />}
+                                        </span>
+                                        {t(type)}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Unused Module Storage */}
