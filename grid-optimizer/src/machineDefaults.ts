@@ -32,7 +32,7 @@ export const defaultIgnoreStats = (machineType: string): StatFlags => {
 export const STORE_ATTRACTIVENESS_GOAL = 900;
 
 /* Targets a machine starts with:
- *   Alarm System     a 100% chance to stop a theft (50% + Performance, so +50%)
+ *   Alarm System     a 100% chance to stop a theft (the roll is 50% + Performance + 1, so +49%)
  *   Mirage Projector STORE_ATTRACTIVENESS_GOAL for the whole store: last night's base from the save (`baseAttractiveness`) plus the
  *                    projector's 100 + Performance / 4 + Quality / 2; without a save it stays on Auto
  */
@@ -41,7 +41,7 @@ export const defaultTargetStats = (machineType: string, baseAttractiveness: numb
     if (name.includes('mirage') && baseAttractiveness !== null) {
         return { Performance: mirageSumFor(STORE_ATTRACTIVENESS_GOAL - baseAttractiveness), Quality: null, Efficiency: null };
     }
-    return { Performance: name.includes('alarm') ? 50 : null, Quality: null, Efficiency: null };
+    return { Performance: name.includes('alarm') ? ALARM_SURE_STOP : null, Quality: null, Efficiency: null };
 };
 
 // An enabled stat is maximized unless it has a target
@@ -186,6 +186,12 @@ export const desequencerCutoffs = (): number[] => DESEQUENCER_CUTOFFS.map(([valu
  * (MachineProjector.GetAttractivenessBoost: quality ratio 2, performance ratio 4). Its card shows one stat, attractiveness, and the
  * solver works on Performance + 2 x Quality (MachineConfig.sumPQ, MIRAGE_QUALITY_WEIGHT), 4 of which make a point
  */
+/* Alarm System: a theft is stopped when a roll of 0-99 is under the stop rate + 1 (PlayerStore's night: RNG.Roll(GetAlarmeStopRate() + 1)),
+ * the stop rate being max(0, 50 + Performance) (MachineAlarm.GetAlarmeStopRate). So the real chance is one point above what the game shows,
+ * and +49% is already a sure stop. Only one alarm counts: the first unbroken one the game finds in the store (FindAlarmeItem)
+ */
+export const ALARM_SURE_STOP = 49;
+export const alarmStopChance = (performance: number) => Math.min(100, Math.max(0, 50 + Math.trunc(performance)) + 1);
 export const isMirage = (machineType: string) => (machineType.split(' > ').pop() || '').toLowerCase().includes('mirage');
 export const MIRAGE_BASE_POINTS = 100;
 export const MIRAGE_QUALITY_WEIGHT = 2;
@@ -239,7 +245,7 @@ const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][]
     ['desequencer', 'Performance', 'Decoding speed: 33 work a day, +0.33 per 1%'],
     ['desequencer', 'Quality', 'No effect'],
     ['desequencer', 'Efficiency', 'Energy use: 10 a day, 1 less per full 10%'],
-    ['alarm', 'Performance', 'Chance to stop a theft: 50%, +1% per 1%'],
+    ['alarm', 'Performance', 'Chance to stop a theft: 51%, +1% per 1% (the game shows 1% less than it rolls), sure from 49%'],
     ['alarm', 'Quality', 'No effect'],
     ['alarm', 'Efficiency', 'Energy use: 4 a day, 1 less per full 25%'],
     // Full release machines (MachineHydroponic, MachineDnaManipulator, MachinePrinter, MachineDealMaker, MachineEvaporator)
@@ -256,7 +262,7 @@ const STAT_EFFECTS: [string, 'Performance' | 'Quality' | 'Efficiency', string][]
     ['deal maker', 'Quality', 'Accept chance on a haggle: 10%, +1% per 10%'],
     ['deal maker', 'Efficiency', 'Energy use: 25 a use, 1 less per full 4% of Efficiency and Performance together'],
     ['evaporator', 'Performance', 'Evaporates 300 ml a day, +3 ml per 1%'],
-    ['evaporator', 'Quality', 'Distillate: 1% of what evaporates is kept per 1%, up to 100%'],
+    ['evaporator', 'Quality', 'Distillate: 1% of what evaporates is kept per 1%, up to 100% (with Solvent Recovery: only alcohol is kept)'],
     ['evaporator', 'Efficiency', 'Energy use: 6 a day, 1 less per ~16.7%'],
 ];
 export const statEffect = (machineType: string, stat: 'Performance' | 'Quality' | 'Efficiency'): string | null => {
@@ -600,13 +606,13 @@ const STAT_UNITS: [string, 'Performance' | 'Quality' | 'Efficiency', StatUnit][]
     ['3d printer', 'Quality', linearUnit(() => t('pts'), 0, 4)],
     ['deal maker', 'Quality', linearUnit(() => '%', 10, 10, 0)],
     ['evaporator', 'Quality', linearUnit(() => '%', 0, 1, 0, EVAPORATOR_QUALITY_CAP)],
-    // Alarm: chance to stop a theft = 50% + Performance (MachineAlarm.GetAlarmeStopRate), never below 0
+    // Alarm: chance to stop a theft (alarmStopChance)
     ['alarm', 'Performance', {
         unit: '%',
-        fromPercent: pct => Math.max(0, 50 + Math.trunc(pct)),
-        toPercent: chance => Math.ceil(chance - 50),
+        fromPercent: pct => alarmStopChance(pct),
+        toPercent: chance => Math.ceil(chance - 51),
         step: 1,
-        get hint() { return t('Chance to stop a theft: 50% plus Performance'); },
+        get hint() { return t('Chance to stop a theft: 51% plus Performance, up to 100%. The game shows 1% less: it rolls 0-99 against its shown chance + 1, so 49% Performance already stops every theft'); },
     }],
     // One farm on its own: farms running the same night share the air (moistureFarmOutput)
     ['moisture farm', 'Performance', {

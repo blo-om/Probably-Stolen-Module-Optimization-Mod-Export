@@ -229,7 +229,7 @@ export const ZH: Record<string, string> = {
     'Accept chance on a haggle: 10%, +1% per 10%': '讨价还价的接受概率：10%，每10%+1%',
     'Energy use: 25 a use, 1 less per full 4% of Efficiency and Performance together': '耗能：每次使用25，效率与性能合计每满4%减1',
     'Evaporates 300 ml a day, +3 ml per 1%': '每天蒸发300毫升，每1%+3毫升',
-    'Distillate: 1% of what evaporates is kept per 1%, up to 100%': '蒸馏液：每1%保留蒸发量的1%，最多100%',
+    'Distillate: 1% of what evaporates is kept per 1%, up to 100% (with Solvent Recovery: only alcohol is kept)': '蒸馏液：每1%保留蒸发量的1%，最多100%（装有溶剂回收模组时只保留酒精）',
     'Growth speed': '生长速度',
     'Harvest': '收成',
     'Success bonus': '成功率加成',
@@ -252,8 +252,8 @@ export const ZH: Record<string, string> = {
     'Energy use: 16 a day, 1 less per full 6.25%': '耗能：每天16，每满6.25%减1',
     'Decoding speed: 33 work a day, +0.33 per 1%': '解序速度：每天33工作量，每1%+0.33',
     'Energy use: 10 a day, 1 less per full 10%': '耗能：每天10，每满10%减1',
-    'Chance to stop a theft: 50%, +1% per 1%': '阻止盗窃的几率：50%，每1%+1%',
-    'Chance to stop a theft: 50% plus Performance': '阻止盗窃的几率：50%加上性能',
+    'Chance to stop a theft: 51%, +1% per 1% (the game shows 1% less than it rolls), sure from 49%': '阻止盗窃的几率：51%，每1%+1%（游戏显示的比实际掷骰少1%），49%起必定阻止',
+    'Chance to stop a theft: 51% plus Performance, up to 100%. The game shows 1% less: it rolls 0-99 against its shown chance + 1, so 49% Performance already stops every theft': '阻止盗窃的几率：51%加上性能，最多100%。游戏显示的少1%：它用0-99的掷骰对比显示几率+1，所以49%性能就能阻止所有盗窃',
     'Contaminants removed a night from a full 6 L jug of near-clean water: 53.75 ml, +1% per 1% Performance (dirty water goes up to 20 times faster). Never past the purity cap that Quality sets':
         '一整壶6升接近纯净的水每晚去除的污染物：53.75毫升，每1%性能+1%（脏水最高可快20倍）。不会超过质量设定的纯度上限',
 

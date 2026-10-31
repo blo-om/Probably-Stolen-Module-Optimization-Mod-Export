@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { ALARM_SURE_STOP, alarmStopChance, defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, SOLVERS, SOLVER_SITES, writeSolver, type SolverKind } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -292,8 +292,8 @@ const MachineInstance = React.memo(forwardRef(({
         const steps: Partial<Record<'Performance' | 'Quality' | 'Efficiency', number[]>> = {};
         for (const stat of ['Performance', 'Quality', 'Efficiency'] as const) {
             const list = stat === 'Performance' && isDesequencer(typeKey) ? desequencerSteps()
-                // Alarm: the stop chance is 50% + Performance and tops out at 100%, so +50% is its one breakpoint
-                : stat === 'Performance' && typeKey.toLowerCase().includes('alarm') ? [50]
+                // Alarm: the stop chance tops out at 100% from +49% (alarmStopChance), its one breakpoint
+                : stat === 'Performance' && typeKey.toLowerCase().includes('alarm') ? [ALARM_SURE_STOP]
                 // Hydroponic, DNA Manipulator, 3D Printer: the picked job's days and harvest steps
                 : (jobSteps(typeKey, machineId, stat) ?? statBreakpoints(typeKey, stat, hasBlast))?.map(b => b.value);
             if (list && list.length > 0) steps[stat] = [...list].sort((a, b) => a - b);
@@ -1210,8 +1210,8 @@ export default function ModuleInventoryUI() {
      *   water     what every Moisture Farm makes a day, by grade, and what it is worth (moistureFarmOutput, the farms sharing the air)
      *   attract   last night's base attractiveness from the save plus the best Mirage Projector's 100 + Quality / 2 + Performance / 4
      *             (projectors do not stack: the game takes the highest)
-     *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance, 50% + Performance up to 100%
-     *             (alarms do not stack either)
+     *   theft     the chance a theft goes through: 100% minus the best Alarm System's stop chance (alarmStopChance). Alarms do not
+     *             stack either: the game uses the first unbroken one it finds, so this is the best case
      *   ingots    a Furnace smelts 1 ingot a day from 2 mats (scrap or ore), a Blast module makes it 2 from 3
      *   power     every machine's energy a day (statUnit Efficiency: the game's rule per machine, AgeWell with its Performance)
      *   wine      an AgeWell holds 6 bottles and ages them 1 day a night, +1 per full 125% Quality; shown is what the modules add
@@ -1259,7 +1259,7 @@ export default function ModuleInventoryUI() {
                 farms++;
             }
             if (mirage) projector = Math.max(projector ?? -Infinity, miragePoints(p, q));
-            if (alarm) stop = Math.max(stop ?? -Infinity, Math.min(100, Math.max(0, 50 + p)));
+            if (alarm) stop = Math.max(stop ?? -Infinity, alarmStopChance(p));
             if (furnace) {
                 const blast = board.some((row: any[]) => row.some(c => c && c !== 'Locked' && c.displayName.includes('(Blast)')));
                 furnaces++;
