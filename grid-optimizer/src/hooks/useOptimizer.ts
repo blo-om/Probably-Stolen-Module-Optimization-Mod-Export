@@ -923,6 +923,19 @@ export function useOptimizer(
         setWarningMsg(null);
     };
 
+    // Back down to the tier the save has (undoes Upgrade): a module on any cell that locks again comes off the board whole
+    const restoreTier = (to: GridTier) => {
+        if (to !== 1 && to !== 2) return;
+        if (to >= tier) return;
+        const locked = initializeBoard(to);
+        const dropped = new Set<string>();
+        boardRef.current.forEach((row, y) => row.forEach((cell, x) => { if (cell && cell !== 'Locked' && locked[y][x] === 'Locked') dropped.add(cell.id); }));
+        const ids = boardRef.current.map(row => row.map(cell => (cell && cell !== 'Locked' && !dropped.has(cell.id) ? cell.id : null)));
+        setTier(to);
+        setBoardSync(initializeBoard(to, ids, inventory));
+        setWarningMsg(null);
+    };
+
     const resetBoard = () => {
         if (isSolving) {
             isSolvingRef.current = false;
@@ -1210,7 +1223,7 @@ export function useOptimizer(
     };
 
     return {
-        tier, setTier, handleTierChange, upgradeTier, targetStats, setTargetStats,
+        tier, setTier, handleTierChange, upgradeTier, restoreTier, targetStats, setTargetStats,
         maximizeStats, setMaximizeStats, ignoreStats, setIgnoreStats,
         statPriority, setStatPriority, board, bestTotals, bestPieceStats,
         isSolving, stopOptimization, warningMsg, setWarningMsg,
