@@ -5,6 +5,7 @@
 //     "v": 2,
 //     "slot": 1,               // saveSlotId of the imported save (null if none was imported)
 //     "save": "save_1",        // that save's file name, for messages only
+//     "at": 1793400000000,     // when it was copied: each Export is new text, so the mod asks again after "Not now"
 //     "machines": [ {
 //       "name": "Inv. > Machine Bay (Expanded) 1 > Furnace 2",
 //       "code": "<solution code>",
@@ -64,5 +65,5 @@ export const encodeModExport = (machines: ModExportMachine[]) => {
     const slotText = localStorage.getItem(SAVE_SLOT_KEY);
     const slot = slotText !== null && slotText !== '' && !isNaN(Number(slotText)) ? Number(slotText) : null;
     const save = localStorage.getItem(SAVE_NAME_KEY);
-    return MOD_EXPORT_PREFIX + toBase64Url(JSON.stringify({ v: 2, slot, save, machines }));
+    return MOD_EXPORT_PREFIX + toBase64Url(JSON.stringify({ v: 2, slot, save, at: Date.now(), machines }));
 };
