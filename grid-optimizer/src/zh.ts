@@ -25,6 +25,8 @@ export const ZH: Record<string, string> = {
     'Glitched Module': '故障模组',
     'Add a machine': '添加机器',
     'Upgrade': '升级',
+    'Restore': '还原',
+    'Back to the tier this machine has in your save (tier {n}): the cells it locks close again, and modules on them go back to storage': '回到这台机器在存档里的等级（{n}级）：多出的格子重新锁上，上面的模组放回仓库',
     'Upgrade the module bay in the optimizer (tier {a} to {b}): the new cells open and every module stays where it is. In the game the machine needs the same upgrade before the mod can import a layout that uses them':
         '在优化器中升级模组槽（{a}级到{b}级）：新格子开放，所有模组留在原位。在游戏里机器也需要同样的升级，模组才能导入用到这些格子的布局',
     // ---- credits for hoydoy's and Razboy20's optimizers

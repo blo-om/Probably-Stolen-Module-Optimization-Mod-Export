@@ -57,6 +57,8 @@ import SaveFileImporter from './components/SaveFileImporter';
 import { t, plural, useLang, setLang, gameName, pathLabel, moduleName } from './i18n';
 
 // The type a card added from the "+" card should start as, picked up by the card when it first shows
+// The tier an imported machine has in the save, for Restore after the optimizer's Upgrade
+const saveTierKey = (machineId: string) => `optimizer_machine_save_tier_${machineId}`;
 const pendingTypeKey = (machineId: string) => `optimizer_machine_pending_type_${machineId}`;
 const MACHINE_TYPES = ['Moisture Farm', 'Furnace', 'Water Purifier', 'Alarm System', 'AgeWell', 'Cryptographic Desequencer', 'Mirage Projector',
     'Hydroponic System', 'DNA Manipulator', '3D Printer', 'Deal Maker', 'Evaporator'];
@@ -241,6 +243,7 @@ const MachineInstance = React.memo(forwardRef(({
         optimizer.setTargetStats(defaultTargetStats(selected));
         setLimitStats({ Performance: false, Quality: false, Efficiency: false });
     };
+    const saveTier = (() => { try { return Number(localStorage.getItem(saveTierKey(machineId))); } catch { return NaN; } })();
     // A machine added by hand is always fully upgraded (the Evaporator's 4x4 bay aside); one saved at a lower tier moves up, modules kept
     useEffect(() => {
         if (!isImportedMachine && (optimizer.tier === 1 || optimizer.tier === 2)) optimizer.upgradeTier();
@@ -578,6 +581,15 @@ const MachineInstance = React.memo(forwardRef(({
                                 style={{ marginRight: 'auto', background: 'rgba(76, 175, 80, 0.12)', border: '1px solid #2e4a35', borderRadius: '6px', color: '#8fd19e',
                                     cursor: currentSolving ? 'not-allowed' : 'pointer', fontSize: '0.75em', padding: '4px 8px', fontWeight: 'bold' }}>
                                 {t('Upgrade')}
+                            </button>
+                        )}
+                        {/* Upgraded here past what the save has: Restore puts the save's tier back */}
+                        {isImportedMachine && optimizer.tier === 3 && (saveTier === 1 || saveTier === 2) && (
+                            <button onClick={() => optimizer.restoreTier(saveTier as GridTier)} disabled={currentSolving}
+                                title={t('Back to the tier this machine has in your save (tier {n}): the cells it locks close again, and modules on them go back to storage', { n: saveTier })}
+                                style={{ marginRight: 'auto', background: 'rgba(255, 152, 0, 0.12)', border: '1px solid #5a4325', borderRadius: '6px', color: '#ffb74d',
+                                    cursor: currentSolving ? 'not-allowed' : 'pointer', fontSize: '0.75em', padding: '4px 8px', fontWeight: 'bold' }}>
+                                {t('Restore')}
                             </button>
                         )}
                         <button
@@ -1463,6 +1475,7 @@ export default function ModuleInventoryUI() {
         });
         newMachines.forEach(m => {
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
+            localStorage.setItem(saveTierKey(m.id), String(m.tier));
             if (m.kind) localStorage.setItem(`optimizer_machine_kind_${m.id}`, m.kind);
         });
 
@@ -1470,7 +1483,7 @@ export default function ModuleInventoryUI() {
             prev.forEach(m => {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
-                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`);
+                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`); localStorage.removeItem(saveTierKey(m.id));
             });
             return newMachines.length > 0
                 ? newMachines.map(m => ({ id: m.id }))
@@ -1848,7 +1861,7 @@ export default function ModuleInventoryUI() {
             } else {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
-                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`);
+                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`); localStorage.removeItem(saveTierKey(m.id));
             }
         });
 
@@ -1889,7 +1902,7 @@ export default function ModuleInventoryUI() {
         });
         localStorage.removeItem(`optimizer_machine_${machineId}`);
         localStorage.removeItem(`optimizer_machine_type_${machineId}`);
-        localStorage.removeItem(`optimizer_machine_locked_${machineId}`); localStorage.removeItem(`optimizer_machine_kind_${machineId}`);
+        localStorage.removeItem(`optimizer_machine_locked_${machineId}`); localStorage.removeItem(`optimizer_machine_kind_${machineId}`); localStorage.removeItem(saveTierKey(machineId));
     }, []);
 
     const handleSolvingChange = useCallback((id: string, solving: boolean) => {
