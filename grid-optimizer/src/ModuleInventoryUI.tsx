@@ -1345,6 +1345,20 @@ export default function ModuleInventoryUI() {
         setStoredIds(prev => (prev.some(sid => onStarted.has(sid)) ? prev.filter(sid => !onStarted.has(sid)) : prev));
         setStoredLayouts(prev => (started.some(id => prev[id]) ? Object.fromEntries(Object.entries(prev).filter(([id]) => !started.includes(id))) : prev));
     }, [solvingStates]);
+    /* Stored modules still on a board. Taking one off by hand, Clear, deleting a machine or importing another save leaves its id behind,
+     * so the button goes by these, not by what was remembered; once every card has its board, the remembered list is cut down to match
+     */
+    const liveStoredIds = useMemo(() => {
+        if (storedIds.length === 0) return storedIds;
+        const used = getUsedItems(null);
+        return storedIds.filter(id => used.has(id));
+    }, [storedIds, inventory, boardVersion, machines, getUsedItems]);
+    useEffect(() => {
+        if (liveStoredIds.length === storedIds.length) return;
+        if (!machines.every(({ id }) => machinesRef.current[id]?.getBoard())) return;
+        setStoredIds(liveStoredIds);
+        if (liveStoredIds.length === 0) setStoredLayouts({});
+    }, [liveStoredIds, storedIds, machines]);
     const [storeNote, setStoreNote] = useState<string | null>(null);
     const idGrid = (board: any[][]): IdGrid => board.map(row => row.map(c => (c === 'Locked' ? 'Locked' : c ? c.id : null)));
     const handleStore = () => {
@@ -1449,7 +1463,7 @@ export default function ModuleInventoryUI() {
                 const { totals, pieceStats } = calculateBoardStats(board, expandedInventory, byId);
                 card.applyUpdate(board, totals, pieceStats, '');
             } else {
-                for (const sid of storedIds) card.remove(sid);
+                for (const sid of liveStoredIds) card.remove(sid);
             }
         }
         setStoredIds([]);
@@ -1458,6 +1472,10 @@ export default function ModuleInventoryUI() {
     };
     const handleImportSave = useCallback((newItems: InventoryItem[], importedMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[], save: string) => {
         setInventory(newItems);
+        // A new save's modules were never stored
+        setStoredIds([]);
+        setStoredLayouts({});
+        setStoreNote(null);
 
         // Each imported machine gets the settings remembered for it in this save (and the remembered card order); a machine new
         // to the save starts with the stats that matter for its type switched on, by what the machine is, not the name the player gave it
@@ -2483,10 +2501,10 @@ export default function ModuleInventoryUI() {
                             </span>
                             <AddModuleMenu onAdd={item => setInventory(prev => [...prev, item])} disabled={isAnySolving} />
                             <button
-                                onClick={storedIds.length > 0 ? handleRetrieve : handleStore}
-                                disabled={isAnySolving || (storedIds.length === 0 && unusedModules.every(item => item.isInfinite))}
-                                title={storedIds.length > 0
-                                    ? t('Take the {n} stored module{s} back out of the machines', { n: storedIds.length, s: plural(storedIds.length) })
+                                onClick={liveStoredIds.length > 0 ? handleRetrieve : handleStore}
+                                disabled={isAnySolving || (liveStoredIds.length === 0 && unusedModules.every(item => item.isInfinite))}
+                                title={liveStoredIds.length > 0
+                                    ? t('Take the {n} stored module{s} back out of the machines', { n: liveStoredIds.length, s: plural(liveStoredIds.length) })
                                     : t("Put unused modules into free machine cells, only where they lower none of that machine's stats (energy included)")}
                                 style={{
                                     background: '#4caf50', border: '1px solid #2e4a35', borderRadius: '6px', color: 'white',
@@ -2494,7 +2512,7 @@ export default function ModuleInventoryUI() {
                                     fontSize: '0.9em', padding: '6px 16px', fontWeight: 'bold'
                                 }}
                             >
-                                {storedIds.length > 0 ? t('↓ Retrieve') : t('↑ Store')}
+                                {liveStoredIds.length > 0 ? t('↓ Retrieve') : t('↑ Store')}
                             </button>
                         </span>
                     </div>
