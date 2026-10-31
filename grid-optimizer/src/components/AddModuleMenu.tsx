@@ -17,6 +17,21 @@ const STATS: { key: StatKey; label: string; color: ModuleColor }[] = [
 const EFFECTS: ItemEffect[] = ['None', 'Premium', 'Inferior', 'Overcharged', 'Negative Feedback', 'Learning Algorithm', 'Degrading', 'Receiver', 'Side Mount', 'Top Mount'];
 const EFFECT_NOTE: Partial<Record<ItemEffect, string>> = { 'Learning Algorithm': 'fully learned', Degrading: 'new' };
 
+/* Effects that never come together on one module (ModuleEffectHelper: incompatibleWithEffects; a module rolls at most two different
+ * effects). The custom module builder only offers pairs the game can make
+ */
+const INCOMPATIBLE: Partial<Record<ItemEffect, ItemEffect[]>> = {
+    Premium: ['Inferior', 'Learning Algorithm'],
+    Inferior: ['Premium', 'Learning Algorithm'],
+    Overcharged: ['Learning Algorithm'],
+    Degrading: ['Learning Algorithm'],
+    'Negative Feedback': ['Learning Algorithm'],
+    'Learning Algorithm': ['Degrading', 'Overcharged', 'Premium', 'Inferior', 'Negative Feedback'],
+};
+const canPair = (a: ItemEffect, b: ItemEffect) => b === 'None' || (a !== 'None' && a !== b && !(INCOMPATIBLE[a] ?? []).includes(b));
+// Degrading starts at twice the module's stats and loses 1% a use; Learning Algorithm starts at 0 and gains 1% a use up to twice them
+const hasValue = (e: ItemEffect) => e === 'Degrading' || e === 'Learning Algorithm';
+
 const maxValue = (template: ModuleTemplate) => {
     const base = getBaseStats(template);
     return Math.floor(Math.max(0, base.Performance, base.Quality, base.Efficiency) * 2);
@@ -44,6 +59,7 @@ const entriesFor = (stat: StatKey): Entry[] => {
 };
 
 const fmt = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+const selectStyle = { background: '#222', color: '#eee', border: '1px solid #444', borderRadius: '4px', padding: '3px 4px', fontSize: '1em' } as const;
 
 export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: InventoryItem) => void; disabled?: boolean }) {
     useLang();
@@ -52,6 +68,25 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
     const [added, setAdded] = useState<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
     const entries = useMemo(() => entriesFor(stat), [stat]);
+    // The custom module: any module of this kind with up to two effects, and the value a Degrading or Learning one has now
+    const templates = useMemo(() => MODULE_TEMPLATES.filter(t => t.group === stat || (t.color === 'Purple' && stat !== 'Efficiency')), [stat]);
+    const [pick, setPick] = useState(0);
+    const [eff1, setEff1] = useState<ItemEffect>('None');
+    const [eff2, setEff2] = useState<ItemEffect>('None');
+    const [valueText, setValueText] = useState('');
+    const custom = templates[Math.min(pick, templates.length - 1)];
+    const valueAt = hasValue(eff1) ? 0 : hasValue(eff2) ? 1 : -1;
+    const customValue = (() => {
+        const v = Number(valueText);
+        return valueText.trim() === '' || !Number.isFinite(v) ? maxValue(custom) : Math.max(0, Math.round(v));
+    })();
+    const customItem = (): InventoryItem => ({
+        id: `${custom.shape}_${custom.color}_added_${Math.random().toString(36).substring(2, 8)}`,
+        shape: custom.shape, color: custom.color, displayName: custom.displayName,
+        effects: [eff1, eff2], effectValues: [valueAt === 0 ? customValue : 0, valueAt === 1 ? customValue : 0], isInfinite: false, isLocked: false,
+    });
+    const customStats = applyInternalEffects(customItem());
+    const pickEff1 = (e: ItemEffect) => { setEff1(e); if (!canPair(e, eff2)) setEff2('None'); };
 
     useEffect(() => {
         if (!open) return;
@@ -133,6 +168,39 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                                 {t(s.label)}
                             </button>
                         ))}
+                    </div>
+                    {/* Build a module: two effects, and Degrading / Learning at the value it has now */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', padding: '8px 10px', borderBottom: '1px solid #333', fontSize: '0.78em' }}>
+                        <span style={{ color: '#aaa', fontWeight: 'bold' }}>{t('Custom:')}</span>
+                        <select value={Math.min(pick, templates.length - 1)} onChange={e => setPick(Number(e.target.value))} style={selectStyle}>
+                            {templates.map((tp, i) => <option key={i} value={i}>{t('{name} · {shape}, {n} cells', { name: moduleName(tp.displayName), shape: tp.shapeType, n: tp.size })}</option>)}
+                        </select>
+                        <span style={{ width: '30px', display: 'flex', justifyContent: 'center', flex: 'none', transform: 'scale(0.55)' }}>
+                            <MiniShape shape={custom.shape} colorHex={COLOR_MAP[custom.color]} />
+                        </span>
+                        <select value={eff1} onChange={e => pickEff1(e.target.value as ItemEffect)} disabled={custom.color === 'Purple'} style={selectStyle} title={t('First effect')}>
+                            {EFFECTS.map(e => <option key={e} value={e}>{t(e)}</option>)}
+                        </select>
+                        <select value={eff2} onChange={e => setEff2(e.target.value as ItemEffect)} disabled={custom.color === 'Purple' || eff1 === 'None'} style={selectStyle} title={t('Second effect')}>
+                            {EFFECTS.filter(e => canPair(eff1, e)).map(e => <option key={e} value={e}>{t(e)}</option>)}
+                        </select>
+                        {valueAt >= 0 && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#9ab' }}
+                                title={t('The value the module shows in the game now. Degrading starts at {max}% and loses 1% a use; Learning Algorithm starts at 0% and gains 1% a use up to {max}%', { max: maxValue(custom) })}>
+                                <input type="number" min={0} value={valueText} placeholder={String(maxValue(custom))} onChange={e => setValueText(e.target.value)}
+                                    style={{ ...selectStyle, width: '58px' }} />%
+                            </label>
+                        )}
+                        <span style={{ flex: 1, minWidth: '8px' }} />
+                        <span style={{ color: '#aaa', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                            {STATS.filter(st => customStats[st.key] !== 0).map(st => (
+                                <span key={st.key} style={{ marginLeft: '6px', color: COLOR_MAP[st.color] }}>{t(st.label)[0]} {fmt(customStats[st.key])}</span>
+                            ))}
+                        </span>
+                        <button onClick={() => { const item = customItem(); onAdd(item); setAdded([moduleName(custom.displayName), ...item.effects.filter(e => e !== 'None').map(e => t(e))].join(' · ')); }}
+                            style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #2e4a35', background: 'rgba(76, 175, 80, 0.15)', color: '#8fd19e', cursor: 'pointer', fontWeight: 'bold' }}>
+                            {t('Add')}
+                        </button>
                     </div>
                     <div style={{ padding: '6px 10px', fontSize: '0.72em', color: '#888', borderBottom: '1px solid #333' }}>
                         {added ? <span style={{ color: '#4caf50' }}>{t('Added {item} to storage', { item: added })}</span> : t('Best {stat} per cell first. Click one to add it to storage', { stat: t(stat) })}
