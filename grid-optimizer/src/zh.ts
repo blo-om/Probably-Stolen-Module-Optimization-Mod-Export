@@ -183,6 +183,9 @@ export const ZH: Record<string, string> = {
     '3 scrap': '3废金属',
     '2 scrap + 1 ore': '2废金属+1矿石',
     '1 scrap + 2 ore': '1废金属+2矿石',
+    '3 ore': '3矿石',
+    'No Blast penalty': '抵消高炉惩罚',
+    ' (Blast: below 100% one stage less, unless flux is used)': '（高炉：低于100%时少一级，除非使用助熔剂）',
 
     // ---- AgeWell
     '+{n} day{s}': '+{n}天',
