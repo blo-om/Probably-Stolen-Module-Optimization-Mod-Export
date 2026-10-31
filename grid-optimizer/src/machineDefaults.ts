@@ -57,11 +57,14 @@ export const defaultMaximizeStats = (ignored: StatFlags): StatFlags => ({
 //   Moisture Farm  - every 50% steps the water it makes up a grade; 49% still makes ghostwater
 //   Water Purifier - cleans water up to a purity cap: 99% (high-quality), 99.9% (pure) from 100%, 100% at 200%
 //   Furnace        - every full 100% raises the ingot one purity stage (negative Quality does nothing). Flux only lifts 0 stages to 1,
-//                    so from 100% it is not consumed. A Blast module takes one stage off, so every step needs 100% more.
+//                    so from 100% it is not consumed. A Blast module takes one stage off, so every step needs 100% more; below 100%
+//                    (and without flux) it leaves the ingot a stage under its base.
 //                    Checked against the game (MachineFurnace day lambda, IngotPurityHelper): stages = Quality / 100 (RNG.ModuloWithCount is
-//                    plain whole division, no chance involved), Blast -1 (never below 0) and 3 inputs for 2 ingots, flux lifts 0 to 1 and is
-//                    used up, advanced flux lifts 0 to 1 and is never used up. Base purity: no ore Low, one ore Fair, two ore High
-//                    (from the last two inputs, ores sort last); each stage is one step up (Very low, Low, Fair, High, Very high, Perfect), capped at Perfect
+//                    plain whole division, no chance involved), Blast -1 (so -1 below 100% without flux) and 3 inputs for 2 ingots, flux
+//                    lifts anything below 1 to 1 and is used up, advanced flux the same and is never used up. Base purity (IngotPurityHelper.
+//                    SetPurityFromInput): 2 x ores / inputs, rounded down, steps above Low - so two inputs: no ore Low, one Fair, two High;
+//                    with Blast's three inputs: one ore or none Low, two Fair, three High. Each stage is one step up (Very low, Low, Fair,
+//                    High, Very high, Perfect), capped at Perfect
 //   AgeWell        - every 125% ages the wine one more day per night (only multiples of 125 matter)
 //   Desequencer    - Performance: 33 + (33 * P) / 100 work a day (MachineProgressHelper); a keycard takes whole days, so only the cut-offs
 //                    where some chipset's card finishes a day sooner matter. Checked against the game: the guide's 90% for Security in 2 days is 91%
@@ -73,16 +76,23 @@ const PURITIES = ['Low Purity', 'Fair Purity', 'High Purity', 'Very High Purity'
 const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
     // Base purity of each recipe, by index into PURITIES
     const recipes: [string, number][] = hasBlast
-        ? [['3 scrap', 0], ['2 scrap + 1 ore', 1], ['1 scrap + 2 ore', 2]]
+        ? [['3 scrap', 0], ['2 scrap + 1 ore', 0], ['1 scrap + 2 ore', 1], ['3 ore', 2]]
         : [['2 scrap', 0], ['1 scrap + 1 ore', 1], ['2 ore', 2]];
     const offset = hasBlast ? 100 : 0;
-    return [1, 2, 3, 4].map(stages => ({
+    // With Blast, below 100% the ingot comes out a stage under its base (unless flux lifts it): 100% only gets it back to the base
+    const blastFloor: StatBreakpoint[] = hasBlast ? [{
+        value: 100,
+        label: t('No Blast penalty'),
+        short: '+0',
+        hint: recipes.map(([recipe, base]) => `${t(recipe)} → ${t(PURITIES[base])}`).join(' · ') + t(' (Blast: below 100% one stage less, unless flux is used)'),
+    }] : [];
+    return [...blastFloor, ...[1, 2, 3, 4].map(stages => ({
         value: stages * 100 + offset,
         label: stages === 1 ? t('+{n} purity, flux free', { n: stages }) : t('+{n} purity', { n: stages }),
         short: `+${stages}`,
         hint: recipes.map(([recipe, base]) => `${t(recipe)} → ${t(PURITIES[Math.min(base + stages, 4)])}`).join(' · ')
             + (hasBlast ? t(' (Blast: first 100% ignored)') : ''),
-    }));
+    }))];
 };
 
 const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] = [
