@@ -1020,7 +1020,9 @@ export default function ModuleInventoryUI() {
     useEffect(() => {
         if (!dragState) return;
 
-        const handleMouseUp = () => {
+        const handleMouseUp = (e: MouseEvent) => {
+            // Only the left button drops: the right one mirrors the module (handleMouseDown)
+            if (e.button !== 0) return;
             const currentDrag = dragRef.current;
             const currentTarget = dragHoverTargetRef.current;
 
@@ -1056,14 +1058,11 @@ export default function ModuleInventoryUI() {
             dragHoverTargetRef.current = null;
         };
 
-        const handleKeyDown = (e: KeyboardEvent) => {
+        // Q/E rotating and F flipping (the right mouse button flips too)
+        const turn = (key: 'q' | 'e' | 'f') => {
             const currentDrag = dragRef.current;
             if (!currentDrag) return;
 
-            const key = e.key.toLowerCase();
-            if (!['q', 'e', 'f'].includes(key)) return;
-
-            // Q/E rotating and F flipping
             let transform = (p: Point) => p;
             let isFlipping = false;
 
@@ -1136,13 +1135,33 @@ export default function ModuleInventoryUI() {
                 dragOffsetY: newDY
             } : null);
         };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const key = e.key.toLowerCase();
+            if (key === 'q' || key === 'e' || key === 'f') turn(key);
+        };
+        // A right click while dragging mirrors the module; its context menu (and a module's lock toggle under the cursor) is held back
+        const handleMouseDown = (e: MouseEvent) => {
+            if (!dragRef.current || e.button !== 2) return;
+            e.preventDefault();
+            e.stopPropagation();
+            turn('f');
+        };
+        const handleContextMenu = (e: MouseEvent) => {
+            if (!dragRef.current) return;
+            e.preventDefault();
+            e.stopPropagation();
+        };
 
         window.addEventListener('mouseup', handleMouseUp);
         window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('mousedown', handleMouseDown, true);
+        window.addEventListener('contextmenu', handleContextMenu, true);
 
         return () => {
             window.removeEventListener('mouseup', handleMouseUp);
             window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('mousedown', handleMouseDown, true);
+            window.removeEventListener('contextmenu', handleContextMenu, true);
         };
     }, [!!dragState]);
 
