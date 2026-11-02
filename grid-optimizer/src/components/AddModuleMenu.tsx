@@ -36,13 +36,18 @@ const maxValue = (template: ModuleTemplate) => {
 };
 
 /* The module types to build from, in the order players know them: the basic and high-tier module of each stat, the two Neural Cores
- * and the node. Each type has its shapes (MODULE_TEMPLATES); Neural Cores and nodes come without effects
+ * and the node. Each type has its shapes (MODULE_TEMPLATES); Neural Cores and nodes come without effects.
+ * The game's shapes, from its sprites (items_module) and PreBuiltItemHelper: a basic module is a square, an L or a T of 4 cells, or
+ * a 3-cell L at 75% of the stats (SetBasicModuleShape); a high-tier one a square, or a P or C of 5 cells at 125% (SetAdvancedModuleShape),
+ * the same for all three colours. The 4-cell L and T high-tier shapes stay known to the site (old codes and saves) but are not offered
  */
+const NOT_IN_GAME = new Set(['L4_High', 'T4_High']);
 type ModuleType = { name: string; color: ModuleColor; shapes: ModuleTemplate[]; effects: boolean };
 const TYPES: ModuleType[] = (() => {
     const types: ModuleType[] = [];
     for (const template of MODULE_TEMPLATES) {
         if (template.group === 'Special' && template.color !== 'Purple') continue;
+        if (NOT_IN_GAME.has(template.shape)) continue;
         let type = types.find(ty => ty.name === template.displayName);
         if (!type) {
             type = { name: template.displayName, color: template.color, shapes: [], effects: template.color !== 'Purple' };
