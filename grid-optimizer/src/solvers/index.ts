@@ -33,6 +33,7 @@ export const SOLVER_SITES: Partial<Record<SolverKind, { author: string; url: str
 };
 export const SOLVER_KEY = 'optimizer_solver';
 export const readSolver = (): SolverKind => {
+    if (sessionSolver) return sessionSolver;
     try {
         const v = localStorage.getItem(SOLVER_KEY);
         return v === 'razboy' || v === 'hoydoy' ? v : 'bloom';
@@ -40,8 +41,27 @@ export const readSolver = (): SolverKind => {
         return 'bloom';
     }
 };
+// The picked solver is shared by the page and the switch in the footer (useSyncExternalStore), and locked while a solve runs: a solve
+// reads it when it starts, and stopping hoydoy's goes by it too
+const solverListeners = new Set<() => void>();
+let sessionSolver: SolverKind | null = null;
+let solverLocked = false;
+const notifySolver = () => solverListeners.forEach(listener => listener());
+export const subscribeSolver = (listener: () => void) => {
+    solverListeners.add(listener);
+    return () => { solverListeners.delete(listener); };
+};
 export const writeSolver = (kind: SolverKind) => {
-    try { localStorage.setItem(SOLVER_KEY, kind); } catch { /* the toggle still works for this page */ }
+    if (solverLocked) return;
+    sessionSolver = kind;
+    try { localStorage.setItem(SOLVER_KEY, kind); } catch { /* the switch still works for this page */ }
+    notifySolver();
+};
+export const isSolverLocked = () => solverLocked;
+export const setSolverLocked = (locked: boolean) => {
+    if (solverLocked === locked) return;
+    solverLocked = locked;
+    notifySolver();
 };
 
 type Update = { board: any[][]; totals: Stats; pieceStats: Map<string, Stats>; code: string };
