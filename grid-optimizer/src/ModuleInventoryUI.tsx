@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { ALARM_SURE_STOP, alarmStopChance, defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
-import { readSolver, runSelectedSolver, SOLVERS, SOLVER_SITES, writeSolver, type SolverKind } from './solvers';
+import { readSolver, runSelectedSolver, setSolverLocked, SOLVER_SITES, subscribeSolver } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
 import type { Stats, GridTier, InventoryItem, ModuleColor, Point } from './types';
 import { COLOR_MAP } from './constants';
@@ -1824,8 +1824,9 @@ export default function ModuleInventoryUI() {
     };
 
     const [copiedAllForMod, setCopiedAllForMod] = useState(false);
-    // Which solver lays the modules out (solvers/index.ts), read when a solve starts
-    const [solverKind, setSolverKind] = useState<SolverKind>(readSolver);
+    // Which solver lays the modules out (solvers/index.ts; picked in the footer), read when a solve starts and locked while one runs
+    const solverKind = useSyncExternalStore(subscribeSolver, readSolver);
+    useEffect(() => { setSolverLocked(isAnySolving); }, [isAnySolving]);
     const handleCopyAllForMod = () => {
         const entries = machines
             .map(m => machinesRef.current[m.id]?.getModExport?.())
@@ -2391,22 +2392,6 @@ export default function ModuleInventoryUI() {
                 >
                     {t('Delete All')}
                 </button>
-                <div role="radiogroup" aria-label={t('Solver')} title={t('Which solver lays the modules out (when a solve starts)')}
-                    style={{ display: 'flex', alignItems: 'stretch', backgroundColor: '#333333', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden', opacity: isAnySolving ? 0.5 : 1 }}>
-                    {SOLVERS.map((s, i) => (
-                        <button key={s.value} role="radio" aria-checked={solverKind === s.value} title={t(s.title)}
-                            disabled={isAnySolving}
-                            onClick={() => { writeSolver(s.value); setSolverKind(s.value); }}
-                            style={{
-                                padding: '10px 14px', border: 'none', borderLeft: i > 0 ? '1px solid #555555' : 'none', borderRadius: 0, fontSize: '0.95em',
-                                backgroundColor: solverKind === s.value ? '#2e4a35' : '#333333',
-                                color: solverKind === s.value ? '#fff' : '#aaa', fontWeight: solverKind === s.value ? 'bold' : 'normal',
-                                cursor: isAnySolving ? 'not-allowed' : 'pointer',
-                            }}>
-                            {s.label}
-                        </button>
-                    ))}
-                </div>
                 <div role="radiogroup" aria-label={t('Language')} title={t('Language')}
                     style={{ display: 'flex', alignItems: 'stretch', backgroundColor: '#333333', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden' }}>
                     {([['en', 'EN'], ['zh', '中文']] as const).map(([code, label], i) => (

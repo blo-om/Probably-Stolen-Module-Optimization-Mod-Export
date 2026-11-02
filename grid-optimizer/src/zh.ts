@@ -24,6 +24,7 @@ export const ZH: Record<string, string> = {
     'Deal Maker': '谈判专家',
     'Glitched Module': '故障模组',
     'Add a machine': '添加机器',
+    'Solver:': '求解器：',
     'Type': '类型',
     'Shape': '形状',
     'Effects (up to two)': '效果（最多两个）',
