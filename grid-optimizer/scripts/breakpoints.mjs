@@ -189,6 +189,13 @@ try {
         const huge = q.find(x => x.short === 'Huge');
         return [`**${j.name}**`, String(base), extra(1), extra(2), extra(3), extra(4), huge ? `all Huge from ${huge.value}%` : ''];
     }));
+    line('Good to know (MachineHydroponic, HydroponicHelper, PlantHarvest):');
+    line();
+    line('- The module bay is **locked while a plant grows**; modules can only be changed between harvests.');
+    line('- Each work point uses nutrients and takes contaminant damage, so more Performance uses more a day but the same per grow; water is used once a day, so a faster grow uses less.');
+    line('- Plant health above 70% keeps the full harvest (higher health gives bigger produce). At 70% or less, Kotton, Dream Cap and Coffee lose part of the harvest, after Quality.');
+    line('- Nutrifruit is all Huge at 100% health, and at 96-99% health from 102% Quality (half Huge below it). Module bonuses (Nutrifruit, Dream Cap, Fillerweed modules) add items after Quality.');
+    line();
 
     // DNA
     const dna = m.machineJobs('DNA Manipulator 1').jobs;
@@ -200,6 +207,12 @@ try {
         const c = Number(j.key);
         return [`**${c}**`, String(workOf(j.steps.Performance)), `${Math.max(5, 95 - 5 * c)}%`, `**${j.steps.Quality[0].value}%**`, ...dayCells(j.steps.Performance, dnaMax)];
     }));
+    line('Good to know (MachineDnaManipulator, PlantGeneticsHelper):');
+    line();
+    line('- Complexity is the seed\'s own (traits changed from the plant\'s innate ones, plus Complex / Simple Genome: +4 / −4 per rank) **plus its heat**. A plain Nutrifruit starts at **8** (Complex Genome 2); a plain Fillerweed counts as 0.');
+    line('- Every operation, success or not, adds heat (2 + the trait\'s complexity), so each further edit on the same seed is slower and harder.');
+    line('- Work and success are fixed when the operation starts; the module bay is locked until it ends.');
+    line();
 
     // 3D Printer
     const prints = m.machineJobs('3D Printer 1').jobs;
@@ -212,15 +225,35 @@ try {
     line('**Quality** sets a printed melee weapon\'s condition: it rolls 20-30 + Quality / 4 (+ the ingot\'s quality bonus).');
     line();
     table(['Quality', ...knife.steps.Quality.map(s => `${s.value}%`)], [['**Condition**', ...knife.steps.Quality.map(s => s.label.replace('+', ' or better'))]]);
+    /* Weapons printed from ingots (Combat Knife, Combat Machete): the ingots' average quality bonus is added to the roll
+     * (MachinePrinter.INGOT_QUALITY_BONUS). A condition is sure once the lowest roll reaches it: 20 + Quality / 4 + bonus >= 25 / 60 / 90
+     */
+    const INGOT_BONUS = [['Very Low', -30], ['Low', -20], ['Fair', 0], ['High', 20], ['Very High', 30], ['Perfect', 100]];
+    const sure = (target, bonus) => { const q = 4 * (target - 20 - bonus); return q <= 0 ? 'always' : `${q}%`; };
+    line('**Combat Knife and Combat Machete** are printed from ingots, whose purity adds to the roll. Quality for a sure condition:');
+    line();
+    table(['Ingot purity', 'Bonus', 'Fair or better', 'Good or better', 'Excellent'], INGOT_BONUS.map(([name, b]) =>
+        [`**${name}**`, b > 0 ? `+${b}` : String(b), sure(25, b), sure(60, b), sure(90, b)]));
+    line('Good to know (MachinePrinter):');
+    line();
+    line('- Gun frames (Nestfire, Ironcraft) make a gun with firepower and style × (1 + (Quality / 4 + the ingot bonus) / 100); printed pistols × (1 + Quality / 4 / 100). No breakpoints there: every % counts.');
+    line('- Gun Parts: the ingot\'s purity sets how many you get: Very Low 2, Low or Fair 3, High or Very High 4, Perfect 5.');
+    line('- Each Melee Batch module prints one more melee weapon per chip run.');
+    line('- The module bay is **locked while printing**.');
+    line();
 
     // Deal Maker
     heading('deal_maker');
     line('No breakpoints: **Quality** adds 1% accept chance on a haggle per 10% (10% to start). **Performance** lowers energy use, like Efficiency.');
     line();
+    line('Good to know (MachineDealMaker, BargainUIManager): you activate it by hand, once per customer, and it uses its energy then. The bonus adds straight to the accept chance: a markup is accepted at 100 − 2 × markup % + faction reputation + the bonus, so every +10% Quality allows +0.5% markup at the same odds. Blackmail is 60% + reputation + the bonus.');
+    line();
 
     // Evaporator
     heading('evaporator');
     line('**Quality** is the share of what evaporates that you keep, up to 100%. **Performance** evaporates more: 300 ml a day, +1% per 1%. With the Solvent Recovery module only alcohol is kept.');
+    line();
+    line('Good to know (MachineEvaporator, Liquid): only water, alcohol and lipobond agent evaporate, taken from the container in proportion to how much of each it holds; everything else stays and gets more concentrated. What is kept goes into the container in the distillate slot (none there, nothing kept).');
     line();
     picture('evaporator', [{ stat: 'Quality', title: 'Quality → share kept', ticks: [{ at: '0%', gives: 'nothing' }, { at: '50%', gives: 'half' }, { at: `${m.EVAPORATOR_QUALITY_CAP}%`, gives: 'all (more does nothing)' }] }], 'Evaporator quality breakpoints');
 
