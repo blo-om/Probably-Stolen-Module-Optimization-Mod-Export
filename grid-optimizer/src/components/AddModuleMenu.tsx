@@ -42,10 +42,51 @@ const maxValue = (template: ModuleTemplate) => {
  * the same for all three colours. The 4-cell L and T high-tier shapes stay known to the site (old codes and saves) but are not offered
  */
 const NOT_IN_GAME = new Set(['L4_High', 'T4_High']);
-type ModuleType = { name: string; color: ModuleColor; shapes: ModuleTemplate[]; effects: boolean };
+/* Machine-specific modules: they only fit one machine and are there for what they do, not their stats (no effects roll on them).
+ * Grouped by machine, each with the game's own effect text (Localization: module_effect_*, item_dna_module_*_effect)
+ */
+// [name, effect, short label on its chip]
+const MACHINE_SPECIFIC: { machine: string; modules: [string, string, string][] }[] = [
+    { machine: 'Alarm System', modules: [['Alarm Transmitter Module', 'Gain +1 reputation per night', 'Transmitter']] },
+    { machine: 'Furnace', modules: [
+        ['Furnace Module (Blast)', '3 materials make 2 ingots a night, one purity stage lower', 'Blast'],
+        ['Furnace Module (Junk Processing)', 'Convert 6 Junk into 4 Scrap Metal', 'Junk Processing'],
+    ] },
+    { machine: 'Hydroponic System', modules: [
+        ['Nutrifruit Hydroponic Module', 'Nutrifruit yield +1', 'Nutrifruit'],
+        ['Dream Cap Neutralizer Hydroponic Module', 'Removes Dream Cap contraband status, makes it food, Dream Cap yield +2', 'Dream Cap Neutralizer'],
+        ['Dream Cap Nightmare Hydroponic Module', 'Farmed Dream Cap will be Nightmare Cap', 'Dream Cap Nightmare'],
+        ['Kotton Auto Loom Hydroponic Module', 'Produce Kotton Fabric instead of Kotton Fiber', 'Kotton Auto Loom'],
+        ['Fillerweed Production Hydroponic Module', 'Fillerweed yield +4, but no seeds', 'Fillerweed Production'],
+        ['Hydroreed Filter Hydroponic Module', 'Hydroreed Filter yield +1', 'Hydroreed Filter'],
+        ['Hydroponic Smuggler Module', 'Removes the contraband status of growing seeds', 'Smuggler'],
+    ] },
+    { machine: 'DNA Manipulator', modules: [
+        ['Genetic Stabilizer Module', 'The target survives extraction', 'Stabilizer'],
+        ['Positive Trait Filter Module', 'Extracts positive traits only', 'Positive Filter'],
+        ['Negative Trait Filter Module', 'Extracts negative traits only', 'Negative Filter'],
+        ['Precision Extraction Module', 'Extracts the scanned trait only', 'Precision Extraction'],
+    ] },
+    { machine: '3D Printer', modules: [
+        ['Metal Printer Module', 'Metal printing (chips that print from ingots)', 'Metal Printing'],
+        ['Computer Numerical Control Module', 'CNC (gun frame and gun part chips)', 'CNC'],
+        ['Melee Batch Module', 'Printed melee weapon output +1', 'Melee Batch'],
+    ] },
+    { machine: 'Evaporator', modules: [['Evaporator Solvent Recovery Module', 'Only alcohol is recovered', 'Solvent Recovery']] },
+];
+// Text colour for the special colours too dark to read on the menu
+const SPECIAL_TEXT: Partial<Record<ModuleColor, string>> = { DarkRed: '#e57373', Grey: '#b0b0b0' };
+const MACHINE_OF = new Map(MACHINE_SPECIFIC.flatMap(g => g.modules.map(([name, effect]) => [name, { machine: g.machine, effect }] as const)));
+
+type ModuleType = { name: string; color: ModuleColor; shapes: ModuleTemplate[]; effects: boolean; machine?: string; effect?: string };
 const TYPES: ModuleType[] = (() => {
     const types: ModuleType[] = [];
     for (const template of MODULE_TEMPLATES) {
+        const special = MACHINE_OF.get(template.displayName);
+        if (special) {
+            types.push({ name: template.displayName, color: template.color, shapes: [template], effects: false, ...special });
+            continue;
+        }
         if (template.group === 'Special' && template.color !== 'Purple') continue;
         if (NOT_IN_GAME.has(template.shape)) continue;
         let type = types.find(ty => ty.name === template.displayName);
@@ -140,10 +181,29 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                     backgroundColor: '#1c1c1e', border: '1px solid #444', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.6)'
                 }}>
                     <Step n={1} title={t('Type')}>
-                        {TYPES.map((ty, i) => (
+                        {TYPES.map((ty, i) => ty.machine ? null : (
                             <button key={ty.name} onClick={() => pickType(i)} style={chip(i === typeIdx, COLOR_MAP[ty.color])}>
                                 <span style={{ color: COLOR_MAP[ty.color] }}>{moduleName(ty.name)}</span>
                             </button>
+                        ))}
+                        {/* Machine-specific modules, a row per machine */}
+                        <div style={{ width: '100%', marginTop: '6px', fontSize: '0.72em', color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Machine-specific')}</div>
+                        {MACHINE_SPECIFIC.map(g => (
+                            <div key={g.machine} style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                <span style={{ flex: '0 0 120px', paddingTop: '6px', fontSize: '0.78em', color: '#999' }}>{t(g.machine)}</span>
+                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {g.modules.map(([name, , short]) => {
+                                        const i = TYPES.findIndex(ty => ty.name === name);
+                                        const ty = TYPES[i];
+                                        const color = SPECIAL_TEXT[ty.color] ?? COLOR_MAP[ty.color];
+                                        return (
+                                            <button key={name} onClick={() => pickType(i)} title={`${moduleName(name)}: ${t(ty.effect!)}`} style={chip(i === typeIdx, color)}>
+                                                <span style={{ color }}>{t(short)}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         ))}
                     </Step>
 
@@ -200,8 +260,9 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                             <MiniShape shape={template.shape} colorHex={COLOR_MAP[template.color]} />
                         </span>
                         <span style={{ flex: 1, minWidth: 0, fontSize: '0.85em' }}>
-                            <span style={{ color: COLOR_MAP[template.color], fontWeight: 'bold' }}>{moduleName(template.displayName)}</span>
+                            <span style={{ color: SPECIAL_TEXT[template.color] ?? COLOR_MAP[template.color], fontWeight: 'bold' }}>{moduleName(template.displayName)}</span>
                             {effects.length > 0 && <span style={{ color: '#9ab' }}> · {effects.map(e => t(e)).join(' · ')}</span>}
+                            {type.machine && <div style={{ color: '#9ab', marginTop: '2px' }}>{t('{machine} only', { machine: t(type.machine) })}: {t(type.effect!)}</div>}
                             <div style={{ fontVariantNumeric: 'tabular-nums', marginTop: '2px' }}>
                                 {STATS.filter(s => stats[s.key] !== 0).length === 0 && <span style={{ color: '#777' }}>{t('No stats of its own')}</span>}
                                 {STATS.filter(s => stats[s.key] !== 0).map(s => (
