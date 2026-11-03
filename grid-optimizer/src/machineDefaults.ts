@@ -514,25 +514,111 @@ const PRINTS: [string, string, number, boolean][] = [
     ['combat_knife', 'Combat Knife', 98, true],
     ['combat_machete', 'Combat Machete', 120, true],
 ];
+/* The seed or chip a machine holds in the save, as a job of its own: a seed's work and harvest from its own traits, so a seed changed
+ * in the DNA Manipulator gets its real steps; a chip's work as the chip says. Encoded in the job key, which the machine's card keeps
+ * like any other pick:
+ *   seed:<plant>:<work>:<harvest>     chip:<work>:<melee 0|1>:<name>
+ */
+// PlantList: each plant's own work and harvest before traits, and the seed item that grows it
+const PLANT_BASES: Record<string, { seed: string; work: number; harvest: number; refruit?: number }> = {
+    fillerweed: { seed: 'fillerweed_seed', work: 11, harvest: 4 },
+    hydroreed: { seed: 'hydroreed_seed', work: 18, harvest: 0 },
+    bloomberry: { seed: 'bloomberry_seed', work: 18, harvest: 8, refruit: 10 },
+    coffee: { seed: 'coffee_bean', work: 21, harvest: 8 },
+    nutrifruit: { seed: 'nutrifruit_seed', work: 23, harvest: 5 },
+    dream_cap: { seed: 'dream_cap_seed', work: 28, harvest: 8 },
+    kotton: { seed: 'kotton_seed', work: 32, harvest: 9 },
+};
+// PlantTraitList: the traits that change growth speed or harvest, percent at rank 1
+const TRAIT_STATS: Record<string, { growth?: number; harvest?: number }> = {
+    fast_grower: { growth: 25 }, slow_grower: { growth: -25 }, bountiful: { harvest: 20 }, sparse: { harvest: -20 },
+    perennial: { growth: -20, harvest: -25 },
+};
+// PlantGeneticsHelper.GetStatMultiplier, in the game's single-precision floats: each trait of rank r adds percent x r^0.75
+const traitMultiplier = (traits: Record<string, number>, stat: 'growth' | 'harvest') => {
+    let mult = 1;
+    for (const [id, rank] of Object.entries(traits)) {
+        const pct = TRAIT_STATS[id]?.[stat];
+        if (!pct || rank <= 0) continue;
+        const ranked = Math.max(-99.99, Math.fround(pct * Math.fround(Math.pow(rank, 0.75))));
+        mult = Math.fround(mult * Math.fround(1 + Math.fround(ranked / 100)));
+    }
+    return Math.max(0.000100016594, mult);
+};
+// Mathf.RoundToInt rounds half to even
+const roundHalfEven = (v: number) => {
+    const f = Math.floor(v);
+    const d = v - f;
+    return d > 0.5 || (d === 0.5 && f % 2 !== 0) ? f + 1 : f;
+};
+
+// The job key for a seed in a Hydroponic System: its traits (trait id -> rank), whether a perennial is regrowing, and the work the game
+// set for its current grow (REQUIRED_PROGRESS) when it is growing. A plain seed gets its plant's usual job
+export const seedJobKey = (seedId: string, traits: Record<string, number>, regrowing: boolean, requiredProgress: number | null): string | null => {
+    const plant = Object.keys(PLANT_BASES).find(k => PLANT_BASES[k].seed === seedId);
+    if (!plant) return null;
+    const base = PLANT_BASES[plant];
+    const baseWork = regrowing ? base.refruit ?? Math.max(1, roundHalfEven(base.work * 50 / 100)) : base.work;
+    const work = requiredProgress ?? Math.max(1, roundHalfEven(Math.fround(baseWork / traitMultiplier(traits, 'growth'))));
+    const harvest = Math.floor(Math.fround(base.harvest * traitMultiplier(traits, 'harvest')) + 0.5);
+    const usual = regrowing && plant === 'bloomberry' ? 'bloomberry_regrowth' : plant;
+    const plain = PLANTS.find(([key]) => key === usual);
+    if (plain && plain[2] === work && plain[3] === harvest) return usual;
+    return `seed:${usual}:${work}:${harvest}`;
+};
+// The job key for a chip in a 3D Printer: its work, whether it prints a melee weapon, and its name. A chip the list knows gets its job
+export const chipJobKey = (work: number, melee: boolean, name: string): string => {
+    const lower = name.toLowerCase();
+    const known = PRINTS.find(([, chip, w, m]) => w === work && m === melee && lower.includes(chip.toLowerCase()));
+    return known ? known[0] : `chip:${work}:${melee ? 1 : 0}:${name}`;
+};
+// The job a seed: or chip: key stands for
+const savedJob = (key: string | null | undefined, hydroponic: boolean): StatJob | null => {
+    if (!key) return null;
+    const parts = key.split(':');
+    if (hydroponic && parts[0] === 'seed' && parts.length === 4) {
+        const plant = PLANTS.find(([k]) => k === parts[1]);
+        const work = Number(parts[2]), harvest = Number(parts[3]);
+        if (!plant || !(work > 0) || !(harvest >= 0)) return null;
+        const label = t('{plant} (your seed)', { plant: t(plant[1]) });
+        return {
+            key, name: t('{plant}: {work} work, {harvest} a harvest', { plant: label, work, harvest }),
+            steps: { Performance: daySteps(work, workSpeed(8, 2), label), Quality: yieldSteps(harvest, label) },
+        };
+    }
+    if (!hydroponic && parts[0] === 'chip' && parts.length >= 4) {
+        const work = Number(parts[1]), melee = parts[2] === '1', name = parts.slice(3).join(':');
+        if (!(work > 0)) return null;
+        const label = t('{chip} (your chip)', { chip: name });
+        return {
+            key, name: t('{chip}: {work} work', { chip: label, work }),
+            steps: { Performance: daySteps(work, workSpeed(24), label), ...(melee ? { Quality: meleeSteps(label) } : {}) },
+        };
+    }
+    return null;
+};
+
 const meleeSteps = (job: string): StatBreakpoint[] => [
     { value: 20, label: t('Fair+'), hint: t('{job}: never Poor (without an ingot quality bonus)', { job: t(job) }) },
     { value: 160, label: t('Good+'), hint: t('{job}: always Good or better (without an ingot quality bonus)', { job: t(job) }) },
     { value: 280, label: t('Excellent'), hint: t('{job}: always Excellent (without an ingot quality bonus)', { job: t(job) }) },
 ];
 
-export const machineJobs = (machineType: string): { label: string; jobs: StatJob[] } | null => {
+// `picked`: the machine's picked job, so a seed or chip read from the save (savedJob) is offered first
+export const machineJobs = (machineType: string, picked?: string | null): { label: string; jobs: StatJob[] } | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     if (name.includes('hydroponic')) {
+        const own = savedJob(picked, true);
         return {
             label: t('Plant'),
-            jobs: PLANTS.map(([key, plant, work, harvest]) => ({
+            jobs: [...(own ? [own] : []), ...PLANTS.map(([key, plant, work, harvest]) => ({
                 key, name: t(plant),
                 steps: {
                     Performance: daySteps(work, workSpeed(8, 2), plant),
                     Quality: [...yieldSteps(harvest, plant), ...(key === 'nutrifruit' ? [{ value: 102, label: t('All Huge'), short: t('Huge'),
                         hint: t('Every Nutrifruit Huge from a plant at 96-99% health (half of them below this)') }] : [])].sort((a, b) => a.value - b.value),
                 },
-            })),
+            }))],
         };
     }
     if (name.includes('dna manipulator')) {
@@ -548,22 +634,23 @@ export const machineJobs = (machineType: string): { label: string; jobs: StatJob
         };
     }
     if (name.includes('3d printer')) {
+        const own = savedJob(picked, false);
         return {
             label: t('Chip'),
-            jobs: PRINTS.map(([key, chip, work, melee]) => ({
+            jobs: [...(own ? [own] : []), ...PRINTS.map(([key, chip, work, melee]) => ({
                 key, name: t(chip),
                 steps: { Performance: daySteps(work, workSpeed(24), chip), ...(melee ? { Quality: meleeSteps(chip) } : {}) },
-            })),
+            }))],
         };
     }
     return null;
 };
 // The steps a machine's stat has with its picked job (the first job when none is picked)
 export const jobSteps = (machineType: string, machineId: string, stat: StatKey3): StatBreakpoint[] | null => {
-    const jobs = machineJobs(machineType);
-    if (!jobs) return null;
     let key: string | null = null;
     try { key = localStorage.getItem(machineJobKey(machineId)); } catch { /* the first job */ }
+    const jobs = machineJobs(machineType, key);
+    if (!jobs) return null;
     const job = jobs.jobs.find(j => j.key === key) ?? jobs.jobs[0];
     return job.steps[stat] ?? null;
 };

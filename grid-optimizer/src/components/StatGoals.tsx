@@ -192,11 +192,13 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
 
     // The job a Hydroponic / DNA Manipulator / 3D Printer works on (machineJobs): a plant, a complexity, a chip. Shared by the machine's
     // cards; its steps are what the targets pick from and what the solve eases to on Auto
-    const jobs = machineJobs(machineType);
     const jobKey = machineJobKey(machineId);
     const [jobPick, setJobPick] = useState<string | null>(() => {
         try { return localStorage.getItem(jobKey); } catch { return null; }
     });
+    // The seed or chip the save had in the machine stays on the list after something else is picked
+    const [savedPick] = useState(jobPick);
+    const jobs = machineJobs(machineType, jobPick?.includes(':') ? jobPick : savedPick);
     const job = jobs ? jobs.jobs.find(j => j.key === jobPick) ?? jobs.jobs[0] : null;
 
     const setTarget = (stat: StatKey, value: number | null) => setTargetStats((prev: any) => ({ ...prev, [stat]: value }));

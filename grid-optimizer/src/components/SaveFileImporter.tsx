@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { SAVE_NAME_KEY, SAVE_SLOT_KEY } from '../modExport';
 import { flushSaveSettings } from '../saveSettings';
-import { STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
+import { chipJobKey, seedJobKey, STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
 import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import { getSaveItemName, readSaveInventory } from '../saveImport';
@@ -11,7 +11,7 @@ import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTie
 
 interface SaveFileImporterProps {
     // `save` is the save's file name, which its remembered machine settings are kept under (see saveSettings.ts)
-    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[], save: string) => void;
+    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier, job?: string }[], save: string) => void;
 }
 
 export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
@@ -119,7 +119,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 });
 
                 const parsedInventory: InventoryItem[] = [];
-                const newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[] = [];
+                const newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier, job?: string }[] = [];
                 const machineContents = new Map<number, { invId: string, modifiedShape: any }[]>();
                 const machineDataMap = new Map<number, any>();
 
@@ -182,6 +182,46 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     if (i === -1) return false;
                     const v = item._values?.[i];
                     return v?.valueEnabled !== false;
+                };
+
+                // A tag's value on a save item: its number, or its string
+                const tagValue = (item: any, key: string) => {
+                    const i = (item._keys || []).indexOf(key);
+                    const v = i === -1 ? undefined : item._values?.[i];
+                    return v && v.valueEnabled !== false ? v : null;
+                };
+                /* The job a machine's contents set (machineDefaults: seedJobKey, chipJobKey). A seed's traits are its PLANT_TRAIT_<id> tags
+                 * (rank); a growing seed has the work the game set for this grow (REQUIRED_PROGRESS), a regrowing perennial
+                 * PERENNIAL_ESTABLISHED_INT. A chip has its work (PROGRESS_ITEM_TARGET_TAG) and what it prints (PROGRESS_ITEM_TARGET_ITEM_ID_TAG)
+                 */
+                const MELEE_PRINTS = ['box_cutter', 'kitchen_knife', 'hatchet', 'kitchen_cleaver', 'combat_knife', 'combat_machete'];
+                const savedJobOf = (machine: any): string | undefined => {
+                    // The growing seed first; otherwise any seed it holds (the ones a harvest gave back)
+                    const children = (machine.childItems || []).map((c: number) => itemMap.get(c)).filter(Boolean)
+                        .sort((a: any, b: any) => Number(Boolean(tagValue(b, 'GROWING_TAG'))) - Number(Boolean(tagValue(a, 'GROWING_TAG'))));
+                    for (const child of children) {
+                        const id: string = child.identifier || '';
+                        if (id.endsWith('_seed') || id === 'coffee_bean') {
+                            const traits: Record<string, number> = {};
+                            (child._keys || []).forEach((k: string) => {
+                                if (!k.startsWith('PLANT_TRAIT_')) return;
+                                const rank = tagValue(child, k)?.valueInt;
+                                if (rank > 0) traits[k.slice('PLANT_TRAIT_'.length).toLowerCase()] = rank;
+                            });
+                            const growing = Boolean(tagValue(child, 'GROWING_TAG'));
+                            const required = growing ? tagValue(child, 'REQUIRED_PROGRESS')?.valueInt ?? null : null;
+                            const regrowing = (tagValue(child, 'PERENNIAL_ESTABLISHED_INT')?.valueInt ?? 0) !== 0;
+                            const key = seedJobKey(id, traits, regrowing, required > 0 ? required : null);
+                            if (key) return key;
+                        }
+                        if (id.startsWith('printer_chip_')) {
+                            const work = tagValue(child, 'PROGRESS_ITEM_TARGET_TAG')?.valueInt;
+                            if (!(work > 0)) continue;
+                            const target = String(tagValue(child, 'PROGRESS_ITEM_TARGET_ITEM_ID_TAG')?.internalValueString ?? '');
+                            return chipJobKey(work, MELEE_PRINTS.includes(target), getSaveItemName(child));
+                        }
+                    }
+                    return undefined;
                 };
 
                 const machineKeywords = ['purifier', 'furnace', 'farm', 'agewell', 'projector', 'desequencer', 'alarm', 'hydroponic system', 'dna manipulator',
@@ -480,7 +520,10 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         }
                     });
 
+                    // What the machine works on in the save: the seed in a Hydroponic System, the chip in a 3D Printer (machineJobs)
+                    const job = parentItem ? savedJobOf(parentItem) : undefined;
                     newMachines.push({
+                        job,
                         id: `m_${Math.random().toString(36).substring(2, 8)}`,
                         boardIds,
                         machineType: dropdownName,

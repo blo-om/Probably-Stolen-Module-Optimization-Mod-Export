@@ -1489,7 +1489,7 @@ export default function ModuleInventoryUI() {
         setStoredLayouts({});
         setStoreNote(null);
     };
-    const handleImportSave = useCallback((newItems: InventoryItem[], importedMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier }[], save: string) => {
+    const handleImportSave = useCallback((newItems: InventoryItem[], importedMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier, job?: string }[], save: string) => {
         setInventory(newItems);
         // A new save's modules were never stored
         setStoredIds([]);
