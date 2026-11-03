@@ -433,7 +433,7 @@ const speedUnit = (speed: (pct: number) => number): StatUnit => ({
  * days, and a harvest is whole items. A card picks the job (per machine, shared by its cards); its stats then step at that job's values
  *   Hydroponic  plants (PlantList: work, harvest): growth 8 + P/25 a day; harvest round(base x (1 + (Q/2)/100)), half up
  *               (HydroponicHelper.GetHarvestCount); Nutrifruit from a plant at 96-99% health is all Huge once Q/2 > 50
- *               (PlantHarvest.SplitByHealth), half Huge below. Genetic traits change a seed's work and harvest, so these are plain seeds
+ *               (PlantHarvest.SplitByHealth), half Huge below. Work and harvest are a plain seed's, its innate traits included (PLANTS)
  *   DNA         an operation at complexity c is 20 + 4c work (PlantGeneticsHelper.GetOperationProgress) at 10 + P/20 a day, and succeeds
  *               at 95 - 5c + Q/2 % (GetSuccessChance), so Q 10 + 10c makes it sure. Complexity is the seed's traits plus heat, which
  *               every operation adds to (AddHeat: 2 + the trait's complexity)
@@ -475,15 +475,26 @@ const yieldSteps = (base: number, job: string): StatBreakpoint[] => {
     return out;
 };
 
+/* A plain seed's work and harvest. PlantList gives each plant's base, and every seed starts with its plant's innate traits
+ * (PlantGeneticsHelper.InitInnateTraits), which scale them: rank r of a trait is percent x r^0.75 (RankedPercent), traits multiply
+ * (GetStatMultiplier). Work = RoundToInt(base / growth speed), half to even (HydroponicHelper.GetRequiredProgress); harvest =
+ * round(base x harvest quantity), half up (GetBaseHarvestQuantity). The innate ones that count: Fast Grower +25% growth speed,
+ * Slow Grower -25%, Bountiful +20% harvest, Perennial -20% speed and -25% harvest
+ *   Fillerweed  11 work, 4 harvest; Fast Grower 2, Bountiful 2      -> 11 / 1.4204 = 7.74 -> 8; 4 x 1.3364 = 5.35 -> 5
+ *   Bloomberry  18, 8; Perennial (regrowth: 10 work)               -> 18 / 0.8 = 22.5 -> 22, regrowth 12.5 -> 12; 8 x 0.75 = 6
+ *   Nutrifruit  23, 5; Fast Grower 2, Bountiful 2                  -> 16.19 -> 16; 6.68 -> 7
+ *   Kotton      32, 9; Slow Grower 1, Bountiful 3                  -> 42.67 -> 43; 13.10 -> 13
+ *   Hydroreed 18, 0, Coffee 21, 8 and Dream Cap 28, 8 have none of them. Traits edited in with the DNA Manipulator change these
+ */
 const PLANTS: [string, string, number, number][] = [
-    ['fillerweed', 'Fillerweed', 11, 4],
+    ['fillerweed', 'Fillerweed', 8, 5],
     ['hydroreed', 'Hydroreed', 18, 0],
-    ['bloomberry', 'Bloomberry', 18, 8],
-    ['bloomberry_regrowth', 'Bloomberry regrowth', 10, 8],
+    ['bloomberry', 'Bloomberry', 22, 6],
+    ['bloomberry_regrowth', 'Bloomberry regrowth', 12, 6],
     ['coffee', 'Coffee', 21, 8],
-    ['nutrifruit', 'Nutrifruit', 23, 5],
+    ['nutrifruit', 'Nutrifruit', 16, 7],
     ['dream_cap', 'Dream Cap', 28, 8],
-    ['kotton', 'Kotton', 32, 9],
+    ['kotton', 'Kotton', 43, 13],
 ];
 const PRINTS: [string, string, number, boolean][] = [
     ['gun_part', 'Gun Parts', 30, false],
