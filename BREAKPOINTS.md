@@ -8,45 +8,40 @@ The total % a machine needs (from all its modules) for each step up. Between ste
 
 **Quality** sets the water grade. **Performance** makes more water: 850 ml a day, +1% per 1% (farms running the same night share the air).
 
-<img src="docs/breakpoints/moisture_farm.svg" alt="Moisture Farm quality breakpoints" width="760">
+<img src="docs/breakpoints/moisture_farm.svg?v=dbe302f2" alt="Moisture Farm quality breakpoints" width="760">
 
 ## <img src="grid-optimizer/public/machines/water_purifier.png" width="32" height="32" alt=""> Water Purifier
 
 **Quality** sets how clean the water can get. **Performance** cleans faster: +1% per 1% (dirty water up to 20 times faster).
 
-<img src="docs/breakpoints/water_purifier.svg" alt="Water Purifier quality breakpoints" width="760">
+<img src="docs/breakpoints/water_purifier.svg?v=631cbaa3" alt="Water Purifier quality breakpoints" width="760">
 
 ## <img src="grid-optimizer/public/machines/furnace.png" width="32" height="32" alt=""> Furnace
 
-**Quality** raises ingot purity one stage per full 100%. **Performance** does nothing. A Blast module takes one stage off.
-Starting purity depends on the ore in the recipe: 2 ore High, 1 ore Fair, none Low (with Blast: 3 ore High, 2 Fair, 1 or none Low).
+**Quality** raises ingot purity one stage per full 100%, up to Perfect. **Performance** does nothing. Purity by recipe and Quality:
 
-<img src="docs/breakpoints/furnace.svg" alt="Furnace quality breakpoints" width="760">
+**Without Blast** (1 ingot from 2 materials)
 
-<details><summary>Purity per recipe</summary>
+| Recipe | 0% | 100% | 200% | 300% | 400% |
+|---|---|---|---|---|---|
+| **2 scrap** | Low | Fair | High | Very High | **Perfect** |
+| **1 scrap + 1 ore** | Fair | High | Very High | **Perfect** | **Perfect** |
+| **2 ore** | High | Very High | **Perfect** | **Perfect** | **Perfect** |
 
-| Quality | Without Blast |
-|---|---|
-| **100%** | 2 scrap → Fair Purity · 1 scrap + 1 ore → High Purity · 2 ore → Very High Purity |
-| **200%** | 2 scrap → High Purity · 1 scrap + 1 ore → Very High Purity · 2 ore → Perfect Purity |
-| **300%** | 2 scrap → Very High Purity · 1 scrap + 1 ore → Perfect Purity · 2 ore → Perfect Purity |
-| **400%** | 2 scrap → Perfect Purity · 1 scrap + 1 ore → Perfect Purity · 2 ore → Perfect Purity |
+**With a Blast module** (2 ingots from 3 materials, one stage less)
 
-| Quality | With Blast |
-|---|---|
-| **100%** | 3 scrap → Low Purity · 2 scrap + 1 ore → Low Purity · 1 scrap + 2 ore → Fair Purity · 3 ore → High Purity (Blast: below 100% one stage less, unless flux is used) |
-| **200%** | 3 scrap → Fair Purity · 2 scrap + 1 ore → Fair Purity · 1 scrap + 2 ore → High Purity · 3 ore → Very High Purity (Blast: first 100% ignored) |
-| **300%** | 3 scrap → High Purity · 2 scrap + 1 ore → High Purity · 1 scrap + 2 ore → Very High Purity · 3 ore → Perfect Purity (Blast: first 100% ignored) |
-| **400%** | 3 scrap → Very High Purity · 2 scrap + 1 ore → Very High Purity · 1 scrap + 2 ore → Perfect Purity · 3 ore → Perfect Purity (Blast: first 100% ignored) |
-| **500%** | 3 scrap → Perfect Purity · 2 scrap + 1 ore → Perfect Purity · 1 scrap + 2 ore → Perfect Purity · 3 ore → Perfect Purity (Blast: first 100% ignored) |
-
-</details>
+| Recipe | 0% | 100% | 200% | 300% | 400% | 500% |
+|---|---|---|---|---|---|---|
+| **3 scrap** | Very Low | Low | Fair | High | Very High | **Perfect** |
+| **2 scrap + 1 ore** | Very Low | Low | Fair | High | Very High | **Perfect** |
+| **1 scrap + 2 ore** | Low | Fair | High | Very High | **Perfect** | **Perfect** |
+| **3 ore** | Fair | High | Very High | **Perfect** | **Perfect** | **Perfect** |
 
 ## <img src="grid-optimizer/public/machines/agewell.png" width="32" height="32" alt=""> AgeWell
 
 **Quality** ages wine extra days each night. **Performance** lowers energy use, like Efficiency.
 
-<img src="docs/breakpoints/agewell.svg" alt="AgeWell quality breakpoints" width="760">
+<img src="docs/breakpoints/agewell.svg?v=f0b39cde" alt="AgeWell quality breakpoints" width="760">
 
 ## <img src="grid-optimizer/public/machines/mirage_projector.png" width="32" height="32" alt=""> Mirage Projector
 
@@ -56,92 +51,99 @@ No breakpoints: attractiveness is **100 points + 1 per 2% Quality + 1 per 4% Per
 
 **Performance** raises the chance to stop a theft. The game shows 50% + Performance, but it rolls one point in your favour, so **49%** already stops every theft. Only one alarm counts.
 
-<img src="docs/breakpoints/alarm.svg" alt="Alarm System performance breakpoints" width="760">
+<img src="docs/breakpoints/alarm.svg?v=cba2c9a1" alt="Alarm System performance breakpoints" width="760">
 
 ## <img src="grid-optimizer/public/machines/desequencer.png" width="32" height="32" alt=""> Cryptographic Desequencer
 
-**Performance** decodes keycards faster (33 work a day, +1% per 1%). Each keycard takes whole days, so only these totals matter. **Quality** does nothing.
+**Performance** decodes faster: 33 work a day, +1 per ~3% Performance. Cells are the Performance % for that many days. **Quality** does nothing.
 
-<img src="docs/breakpoints/desequencer.svg" alt="Desequencer performance breakpoints per keycard" width="760">
+| Keycard | Work | 5d | 4d | 3d | 2d | 1d |
+|---|---|---|---|---|---|---|
+| **Service/Supply** | 75 |  |  | 0% | 16% | 128% |
+| **Engineering/Medical** | 100 |  | 0% | 4% | 52% | 204% |
+| **Security** | 125 |  | 0% | 28% | 91% | 279% |
+| **Command** | 150 | 0% | 16% | 52% | 128% | 355% |
 
 ## <img src="grid-optimizer/public/machines/hydroponic.png" width="32" height="32" alt=""> Hydroponic System
 
-**Performance** grows plants in fewer days (8 work a day, +1 per full 25%). **Quality** adds items to each harvest. Every plant has its own steps; Nutrifruit as an example:
+Plain seeds, their innate traits included (a seed changed in the DNA Manipulator differs; the optimizer reads yours from the save).
 
-<img src="docs/breakpoints/hydroponic.svg" alt="Hydroponic System breakpoints for Nutrifruit" width="760">
+**Growth:** 8 work a day, +1 per full 25% Performance. Cells are the Performance % to grow in that many days.
 
-<details><summary>Every plant (plain seeds, their innate traits included)</summary>
+| Plant | Work | 6d | 5d | 4d | 3d | 2d | 1d |
+|---|---|---|---|---|---|---|---|
+| **Fillerweed** | 8 |  |  |  |  |  | 0% |
+| **Hydroreed** | 18 |  |  |  | 0% | 25% | 250% |
+| **Bloomberry** | 22 |  |  |  | 0% | 75% | 350% |
+| **Bloomberry regrowth** | 12 |  |  |  |  | 0% | 100% |
+| **Coffee** | 21 |  |  |  | 0% | 75% | 325% |
+| **Nutrifruit** | 16 |  |  |  |  | 0% | 200% |
+| **Dream Cap** | 28 |  |  | 0% | 50% | 150% | 500% |
+| **Kotton** | 43 | 0% | 25% | 75% | 175% | 350% | 875% |
 
-| Plant | Performance → days | Quality → extra items |
-|---|---|---|
-| Fillerweed | **0%** 1d | **20%** +1 · **60%** +2 · **100%** +3 · **140%** +4 |
-| Hydroreed | **0%** 3d · **25%** 2d · **250%** 1d | — |
-| Bloomberry | **0%** 3d · **75%** 2d · **350%** 1d | **18%** +1 · **50%** +2 · **84%** +3 · **118%** +4 |
-| Bloomberry regrowth | **0%** 2d · **100%** 1d | **18%** +1 · **50%** +2 · **84%** +3 · **118%** +4 |
-| Coffee | **0%** 3d · **75%** 2d · **325%** 1d | **14%** +1 · **38%** +2 · **64%** +3 · **88%** +4 |
-| Nutrifruit | **0%** 2d · **200%** 1d | **16%** +1 · **44%** +2 · **72%** +3 · **100%** +4 · **102%** Huge |
-| Dream Cap | **0%** 4d · **50%** 3d · **150%** 2d · **500%** 1d | **14%** +1 · **38%** +2 · **64%** +3 · **88%** +4 |
-| Kotton | **0%** 6d · **25%** 5d · **75%** 4d · **175%** 3d · **350%** 2d · **875%** 1d | **8%** +1 · **24%** +2 · **40%** +3 · **54%** +4 |
+**Harvest:** +1% items per 2% Quality, rounded. Cells are the Quality % for each extra item.
 
-</details>
+| Plant | Items | +1 | +2 | +3 | +4 | Note |
+|---|---|---|---|---|---|---|
+| **Fillerweed** | 5 | 20% | 60% | 100% | 140% |  |
+| **Bloomberry** | 6 | 18% | 50% | 84% | 118% |  |
+| **Bloomberry regrowth** | 6 | 18% | 50% | 84% | 118% |  |
+| **Coffee** | 8 | 14% | 38% | 64% | 88% |  |
+| **Nutrifruit** | 7 | 16% | 44% | 72% | 100% | all Huge from 102% |
+| **Dream Cap** | 8 | 14% | 38% | 64% | 88% |  |
+| **Kotton** | 13 | 8% | 24% | 40% | 54% |  |
 
 ## <img src="grid-optimizer/public/machines/dna_manipulator.png" width="32" height="32" alt=""> DNA Manipulator
 
-**Performance** finishes operations in fewer days. **Quality** raises the success chance: 100% at **10 + 10 × complexity**. Complexity 5 as an example:
+**Performance:** 10 work a day, +1 per full 20%. An operation at complexity c needs 20 + 4c work. **Quality:** success is 95 − 5c + Quality / 2 %.
 
-<img src="docs/breakpoints/dna.svg" alt="DNA Manipulator breakpoints for complexity 5" width="760">
-
-<details><summary>Every complexity (0-15)</summary>
-
-| Complexity | Performance → days | Quality for 100% |
-|---|---|---|
-| 0 | **0%** 2d · **200%** 1d | **10%** |
-| 1 | **0%** 3d · **40%** 2d · **280%** 1d | **20%** |
-| 2 | **0%** 3d · **80%** 2d · **360%** 1d | **30%** |
-| 3 | **0%** 4d · **20%** 3d · **120%** 2d · **440%** 1d | **40%** |
-| 4 | **0%** 4d · **40%** 3d · **160%** 2d · **520%** 1d | **50%** |
-| 5 | **0%** 4d · **80%** 3d · **200%** 2d · **600%** 1d | **60%** |
-| 6 | **0%** 5d · **20%** 4d · **100%** 3d · **240%** 2d · **680%** 1d | **70%** |
-| 7 | **0%** 5d · **40%** 4d · **120%** 3d · **280%** 2d · **760%** 1d | **80%** |
-| 8 | **0%** 6d · **20%** 5d · **60%** 4d · **160%** 3d · **320%** 2d · **840%** 1d | **90%** |
-| 9 | **0%** 6d · **40%** 5d · **80%** 4d · **180%** 3d · **360%** 2d · **920%** 1d | **100%** |
-| 10 | **0%** 6d · **40%** 5d · **100%** 4d · **200%** 3d · **400%** 2d · **1000%** 1d | **110%** |
-| 11 | **0%** 7d · **20%** 6d · **60%** 5d · **120%** 4d · **240%** 3d · **440%** 2d · **1080%** 1d | **120%** |
-| 12 | **0%** 7d · **40%** 6d · **80%** 5d · **140%** 4d · **260%** 3d · **480%** 2d · **1160%** 1d | **130%** |
-| 13 | **0%** 8d · **20%** 7d · **40%** 6d · **100%** 5d · **160%** 4d · **280%** 3d · **520%** 2d · **1240%** 1d | **140%** |
-| 14 | **0%** 8d · **20%** 7d · **60%** 6d · **120%** 5d · **180%** 4d · **320%** 3d · **560%** 2d · **1320%** 1d | **150%** |
-| 15 | **0%** 8d · **40%** 7d · **80%** 6d · **120%** 5d · **200%** 4d · **340%** 3d · **600%** 2d · **1400%** 1d | **160%** |
-
-</details>
+| Complexity | Work | Success at 0% | 100% success at | 8d | 7d | 6d | 5d | 4d | 3d | 2d | 1d |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **0** | 20 | 95% | **10%** |  |  |  |  |  |  | 0% | 200% |
+| **1** | 24 | 90% | **20%** |  |  |  |  |  | 0% | 40% | 280% |
+| **2** | 28 | 85% | **30%** |  |  |  |  |  | 0% | 80% | 360% |
+| **3** | 32 | 80% | **40%** |  |  |  |  | 0% | 20% | 120% | 440% |
+| **4** | 36 | 75% | **50%** |  |  |  |  | 0% | 40% | 160% | 520% |
+| **5** | 40 | 70% | **60%** |  |  |  |  | 0% | 80% | 200% | 600% |
+| **6** | 44 | 65% | **70%** |  |  |  | 0% | 20% | 100% | 240% | 680% |
+| **7** | 48 | 60% | **80%** |  |  |  | 0% | 40% | 120% | 280% | 760% |
+| **8** | 52 | 55% | **90%** |  |  | 0% | 20% | 60% | 160% | 320% | 840% |
+| **9** | 56 | 50% | **100%** |  |  | 0% | 40% | 80% | 180% | 360% | 920% |
+| **10** | 60 | 45% | **110%** |  |  | 0% | 40% | 100% | 200% | 400% | 1000% |
+| **11** | 64 | 40% | **120%** |  | 0% | 20% | 60% | 120% | 240% | 440% | 1080% |
+| **12** | 68 | 35% | **130%** |  | 0% | 40% | 80% | 140% | 260% | 480% | 1160% |
+| **13** | 72 | 30% | **140%** | 0% | 20% | 40% | 100% | 160% | 280% | 520% | 1240% |
+| **14** | 76 | 25% | **150%** | 0% | 20% | 60% | 120% | 180% | 320% | 560% | 1320% |
+| **15** | 80 | 20% | **160%** | 0% | 40% | 80% | 120% | 200% | 340% | 600% | 1400% |
 
 ## <img src="grid-optimizer/public/machines/printer.png" width="32" height="32" alt=""> 3D Printer
 
-**Performance** prints in fewer days (24 work a day, +1% per 1%). **Quality** improves printed melee weapons. Combat Knife as an example:
+**Performance:** 24 work a day, +1 per ~4.2% Performance. Chips of 24 work or less (scopes, lasers, suppressor, .22 mags, small parts) take 1 day.
 
-<img src="docs/breakpoints/printer.svg" alt="3D Printer breakpoints for the Combat Knife" width="760">
+| Chip | Work | 5d | 4d | 3d | 2d | 1d |
+|---|---|---|---|---|---|---|
+| **Gun Parts** | 30 |  |  |  | 0% | 25% |
+| **Box Cutter** | 34 |  |  |  | 0% | 42% |
+| **High Cap. .22 Mag.** | 36 |  |  |  | 0% | 50% |
+| **10mm Magazine** | 36 |  |  |  | 0% | 50% |
+| **Ext. .22 Mag.** | 48 |  |  |  | 0% | 100% |
+| **High Cap. 10mm Mag.** | 48 |  |  |  | 0% | 100% |
+| **.22 Pistol** | 50 |  |  | 0% | 5% | 109% |
+| **.22 Pistol x2** | 60 |  |  | 0% | 25% | 150% |
+| **Nestfire Compact Frame** | 60 |  |  | 0% | 25% | 150% |
+| **Ext. 10mm Mag.** | 60 |  |  | 0% | 25% | 150% |
+| **Kitchen Knife** | 64 |  |  | 0% | 34% | 167% |
+| **Ironcraft 10 Frame** | 70 |  |  | 0% | 46% | 192% |
+| **Hatchet** | 75 |  | 0% | 5% | 59% | 213% |
+| **Meat Cleaver** | 82 |  | 0% | 17% | 71% | 242% |
+| **Combat Knife** | 98 | 0% | 5% | 38% | 105% | 309% |
+| **Combat Machete** | 120 | 0% | 25% | 67% | 150% | 400% |
 
-<details><summary>Every chip</summary>
+**Quality** sets a printed melee weapon's condition: it rolls 20-30 + Quality / 4 (+ the ingot's quality bonus).
 
-| Chip | Performance → days |
-|---|---|
-| Gun Parts | **0%** 2d · **25%** 1d |
-| Box Cutter | **0%** 2d · **42%** 1d |
-| High Cap. .22 Mag. | **0%** 2d · **50%** 1d |
-| 10mm Magazine | **0%** 2d · **50%** 1d |
-| Ext. .22 Mag. | **0%** 2d · **100%** 1d |
-| High Cap. 10mm Mag. | **0%** 2d · **100%** 1d |
-| .22 Pistol | **0%** 3d · **5%** 2d · **109%** 1d |
-| .22 Pistol x2 | **0%** 3d · **25%** 2d · **150%** 1d |
-| Nestfire Compact Frame | **0%** 3d · **25%** 2d · **150%** 1d |
-| Ext. 10mm Mag. | **0%** 3d · **25%** 2d · **150%** 1d |
-| Kitchen Knife | **0%** 3d · **34%** 2d · **167%** 1d |
-| Ironcraft 10 Frame | **0%** 3d · **46%** 2d · **192%** 1d |
-| Hatchet | **0%** 4d · **5%** 3d · **59%** 2d · **213%** 1d |
-| Meat Cleaver | **0%** 4d · **17%** 3d · **71%** 2d · **242%** 1d |
-| Combat Knife | **0%** 5d · **5%** 4d · **38%** 3d · **105%** 2d · **309%** 1d |
-| Combat Machete | **0%** 5d · **25%** 4d · **67%** 3d · **150%** 2d · **400%** 1d |
-
-</details>
+| Quality | 20% | 160% | 280% |
+|---|---|---|---|
+| **Condition** | Fair or better | Good or better | Excellent |
 
 ## <img src="grid-optimizer/public/machines/deal_maker.png" width="32" height="32" alt=""> Deal Maker
 
@@ -151,7 +153,7 @@ No breakpoints: **Quality** adds 1% accept chance on a haggle per 10% (10% to st
 
 **Quality** is the share of what evaporates that you keep, up to 100%. **Performance** evaporates more: 300 ml a day, +1% per 1%. With the Solvent Recovery module only alcohol is kept.
 
-<img src="docs/breakpoints/evaporator.svg" alt="Evaporator quality breakpoints" width="760">
+<img src="docs/breakpoints/evaporator.svg?v=c75bac81" alt="Evaporator quality breakpoints" width="760">
 
 ## Energy
 

@@ -3,6 +3,7 @@
 //   npm run breakpoints
 import { createServer } from 'vite';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -53,16 +54,28 @@ try {
         for (const r of rows) line(`| ${r.join(' | ')} |`);
         line();
     };
-    const details = (summary, body) => { line(`<details><summary>${summary}</summary>`); line(); body(); line('</details>'); line(); };
     const pct = v => `${v}%`;
+    // The picture's link carries a hash of its content: GitHub caches images by URL, so a changed picture needs a new one
     const picture = (file, ladders, alt) => {
-        writeFileSync(`${ROOT}${SVG_DIR}/${file}.svg`, ladderSvg(ladders));
-        line(`<img src="${SVG_DIR}/${file}.svg" alt="${esc(alt)}" width="${W}">`);
+        const svg = ladderSvg(ladders);
+        writeFileSync(`${ROOT}${SVG_DIR}/${file}.svg`, svg);
+        const v = createHash('sha1').update(svg).digest('hex').slice(0, 8);
+        line(`<img src="${SVG_DIR}/${file}.svg?v=${v}" alt="${esc(alt)}" width="${W}">`);
         line();
     };
+    /* A job machine's days as a grid: one row per job, one column per number of days, each cell the Performance % that gets the job
+     * done in that many days ("0%" where it already is, empty where it is never that slow). Days from the steps' "Nd" labels
+     */
+    const dayCells = (perf, maxDays) => {
+        const at = new Map(perf.map(s => [Number(s.short.replace(/d$/, '')), s.value]));
+        const slowest = Math.max(...at.keys());
+        return Array.from({ length: maxDays }, (_, i) => maxDays - i).map(d => (d > slowest ? '' : at.has(d) ? `${at.get(d)}%` : ''));
+    };
+    const dayHeads = maxDays => Array.from({ length: maxDays }, (_, i) => `${maxDays - i}d`);
+    const slowestDays = perf => Math.max(...perf.map(s => Number(s.short.replace(/d$/, ''))));
+    // A job's work, from its day steps' hint ("..., 43 needed)")
+    const workOf = perf => Number(/(\d+) needed/.exec(perf[0].hint)?.[1] ?? NaN);
     const fromBreakpoints = (list, start) => [...(start ? [start] : []), ...list.map(b => ({ at: pct(b.value), gives: b.short ?? b.label }))];
-    const daysTicks = list => list.map(s => ({ at: pct(s.value), gives: s.short.replace(/d$/, s.short === '1d' ? ' day' : ' days') }));
-    const steps = list => (list && list.length ? list.map(s => `**${s.value}%** ${s.short ?? s.label}`).join(' · ') : '—');
 
     // Each machine: icon, name, one plain sentence, its ladders
     const MACHINES = [
@@ -104,19 +117,32 @@ try {
 
     // Furnace
     heading('furnace');
-    line('**Quality** raises ingot purity one stage per full 100%. **Performance** does nothing. A Blast module takes one stage off.');
-    line('Starting purity depends on the ore in the recipe: 2 ore High, 1 ore Fair, none Low (with Blast: 3 ore High, 2 Fair, 1 or none Low).');
+    line('**Quality** raises ingot purity one stage per full 100%, up to Perfect. **Performance** does nothing. Purity by recipe and Quality:');
     line();
-    const furnace = m.statBreakpoints('Furnace 1', 'Quality', false);
-    const blast = m.statBreakpoints('Furnace 1', 'Quality', true);
-    picture('furnace', [
-        { stat: 'Quality', title: 'Quality → purity stages added', ticks: [{ at: '0%', gives: 'starting purity' }, ...furnace.map(b => ({ at: pct(b.value), gives: `${b.short} stage${b.short === '+1' ? '' : 's'}` }))] },
-        { stat: 'Quality', title: 'With a Blast module', ticks: [{ at: '0%', gives: '−1 stage' }, ...blast.map(b => ({ at: pct(b.value), gives: b.short === '+0' ? 'starting purity' : `${b.short} stage${b.short === '+1' ? '' : 's'}` }))] },
-    ], 'Furnace quality breakpoints');
-    details('Purity per recipe', () => {
-        table(['Quality', 'Without Blast'], furnace.map(b => [`**${b.value}%**`, b.hint]));
-        table(['Quality', 'With Blast'], blast.map(b => [`**${b.value}%**`, b.hint]));
-    });
+    // Each recipe's purity at each Quality step, read from the steps' hints ("2 ore → Perfect Purity · ..."); 0% is one stage below 100%
+    // without Blast, and one stage below the Blast's own 100% step with it
+    const PURITY = ['Very Low', 'Low', 'Fair', 'High', 'Very High', 'Perfect'];
+    const purityGrid = (blast) => {
+        const bps = m.statBreakpoints('Furnace 1', 'Quality', blast);
+        const byRecipe = new Map();
+        bps.forEach((b, i) => b.hint.replace(/ \(Blast[^)]*\)/g, '').split(' · ').forEach(part => {
+            const [recipe, purity] = part.split(' → ');
+            if (!byRecipe.has(recipe)) byRecipe.set(recipe, []);
+            byRecipe.get(recipe)[i] = purity.replace(' Purity', '');
+        }));
+        const rows = [...byRecipe].map(([recipe, cells]) => {
+            const first = PURITY.indexOf(cells[0]);
+            const start = PURITY[Math.max(0, first - 1)];
+            return [`**${recipe}**`, start, ...cells.map(c => (c === 'Perfect' ? '**Perfect**' : c))];
+        });
+        table(['Recipe', '0%', ...bps.map(b => `${b.value}%`)], rows);
+    };
+    line('**Without Blast** (1 ingot from 2 materials)');
+    line();
+    purityGrid(false);
+    line('**With a Blast module** (2 ingots from 3 materials, one stage less)');
+    line();
+    purityGrid(true);
 
     // AgeWell
     heading('agewell');
@@ -137,50 +163,55 @@ try {
 
     // Desequencer
     heading('desequencer');
-    line('**Performance** decodes keycards faster (33 work a day, +1% per 1%). Each keycard takes whole days, so only these totals matter. **Quality** does nothing.');
+    line('**Performance** decodes faster: 33 work a day, +1 per ~3% Performance. Cells are the Performance % for that many days. **Quality** does nothing.');
     line();
-    picture('desequencer', m.DESEQUENCER_CHIPSETS.map(c => ({
-        stat: 'Performance', title: `${c.name} keycard (${c.work} work) → days`,
-        ticks: m.desequencerDayOptions(c.work).map(o => ({ at: pct(o.value), gives: `${o.days} day${o.days === 1 ? '' : 's'}` })),
-    })), 'Desequencer performance breakpoints per keycard');
+    const deseqMax = Math.max(...m.DESEQUENCER_CHIPSETS.map(c => m.desequencerDayOptions(c.work)[0].days));
+    table(['Keycard', 'Work', ...dayHeads(deseqMax)], m.DESEQUENCER_CHIPSETS.map(c => {
+        const opts = m.desequencerDayOptions(c.work);
+        return [`**${c.name}**`, String(c.work), ...dayCells(opts.map(o => ({ short: `${o.days}d`, value: o.value })), deseqMax)];
+    }));
 
     // Hydroponic
     const hydro = m.machineJobs('Hydroponic System 1').jobs;
     heading('hydroponic');
-    line('**Performance** grows plants in fewer days (8 work a day, +1 per full 25%). **Quality** adds items to each harvest. Every plant has its own steps; Nutrifruit as an example:');
+    line('Plain seeds, their innate traits included (a seed changed in the DNA Manipulator differs; the optimizer reads yours from the save).');
     line();
-    const nutri = hydro.find(j => j.key === 'nutrifruit');
-    picture('hydroponic', [
-        { stat: 'Performance', title: 'Nutrifruit: Performance → days to grow', ticks: daysTicks(nutri.steps.Performance) },
-        { stat: 'Quality', title: 'Nutrifruit: Quality → items a harvest (7 base)', ticks: [{ at: '0%', gives: '7' }, ...nutri.steps.Quality.map(s => ({ at: pct(s.value), gives: s.short === 'Huge' ? 'all Huge' : `${7 + Number(s.short)}` }))] },
-    ], 'Hydroponic System breakpoints for Nutrifruit');
-    details('Every plant (plain seeds, their innate traits included)', () => table(['Plant', 'Performance → days', 'Quality → extra items'],
-        hydro.map(j => [j.name, j.steps.Performance.map(s => `**${s.value}%** ${s.short}`).join(' · '), steps(j.steps.Quality)])));
+    line('**Growth:** 8 work a day, +1 per full 25% Performance. Cells are the Performance % to grow in that many days.');
+    line();
+    const hydroMax = Math.max(...hydro.map(j => slowestDays(j.steps.Performance)));
+    table(['Plant', 'Work', ...dayHeads(hydroMax)], hydro.map(j => [`**${j.name}**`, String(workOf(j.steps.Performance)), ...dayCells(j.steps.Performance, hydroMax)]));
+    line('**Harvest:** +1% items per 2% Quality, rounded. Cells are the Quality % for each extra item.');
+    line();
+    table(['Plant', 'Items', '+1', '+2', '+3', '+4', 'Note'], hydro.filter(j => j.steps.Quality?.length).map(j => {
+        const q = j.steps.Quality;
+        const base = Number(/instead of (\d+)/.exec(q[0].hint)?.[1] ?? NaN);
+        const extra = n => { const s = q.find(x => x.short === `+${n}`); return s ? `${s.value}%` : ''; };
+        const huge = q.find(x => x.short === 'Huge');
+        return [`**${j.name}**`, String(base), extra(1), extra(2), extra(3), extra(4), huge ? `all Huge from ${huge.value}%` : ''];
+    }));
 
     // DNA
     const dna = m.machineJobs('DNA Manipulator 1').jobs;
     heading('dna');
-    line('**Performance** finishes operations in fewer days. **Quality** raises the success chance: 100% at **10 + 10 × complexity**. Complexity 5 as an example:');
+    line('**Performance:** 10 work a day, +1 per full 20%. An operation at complexity c needs 20 + 4c work. **Quality:** success is 95 − 5c + Quality / 2 %.');
     line();
-    const c5 = dna[5];
-    picture('dna', [
-        { stat: 'Performance', title: 'Complexity 5: Performance → days', ticks: daysTicks(c5.steps.Performance) },
-        { stat: 'Quality', title: 'Complexity 5: Quality → success chance', ticks: [{ at: '0%', gives: '70%' }, { at: '30%', gives: '85%' }, { at: pct(c5.steps.Quality[0].value), gives: '100%' }] },
-    ], 'DNA Manipulator breakpoints for complexity 5');
-    details('Every complexity (0-15)', () => table(['Complexity', 'Performance → days', 'Quality for 100%'],
-        dna.map(j => [j.key, j.steps.Performance.map(s => `**${s.value}%** ${s.short}`).join(' · '), `**${j.steps.Quality[0].value}%**`])));
+    const dnaMax = Math.max(...dna.map(j => slowestDays(j.steps.Performance)));
+    table(['Complexity', 'Work', 'Success at 0%', '100% success at', ...dayHeads(dnaMax)], dna.map(j => {
+        const c = Number(j.key);
+        return [`**${c}**`, String(workOf(j.steps.Performance)), `${Math.max(5, 95 - 5 * c)}%`, `**${j.steps.Quality[0].value}%**`, ...dayCells(j.steps.Performance, dnaMax)];
+    }));
 
     // 3D Printer
     const prints = m.machineJobs('3D Printer 1').jobs;
     heading('printer');
-    line('**Performance** prints in fewer days (24 work a day, +1% per 1%). **Quality** improves printed melee weapons. Combat Knife as an example:');
+    line('**Performance:** 24 work a day, +1 per ~4.2% Performance. Chips of 24 work or less (scopes, lasers, suppressor, .22 mags, small parts) take 1 day.');
     line();
+    const printMax = Math.max(...prints.map(j => slowestDays(j.steps.Performance)));
+    table(['Chip', 'Work', ...dayHeads(printMax)], prints.map(j => [`**${j.name}**`, String(workOf(j.steps.Performance)), ...dayCells(j.steps.Performance, printMax)]));
     const knife = prints.find(j => j.key === 'combat_knife');
-    picture('printer', [
-        { stat: 'Performance', title: 'Combat Knife: Performance → days', ticks: daysTicks(knife.steps.Performance) },
-        { stat: 'Quality', title: 'Melee weapons: Quality → condition (without an ingot bonus)', ticks: [{ at: '0%', gives: 'Poor-Fair' }, ...knife.steps.Quality.map(s => ({ at: pct(s.value), gives: s.label.replace('+', ' or better') }))] },
-    ], '3D Printer breakpoints for the Combat Knife');
-    details('Every chip', () => table(['Chip', 'Performance → days'], prints.map(j => [j.name, j.steps.Performance.map(s => `**${s.value}%** ${s.short}`).join(' · ')])));
+    line('**Quality** sets a printed melee weapon\'s condition: it rolls 20-30 + Quality / 4 (+ the ingot\'s quality bonus).');
+    line();
+    table(['Quality', ...knife.steps.Quality.map(s => `${s.value}%`)], [['**Condition**', ...knife.steps.Quality.map(s => s.label.replace('+', ' or better'))]]);
 
     // Deal Maker
     heading('deal_maker');
