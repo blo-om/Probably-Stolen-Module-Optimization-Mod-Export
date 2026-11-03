@@ -73,7 +73,8 @@ try {
     ];
     const icon = (file, size) => `<img src="grid-optimizer/public/machines/${file}" width="${size}" height="${size}" alt="">`;
     // Plain markdown headings: GitHub gives them their anchors (the name, lowercased, spaces to dashes); ids set by hand are dropped
-    const slug = name => name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-');
+    // The icon before the name leaves a leading dash: "## <img> Moisture Farm" -> #-moisture-farm
+    const slug = name => '-' + name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-');
     const heading = (id) => {
         const [, name, file] = MACHINES.find(([k]) => k === id);
         line(`## ${icon(file, 32)} ${name}`);
