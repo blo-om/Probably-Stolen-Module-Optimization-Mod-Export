@@ -224,6 +224,23 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     return undefined;
                 };
 
+                /* Loot in a supply crate that is still locked is not the player's yet: the game fills a crate the moment it appears and may
+                 * re-roll it when it is unlocked (LockHelper: the crate has LOCKED_CONTAINER_TAG with LOCK_STATUS true, what it holds
+                 * ITEM_BEHIND_LOCK_TAG). Its modules stay out of the inventory
+                 */
+                const lockedCrate = (item: any) => {
+                    const i = (item._keys || []).indexOf('LOCK_STATUS');
+                    return tagOn(item, 'LOCKED_CONTAINER_TAG') && i !== -1 && item._values?.[i]?.valueBool === true;
+                };
+                const behindLock = (item: any) => {
+                    if (tagOn(item, 'ITEM_BEHIND_LOCK_TAG')) return true;
+                    for (let p = parentMap.get(item.uuid), depth = 0; p !== undefined && depth < 32; p = parentMap.get(p), depth++) {
+                        const holder = itemMap.get(p);
+                        if (holder && lockedCrate(holder)) return true;
+                    }
+                    return false;
+                };
+
                 const machineKeywords = ['purifier', 'furnace', 'farm', 'agewell', 'projector', 'desequencer', 'alarm', 'hydroponic system', 'dna manipulator',
                     '3d printer', 'deal maker', 'evaporator'];
 
@@ -263,6 +280,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     const parentOfItem = parentMap.get(item.uuid);
                     const stuck = parentOfItem !== undefined && machineContents.has(parentOfItem) && tagOn(item, 'MODULE_STUCK_TAG');
                     if (!isModule && !stuck) return;
+                    if (behindLock(item)) return;
 
                     let color: ModuleColor = 'White';
                     let isHighTier = nameLower.includes('overclock') || nameLower.includes('refinement') || nameLower.includes('eco') || nameLower.includes('streamlining') || nameLower.includes('uncapped');
