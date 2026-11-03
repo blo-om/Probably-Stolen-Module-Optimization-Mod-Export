@@ -11,6 +11,10 @@ A fork of [hoydoy/probably-stolen-module-optimization](https://github.com/hoydoy
 - **Smarter targets.** A target (Tar %) is a hard minimum that outranks card order. A machine whose stats are all targets reaches them with the weakest modules that suffice, leaving strong modules for machines that maximize, and a clean-up pass swaps out any module a weaker same-shaped one can replace.
 - **Layout.** Machine cards show the machine's icon and short name in the header, stat cards toggle on/off with a click, and the page toolbar sits at the top.
 
+## Machine breakpoints
+
+**[BREAKPOINTS.md](BREAKPOINTS.md)**: every machine's breakpoints in one chart. It covers water grades, purity caps, ingot stages, aging days, keycard and growing days per plant or chip, harvest steps, melee condition and energy steps. It is generated from the optimizer's own rules (`npm run breakpoints` in `grid-optimizer`), so it always matches what the solver aims for.
+
 ## Credits
 
 - **[hoydoy](https://github.com/hoydoy/probably-stolen-module-optimization)** made the original optimizer and site this fork starts from.
