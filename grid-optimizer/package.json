@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "breakpoints": "node scripts/breakpoints.mjs"
+    "breakpoints": "node scripts/breakpoints.mjs",
+    "abtest": "node scripts/abtest.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
