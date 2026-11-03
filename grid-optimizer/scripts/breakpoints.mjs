@@ -10,14 +10,15 @@ const SVG_DIR = 'docs/breakpoints';
 mkdirSync(ROOT + SVG_DIR, { recursive: true });
 
 // ---- ladder pictures: a stat's breakpoints as ticks on a line, the total % above each tick and what it gives below.
-// Ticks are evenly spaced (in order, not to scale). Their own light card, so they read on GitHub's light and dark themes alike
-const COLORS = { Performance: '#d64545', Quality: '#c99a06', Efficiency: '#3f9b4a', Work: '#4b7bd1' };
+// Ticks are evenly spaced (in order, not to scale). A dark card (GitHub's dark palette), like the site
+const COLORS = { Performance: '#f85149', Quality: '#e3b341', Efficiency: '#3fb950', Work: '#58a6ff' };
+const BG = '#161b22', EDGE = '#30363d', TEXT = '#e6edf3', MUTED = '#8b949e';
 const W = 760, PAD = 28, ROW = 96;
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const ladderSvg = (ladders) => {
     const h = ladders.length * ROW + 16;
     const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">`,
-        `<rect width="${W}" height="${h}" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>`];
+        `<rect width="${W}" height="${h}" rx="10" fill="${BG}" stroke="${EDGE}"/>`];
     ladders.forEach((l, i) => {
         const top = 8 + i * ROW;
         const color = COLORS[l.stat] ?? COLORS.Work;
@@ -25,16 +26,16 @@ const ladderSvg = (ladders) => {
         const x0 = PAD + 10, x1 = W - PAD - 10;
         const n = l.ticks.length;
         const xs = l.ticks.map((_, k) => (n === 1 ? (x0 + x1) / 2 : x0 + ((x1 - x0) * k) / (n - 1)));
-        parts.push(`<text x="${PAD}" y="${top + 20}" font-size="14" font-weight="600" fill="#24292f">${esc(l.title)}</text>`);
-        parts.push(`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="#d0d7de" stroke-width="3" stroke-linecap="round"/>`);
-        if (n > 1) parts.push(`<line x1="${x0}" y1="${y}" x2="${xs[n - 1]}" y2="${y}" stroke="${color}" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>`);
+        parts.push(`<text x="${PAD}" y="${top + 20}" font-size="14" font-weight="600" fill="${TEXT}">${esc(l.title)}</text>`);
+        parts.push(`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${EDGE}" stroke-width="3" stroke-linecap="round"/>`);
+        if (n > 1) parts.push(`<line x1="${x0}" y1="${y}" x2="${xs[n - 1]}" y2="${y}" stroke="${color}" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round"/>`);
         l.ticks.forEach((t, k) => {
             const last = k === n - 1;
             const anchor = n > 1 && k === 0 ? 'start' : n > 1 && last ? 'end' : 'middle';
             const tx = anchor === 'start' ? xs[k] - 6 : anchor === 'end' ? xs[k] + 6 : xs[k];
-            parts.push(`<circle cx="${xs[k]}" cy="${y}" r="${last ? 7 : 5.5}" fill="${color}" stroke="#ffffff" stroke-width="2"/>`);
-            parts.push(`<text x="${tx}" y="${y - 13}" font-size="12" text-anchor="${anchor}" fill="#57606a">${esc(t.at)}</text>`);
-            parts.push(`<text x="${tx}" y="${y + 24}" font-size="13" text-anchor="${anchor}" fill="#24292f"${last ? ' font-weight="600"' : ''}>${esc(t.gives)}</text>`);
+            parts.push(`<circle cx="${xs[k]}" cy="${y}" r="${last ? 7 : 5.5}" fill="${color}" stroke="${BG}" stroke-width="2"/>`);
+            parts.push(`<text x="${tx}" y="${y - 13}" font-size="12" text-anchor="${anchor}" fill="${MUTED}">${esc(t.at)}</text>`);
+            parts.push(`<text x="${tx}" y="${y + 24}" font-size="13" text-anchor="${anchor}" fill="${TEXT}"${last ? ' font-weight="600"' : ''}>${esc(t.gives)}</text>`);
         });
     });
     parts.push('</svg>');
@@ -83,8 +84,7 @@ try {
 
     line('# Machine breakpoints');
     line();
-    line('A breakpoint is the **total %** (what a machine\'s stat card shows, from all its modules) where the machine gets better at something.');
-    line('Between two breakpoints, more % does nothing. Ticks are in order, not to scale.');
+    line('The total % a machine needs (from all its modules) for each step up. Between steps, more % does nothing.');
     line();
     line(MACHINES.map(([, name, file]) => `<a href="#${slug(name)}" title="${name}">${icon(file, 40)}</a>`).join(' '));
     line();

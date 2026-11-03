@@ -1,33 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="208" viewBox="0 0 760 208" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-<rect width="760" height="208" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="28" y="28" font-size="14" font-weight="600" fill="#24292f">Nutrifruit: Performance → days to grow</text>
-<line x1="38" y1="62" x2="722" y2="62" stroke="#d0d7de" stroke-width="3" stroke-linecap="round"/>
-<line x1="38" y1="62" x2="722" y2="62" stroke="#d64545" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-<circle cx="38" cy="62" r="5.5" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="32" y="49" font-size="12" text-anchor="start" fill="#57606a">0%</text>
-<text x="32" y="86" font-size="13" text-anchor="start" fill="#24292f">2 days</text>
-<circle cx="722" cy="62" r="7" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="728" y="49" font-size="12" text-anchor="end" fill="#57606a">200%</text>
-<text x="728" y="86" font-size="13" text-anchor="end" fill="#24292f" font-weight="600">1 day</text>
-<text x="28" y="124" font-size="14" font-weight="600" fill="#24292f">Nutrifruit: Quality → items a harvest (7 base)</text>
-<line x1="38" y1="158" x2="722" y2="158" stroke="#d0d7de" stroke-width="3" stroke-linecap="round"/>
-<line x1="38" y1="158" x2="722" y2="158" stroke="#c99a06" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-<circle cx="38" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="32" y="145" font-size="12" text-anchor="start" fill="#57606a">0%</text>
-<text x="32" y="182" font-size="13" text-anchor="start" fill="#24292f">7</text>
-<circle cx="174.8" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="174.8" y="145" font-size="12" text-anchor="middle" fill="#57606a">16%</text>
-<text x="174.8" y="182" font-size="13" text-anchor="middle" fill="#24292f">8</text>
-<circle cx="311.6" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="311.6" y="145" font-size="12" text-anchor="middle" fill="#57606a">44%</text>
-<text x="311.6" y="182" font-size="13" text-anchor="middle" fill="#24292f">9</text>
-<circle cx="448.4" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="448.4" y="145" font-size="12" text-anchor="middle" fill="#57606a">72%</text>
-<text x="448.4" y="182" font-size="13" text-anchor="middle" fill="#24292f">10</text>
-<circle cx="585.2" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="585.2" y="145" font-size="12" text-anchor="middle" fill="#57606a">100%</text>
-<text x="585.2" y="182" font-size="13" text-anchor="middle" fill="#24292f">11</text>
-<circle cx="722" cy="158" r="7" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="728" y="145" font-size="12" text-anchor="end" fill="#57606a">102%</text>
-<text x="728" y="182" font-size="13" text-anchor="end" fill="#24292f" font-weight="600">all Huge</text>
+<rect width="760" height="208" rx="10" fill="#161b22" stroke="#30363d"/>
+<text x="28" y="28" font-size="14" font-weight="600" fill="#e6edf3">Nutrifruit: Performance → days to grow</text>
+<line x1="38" y1="62" x2="722" y2="62" stroke="#30363d" stroke-width="3" stroke-linecap="round"/>
+<line x1="38" y1="62" x2="722" y2="62" stroke="#f85149" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round"/>
+<circle cx="38" cy="62" r="5.5" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="32" y="49" font-size="12" text-anchor="start" fill="#8b949e">0%</text>
+<text x="32" y="86" font-size="13" text-anchor="start" fill="#e6edf3">2 days</text>
+<circle cx="722" cy="62" r="7" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="728" y="49" font-size="12" text-anchor="end" fill="#8b949e">200%</text>
+<text x="728" y="86" font-size="13" text-anchor="end" fill="#e6edf3" font-weight="600">1 day</text>
+<text x="28" y="124" font-size="14" font-weight="600" fill="#e6edf3">Nutrifruit: Quality → items a harvest (7 base)</text>
+<line x1="38" y1="158" x2="722" y2="158" stroke="#30363d" stroke-width="3" stroke-linecap="round"/>
+<line x1="38" y1="158" x2="722" y2="158" stroke="#e3b341" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round"/>
+<circle cx="38" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="32" y="145" font-size="12" text-anchor="start" fill="#8b949e">0%</text>
+<text x="32" y="182" font-size="13" text-anchor="start" fill="#e6edf3">7</text>
+<circle cx="174.8" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="174.8" y="145" font-size="12" text-anchor="middle" fill="#8b949e">16%</text>
+<text x="174.8" y="182" font-size="13" text-anchor="middle" fill="#e6edf3">8</text>
+<circle cx="311.6" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="311.6" y="145" font-size="12" text-anchor="middle" fill="#8b949e">44%</text>
+<text x="311.6" y="182" font-size="13" text-anchor="middle" fill="#e6edf3">9</text>
+<circle cx="448.4" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="448.4" y="145" font-size="12" text-anchor="middle" fill="#8b949e">72%</text>
+<text x="448.4" y="182" font-size="13" text-anchor="middle" fill="#e6edf3">10</text>
+<circle cx="585.2" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="585.2" y="145" font-size="12" text-anchor="middle" fill="#8b949e">100%</text>
+<text x="585.2" y="182" font-size="13" text-anchor="middle" fill="#e6edf3">11</text>
+<circle cx="722" cy="158" r="7" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="728" y="145" font-size="12" text-anchor="end" fill="#8b949e">102%</text>
+<text x="728" y="182" font-size="13" text-anchor="end" fill="#e6edf3" font-weight="600">all Huge</text>
 </svg>

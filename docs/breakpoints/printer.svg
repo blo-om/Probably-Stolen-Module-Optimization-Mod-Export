@@ -1,36 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="208" viewBox="0 0 760 208" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-<rect width="760" height="208" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="28" y="28" font-size="14" font-weight="600" fill="#24292f">Combat Knife: Performance → days</text>
-<line x1="38" y1="62" x2="722" y2="62" stroke="#d0d7de" stroke-width="3" stroke-linecap="round"/>
-<line x1="38" y1="62" x2="722" y2="62" stroke="#d64545" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-<circle cx="38" cy="62" r="5.5" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="32" y="49" font-size="12" text-anchor="start" fill="#57606a">0%</text>
-<text x="32" y="86" font-size="13" text-anchor="start" fill="#24292f">5 days</text>
-<circle cx="209" cy="62" r="5.5" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="209" y="49" font-size="12" text-anchor="middle" fill="#57606a">5%</text>
-<text x="209" y="86" font-size="13" text-anchor="middle" fill="#24292f">4 days</text>
-<circle cx="380" cy="62" r="5.5" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="380" y="49" font-size="12" text-anchor="middle" fill="#57606a">38%</text>
-<text x="380" y="86" font-size="13" text-anchor="middle" fill="#24292f">3 days</text>
-<circle cx="551" cy="62" r="5.5" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="551" y="49" font-size="12" text-anchor="middle" fill="#57606a">105%</text>
-<text x="551" y="86" font-size="13" text-anchor="middle" fill="#24292f">2 days</text>
-<circle cx="722" cy="62" r="7" fill="#d64545" stroke="#ffffff" stroke-width="2"/>
-<text x="728" y="49" font-size="12" text-anchor="end" fill="#57606a">309%</text>
-<text x="728" y="86" font-size="13" text-anchor="end" fill="#24292f" font-weight="600">1 day</text>
-<text x="28" y="124" font-size="14" font-weight="600" fill="#24292f">Melee weapons: Quality → condition (without an ingot bonus)</text>
-<line x1="38" y1="158" x2="722" y2="158" stroke="#d0d7de" stroke-width="3" stroke-linecap="round"/>
-<line x1="38" y1="158" x2="722" y2="158" stroke="#c99a06" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-<circle cx="38" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="32" y="145" font-size="12" text-anchor="start" fill="#57606a">0%</text>
-<text x="32" y="182" font-size="13" text-anchor="start" fill="#24292f">Poor-Fair</text>
-<circle cx="266" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="266" y="145" font-size="12" text-anchor="middle" fill="#57606a">20%</text>
-<text x="266" y="182" font-size="13" text-anchor="middle" fill="#24292f">Fair or better</text>
-<circle cx="494" cy="158" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="494" y="145" font-size="12" text-anchor="middle" fill="#57606a">160%</text>
-<text x="494" y="182" font-size="13" text-anchor="middle" fill="#24292f">Good or better</text>
-<circle cx="722" cy="158" r="7" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="728" y="145" font-size="12" text-anchor="end" fill="#57606a">280%</text>
-<text x="728" y="182" font-size="13" text-anchor="end" fill="#24292f" font-weight="600">Excellent</text>
+<rect width="760" height="208" rx="10" fill="#161b22" stroke="#30363d"/>
+<text x="28" y="28" font-size="14" font-weight="600" fill="#e6edf3">Combat Knife: Performance → days</text>
+<line x1="38" y1="62" x2="722" y2="62" stroke="#30363d" stroke-width="3" stroke-linecap="round"/>
+<line x1="38" y1="62" x2="722" y2="62" stroke="#f85149" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round"/>
+<circle cx="38" cy="62" r="5.5" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="32" y="49" font-size="12" text-anchor="start" fill="#8b949e">0%</text>
+<text x="32" y="86" font-size="13" text-anchor="start" fill="#e6edf3">5 days</text>
+<circle cx="209" cy="62" r="5.5" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="209" y="49" font-size="12" text-anchor="middle" fill="#8b949e">5%</text>
+<text x="209" y="86" font-size="13" text-anchor="middle" fill="#e6edf3">4 days</text>
+<circle cx="380" cy="62" r="5.5" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="380" y="49" font-size="12" text-anchor="middle" fill="#8b949e">38%</text>
+<text x="380" y="86" font-size="13" text-anchor="middle" fill="#e6edf3">3 days</text>
+<circle cx="551" cy="62" r="5.5" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="551" y="49" font-size="12" text-anchor="middle" fill="#8b949e">105%</text>
+<text x="551" y="86" font-size="13" text-anchor="middle" fill="#e6edf3">2 days</text>
+<circle cx="722" cy="62" r="7" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+<text x="728" y="49" font-size="12" text-anchor="end" fill="#8b949e">309%</text>
+<text x="728" y="86" font-size="13" text-anchor="end" fill="#e6edf3" font-weight="600">1 day</text>
+<text x="28" y="124" font-size="14" font-weight="600" fill="#e6edf3">Melee weapons: Quality → condition (without an ingot bonus)</text>
+<line x1="38" y1="158" x2="722" y2="158" stroke="#30363d" stroke-width="3" stroke-linecap="round"/>
+<line x1="38" y1="158" x2="722" y2="158" stroke="#e3b341" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round"/>
+<circle cx="38" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="32" y="145" font-size="12" text-anchor="start" fill="#8b949e">0%</text>
+<text x="32" y="182" font-size="13" text-anchor="start" fill="#e6edf3">Poor-Fair</text>
+<circle cx="266" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="266" y="145" font-size="12" text-anchor="middle" fill="#8b949e">20%</text>
+<text x="266" y="182" font-size="13" text-anchor="middle" fill="#e6edf3">Fair or better</text>
+<circle cx="494" cy="158" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="494" y="145" font-size="12" text-anchor="middle" fill="#8b949e">160%</text>
+<text x="494" y="182" font-size="13" text-anchor="middle" fill="#e6edf3">Good or better</text>
+<circle cx="722" cy="158" r="7" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="728" y="145" font-size="12" text-anchor="end" fill="#8b949e">280%</text>
+<text x="728" y="182" font-size="13" text-anchor="end" fill="#e6edf3" font-weight="600">Excellent</text>
 </svg>
