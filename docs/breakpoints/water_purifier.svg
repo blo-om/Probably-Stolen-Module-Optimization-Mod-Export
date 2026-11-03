@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="112" viewBox="0 0 760 112" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-<rect width="760" height="112" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="28" y="28" font-size="14" font-weight="600" fill="#24292f">Quality → cleanest it gets</text>
-<line x1="38" y1="62" x2="722" y2="62" stroke="#d0d7de" stroke-width="3" stroke-linecap="round"/>
-<line x1="38" y1="62" x2="722" y2="62" stroke="#c99a06" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-<circle cx="38" cy="62" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="32" y="49" font-size="12" text-anchor="start" fill="#57606a">0%</text>
-<text x="32" y="86" font-size="13" text-anchor="start" fill="#24292f">99% (high-quality)</text>
-<circle cx="380" cy="62" r="5.5" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="380" y="49" font-size="12" text-anchor="middle" fill="#57606a">100%</text>
-<text x="380" y="86" font-size="13" text-anchor="middle" fill="#24292f">99.9% (pure)</text>
-<circle cx="722" cy="62" r="7" fill="#c99a06" stroke="#ffffff" stroke-width="2"/>
-<text x="728" y="49" font-size="12" text-anchor="end" fill="#57606a">200%</text>
-<text x="728" y="86" font-size="13" text-anchor="end" fill="#24292f" font-weight="600">100%</text>
+<rect width="760" height="112" rx="10" fill="#161b22" stroke="#30363d"/>
+<text x="28" y="28" font-size="14" font-weight="600" fill="#e6edf3">Quality → cleanest it gets</text>
+<line x1="38" y1="62" x2="722" y2="62" stroke="#30363d" stroke-width="3" stroke-linecap="round"/>
+<line x1="38" y1="62" x2="722" y2="62" stroke="#e3b341" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round"/>
+<circle cx="38" cy="62" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="32" y="49" font-size="12" text-anchor="start" fill="#8b949e">0%</text>
+<text x="32" y="86" font-size="13" text-anchor="start" fill="#e6edf3">99% (high-quality)</text>
+<circle cx="380" cy="62" r="5.5" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="380" y="49" font-size="12" text-anchor="middle" fill="#8b949e">100%</text>
+<text x="380" y="86" font-size="13" text-anchor="middle" fill="#e6edf3">99.9% (pure)</text>
+<circle cx="722" cy="62" r="7" fill="#e3b341" stroke="#161b22" stroke-width="2"/>
+<text x="728" y="49" font-size="12" text-anchor="end" fill="#8b949e">200%</text>
+<text x="728" y="86" font-size="13" text-anchor="end" fill="#e6edf3" font-weight="600">100%</text>
 </svg>
