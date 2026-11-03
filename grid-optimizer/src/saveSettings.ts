@@ -101,7 +101,7 @@ export const flushSaveSettings = () => {
     snapshot();
 };
 
-type Imported = { id: string; machineType: string; tier: unknown; boardIds: (string | null)[][] };
+type Imported = { id: string; machineType: string; tier: unknown; boardIds: (string | null)[][]; job?: string };
 
 /* For a save being imported: puts back what was remembered for its machines (under their new card ids) and returns them in the
  * remembered card order, machines new to the save last. `defaults` is each machine's fresh state, used for anything not remembered
@@ -122,7 +122,8 @@ export const restoreSaveSettings = <M extends Imported>(save: string, machines: 
         set(`optimizer_limit_${m.id}`, s?.limit ?? null);
         set(desequencerChipsetKey(m.id), s?.chipset ?? null);
         set(desequencerAutoDaysKey(m.id), s?.autoDays ?? null);
-        set(machineJobKey(m.id), s?.job ?? null);
+        // What the save has the machine working on wins over the job remembered for it
+        set(machineJobKey(m.id), m.job ?? s?.job ?? null);
         set(`optimizer_machine_locked_${m.id}`, s?.locked ?? null);
         set(cardKey(m.id), keys[i]);
         for (const kind of SOLVER_KINDS) set(goalsKey(kind, m.id), s?.goals?.[kind] ?? null);
