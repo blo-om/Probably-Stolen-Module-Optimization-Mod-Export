@@ -6,7 +6,7 @@ import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, setSolverLocked, SOLVER_SITES, subscribeSolver } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
 import type { Stats, GridTier, InventoryItem, ModuleColor, Point } from './types';
-import { COLOR_MAP } from './constants';
+import { COLOR_MAP, fitsMachine } from './constants';
 import { formatStatValue, getStatColor, PRECOMPUTED_OFFSETS } from './utils';
 import { createPortal } from 'react-dom';
 import { useOptimizer, calculateBoardStats, indexInventoryById, generateCodeFromState, isSpecialModule } from './hooks/useOptimizer';
@@ -214,6 +214,9 @@ const MachineInstance = React.memo(forwardRef(({
     // Save-imported machines are named by their path in the save ("Inv. > ..."); their name and tier come from
     // the save, so they are shown read-only. Machines added by hand keep the picker and the tier buttons.
     const isImportedMachine = machineType.startsWith('Inv.');
+    // Where a module may go on this card: free cells, and a module this kind of machine takes (a machine-specific one only on its machine)
+    const placeable = (item: InventoryItem, rootX: number, rootY: number, offsets: Point[]) =>
+        fitsMachine(item, typeKey) && optimizer.isValidPlacement(item, rootX, rootY, offsets);
     // A machine type picked for this card (the card's dropdown, or the "+" card's list): numbered after the cards of that type, with
     // that machine's default goals
     const chooseType = (selected: string) => {
@@ -408,7 +411,7 @@ const MachineInstance = React.memo(forwardRef(({
             machineType,
             machineKind: typeKey
         }),
-        isValidPlacement: optimizer.isValidPlacement,
+        isValidPlacement: placeable,
         getBoard: () => optimizer.boardRef.current,
         applyUpdate: optimizer.applyUpdate,
         isLocked: () => isMachineLocked,
@@ -509,7 +512,7 @@ const MachineInstance = React.memo(forwardRef(({
     const previewRootY = isTargetingThis ? localHover!.y - dragState.dragOffsetY : null;
 
     const currentPreviewValid = isTargetingThis && previewRootX !== null && previewRootY !== null
-        ? optimizer.isValidPlacement(dragState.item, previewRootX, previewRootY, dragState.offsets)
+        ? placeable(dragState.item, previewRootX, previewRootY, dragState.offsets)
         : false;
 
     return (
@@ -1411,6 +1414,7 @@ export default function ModuleInventoryUI() {
 
         // The layout with `item` stored on `board`, moving at most `moves` of the machine's own modules, or null
         const storeOn = (board: any[][], type: string, item: InventoryItem, moves: number): any[][] | null => {
+            if (!fitsMachine(item, type)) return null;
             const before = statsOf(board);
             const harmless = (next: any[][]) => { const after = statsOf(next); return STATS.every(k => statHasNoEffect(type, k) || after[k] >= before[k]); };
             if (moves === 0) {
@@ -2503,7 +2507,7 @@ export default function ModuleInventoryUI() {
                             <span style={{ color: '#888', fontSize: '0.85em' }}>
                                 {t('{a} of {b} module{s}', { a: unusedModules.length, b: inventory.length, s: plural(inventory.length) })}
                             </span>
-                            <AddModuleMenu onAdd={item => setInventory(prev => [...prev, item])} disabled={isAnySolving} />
+                            <AddModuleMenu onAdd={item => setInventory(prev => [...prev, isSpecialModule(item) ? { ...item, isLocked: true } : item])} disabled={isAnySolving} />
                             <button
                                 onClick={liveStoredIds.length > 0 ? handleRetrieve : handleStore}
                                 disabled={isAnySolving || (liveStoredIds.length === 0 && unusedModules.every(item => item.isInfinite))}

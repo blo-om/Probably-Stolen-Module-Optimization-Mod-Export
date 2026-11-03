@@ -162,10 +162,11 @@ export const runSelectedSolver = async (
     const inventoryById = indexInventoryById(fullInventory);
     const pinned = (item: InventoryItem) => Boolean(item.isStuck) || (kind !== 'bloom' && isMachineModuleName(item.displayName));
     const pin = pinStuck(machines, boards, fullInventory, inventoryById, pinned);
+    // Pinned modules are never drawn, wherever they are: their snapshots know nothing of which machine takes a machine-specific module
+    searchPoolInventory = searchPoolInventory.filter(item => !pinned(item));
     if (pin.any) {
         machines = pin.solved;
         boards = pin.solvedBoards;
-        searchPoolInventory = searchPoolInventory.filter(item => !pinned(item));
         const report = onUpdate;
         onUpdate = (updates, tiers) => report(pin.restore(updates), tiers);
     }

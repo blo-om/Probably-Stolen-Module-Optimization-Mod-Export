@@ -78,6 +78,28 @@ export const MACHINE_MODULES: { id: string; name: string; shape: ModuleShape; P:
 ];
 const MACHINE_MODULE_NAMES = new Set(MACHINE_MODULES.map(m => m.name));
 export const isMachineModuleName = (name: string) => MACHINE_MODULE_NAMES.has(name);
+
+/* Which machines take a module, as the game decides (each machine's bay takes MODULE_TYPE_UNIVERSAL plus its own type, SetupModuleBay;
+ * the Cryptographic Desequencer also takes the Alarm one). Machines are matched by name ("Inv. > Old Hydroponic System 1"); every
+ * module not listed here is universal and fits everywhere
+ */
+const MACHINE_MODULE_PREFIXES: [string, string[]][] = [
+    ['farm_module_', ['hydroponic']], ['dna_manipulator_module_', ['dna manipulator']], ['printer_module_', ['3d printer']], ['evaporator_module_', ['evaporator']],
+];
+const modulesMachines = (displayName: string): string[] | null => {
+    if (displayName.includes('Alarm Transmitter Module')) return ['alarm', 'desequencer'];
+    if (displayName.includes('(Blast)') || displayName.includes('(Junk Processing)')) return ['furnace'];
+    const own = MACHINE_MODULES.find(m => m.name === displayName);
+    return own ? MACHINE_MODULE_PREFIXES.find(([prefix]) => own.id.startsWith(prefix))?.[1] ?? null : null;
+};
+export const fitsMachine = (item: { displayName: string; isStuck?: boolean }, machineType: string): boolean => {
+    // A stuck module stays wherever it is
+    if (item.isStuck) return true;
+    const machines = modulesMachines(item.displayName);
+    if (!machines) return true;
+    const name = (machineType.split(' > ').pop() || '').toLowerCase();
+    return machines.some(m => name.includes(m));
+};
 for (const m of MACHINE_MODULES) {
     MODULE_TEMPLATES.push({ shape: m.shape, color: 'Grey', size: m.shape === 'Line2' ? 2 : 4, tier: 'Special', shapeType: 'Line', displayName: m.name, group: 'Special' });
 }
