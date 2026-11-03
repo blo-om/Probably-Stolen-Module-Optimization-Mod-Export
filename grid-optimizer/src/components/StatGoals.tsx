@@ -328,17 +328,18 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                         </div>
                     </>
                 );
-            } else if (jobs && jobStepList) {
+            } else if (jobs && (jobStepList || stat !== 'Efficiency')) {
+                // The job picker; a job with no steps for this stat (the DNA Manipulator's "Any seed") takes a plain number instead
                 panel = (
                     <>
                         <select value={job!.key} disabled={disabled} style={selectStyle} title={jobs.label} onChange={(e) => pickJob(e.target.value)}>
                             {jobs.jobs.map(j => <option key={j.key} value={j.key}>{j.name}</option>)}
                         </select>
                         <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px' }}>
-                            {jobStepList.map(b => (
+                            {jobStepList ? jobStepList.map(b => (
                                 <Choice key={b.value} label={b.short ?? b.label} selected={target === b.value} title={b.hint + t(' ({note})', { note: `${b.value}%` })}
                                     onClick={() => setTarget(stat, b.value)} disabled={disabled} />
-                            ))}
+                            )) : <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />}
                         </div>
                     </>
                 );

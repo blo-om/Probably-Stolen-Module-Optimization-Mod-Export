@@ -572,6 +572,51 @@ export const chipJobKey = (work: number, melee: boolean, name: string): string =
     const known = PRINTS.find(([, chip, w, m]) => w === work && m === melee && lower.includes(chip.toLowerCase()));
     return known ? known[0] : `chip:${work}:${melee ? 1 : 0}:${name}`;
 };
+/* DNA Manipulator jobs. An operation at complexity c takes 20 + 4c work and succeeds at 95 - 5c + Quality / 2 % (5-100), so its steps
+ * are the days, and 100% success at Quality 10 + 10c. Without a known seed (DNA_ANY_SEED) there is no complexity to step at
+ */
+export const DNA_ANY_SEED = 'any';
+const dnaJob = (c: number): StatJob => ({
+    key: String(c), name: t('Complexity {c}', { c }),
+    steps: {
+        Performance: daySteps(20 + 4 * c, workSpeed(10, 2), t('Complexity {c}', { c })),
+        Quality: [{ value: 10 + 10 * c, label: t('Sure success'), hint: t('Complexity {c}: 100% success ({base}% with no Quality)', { c, base: Math.max(5, 95 - 5 * c) }) }],
+    },
+});
+/* A seed's complexity as the DNA Manipulator sees it (PlantGeneticsHelper.GetEffectiveComplexity): for every trait, its complexity per
+ * rank it is above the plant's innate rank (the absolute complexity per rank below it), Complex / Simple Genome +4 / -4 per rank, plus the
+ * seed's heat (GENETIC_HEAT_INT: 2 + the trait's complexity per operation done on it). Trait complexities from PlantTraitList, innate
+ * ranks from PlantList (an innate trait without a rank is rank 1)
+ */
+const TRAIT_COMPLEXITY: Record<string, number> = {
+    edible: 2, nutritious: 3, nutrient_poor: -2, fast_grower: 4, slow_grower: -3, bountiful: 4, sparse: -3, delicious: 3, unappetizing: -2,
+    drought_resistant: 2, thirsty: -1, hardy: 3, frail: -2, fertile: 2, infertile: -1, simple_genome: 0, complex_genome: 0, perennial: 5,
+    purifying: 3, polluting: -2, dense: 3, potent: 3, weak: -2, production_caffeine: 3, production_coffee_mush: 2, production_dream_cap_mush: 4,
+};
+const GENOME_OFFSET: Record<string, number> = { complex_genome: 4, simple_genome: -4 };
+const INNATE: Record<string, Record<string, number>> = {
+    nutrifruit_seed: { complex_genome: 2, fast_grower: 2, nutritious: 1, bountiful: 2, hardy: 1, infertile: 10 },
+    kotton_seed: { bountiful: 3, thirsty: 2, frail: 2, slow_grower: 1 },
+    dream_cap_seed: { production_dream_cap_mush: 1, weak: 1, fertile: 1 },
+    coffee_bean: { production_caffeine: 1, production_coffee_mush: 1, potent: 1 },
+    fillerweed_seed: { simple_genome: 2, edible: 1, unappetizing: 1, hardy: 3, bountiful: 2, fast_grower: 2, thirsty: 3, nutrient_poor: 2 },
+    hydroreed_seed: { purifying: 4, dense: 1, hardy: 1 },
+    bloomberry_seed: { perennial: 1, edible: 1 },
+};
+export const dnaComplexity = (seedId: string, traits: Record<string, number>, heat: number): number | null => {
+    const innate = INNATE[seedId];
+    if (!innate) return null;
+    let c = 0;
+    for (const id of new Set([...Object.keys(TRAIT_COMPLEXITY), ...Object.keys(traits)])) {
+        const rank = traits[id] ?? 0;
+        const diff = rank - (innate[id] ?? 0);
+        const cx = TRAIT_COMPLEXITY[id] ?? 0;
+        c += diff < 0 ? Math.abs(cx) * -diff : cx * diff;
+        c += (GENOME_OFFSET[id] ?? 0) * rank;
+    }
+    return Math.max(0, c + Math.max(0, heat));
+};
+
 // The job a seed: or chip: key stands for
 const savedJob = (key: string | null | undefined, hydroponic: boolean): StatJob | null => {
     if (!key) return null;
@@ -622,15 +667,13 @@ export const machineJobs = (machineType: string, picked?: string | null): { labe
         };
     }
     if (name.includes('dna manipulator')) {
+        // A complexity read from the save past the list's 15 is offered as its own entry
+        const picks = Number(picked);
+        const extra = picked && /^\d+$/.test(picked) && picks > 15 ? [dnaJob(picks)] : [];
         return {
             label: t('Complexity'),
-            jobs: Array.from({ length: 16 }, (_, c) => ({
-                key: String(c), name: t('Complexity {c}', { c }),
-                steps: {
-                    Performance: daySteps(20 + 4 * c, workSpeed(10, 2), t('Complexity {c}', { c })),
-                    Quality: [{ value: 10 + 10 * c, label: t('Sure success'), hint: t('Complexity {c}: 100% success ({base}% with no Quality)', { c, base: Math.max(5, 95 - 5 * c) }) }],
-                },
-            })),
+            // First, and the default: no seed known, so nothing to step at; both stats are maximized
+            jobs: [{ key: DNA_ANY_SEED, name: t('Any seed (no steps)'), steps: {} }, ...extra, ...Array.from({ length: 16 }, (_, c) => dnaJob(c))],
         };
     }
     if (name.includes('3d printer')) {

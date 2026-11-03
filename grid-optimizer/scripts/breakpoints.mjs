@@ -209,7 +209,7 @@ try {
     }));
     line('Good to know (MachineDnaManipulator, PlantGeneticsHelper):');
     line();
-    line('- Complexity is the seed\'s own (traits changed from the plant\'s innate ones, plus Complex / Simple Genome: +4 / −4 per rank) **plus its heat**. A plain Nutrifruit starts at **8** (Complex Genome 2); a plain Fillerweed counts as 0.');
+    line('- Complexity is the seed\'s own (traits changed from the plant\'s innate ones, plus Complex / Simple Genome: +4 / −4 per rank) **plus its heat**. A plain Nutrifruit starts at **8** (Complex Genome 2), and the freed strain, without its innate Infertile ×10, at **18**; a plain Fillerweed counts as 0. The optimizer reads the seed in your DNA Manipulator from the save; with no seed there it maximizes both stats without steps.');
     line('- Every operation, success or not, adds heat (2 + the trait\'s complexity), so each further edit on the same seed is slower and harder.');
     line('- Work and success are fixed when the operation starts; the module bay is locked until it ends.');
     line();

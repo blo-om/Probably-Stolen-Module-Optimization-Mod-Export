@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { SAVE_NAME_KEY, SAVE_SLOT_KEY } from '../modExport';
 import { flushSaveSettings } from '../saveSettings';
-import { chipJobKey, seedJobKey, STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
+import { chipJobKey, dnaComplexity, seedJobKey, STORE_BASE_ATTRACTIVENESS_KEY } from '../machineDefaults';
 import { isSpecialModule } from '../hooks/useOptimizer';
 import { PRECOMPUTED_OFFSETS, getBaseStats } from '../utils';
 import { getSaveItemName, readSaveInventory } from '../saveImport';
@@ -196,6 +196,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                  */
                 const MELEE_PRINTS = ['box_cutter', 'kitchen_knife', 'hatchet', 'kitchen_cleaver', 'combat_knife', 'combat_machete'];
                 const savedJobOf = (machine: any): string | undefined => {
+                    const dna = getSaveItemName(machine).toLowerCase().includes('dna manipulator');
                     // The growing seed first; otherwise any seed it holds (the ones a harvest gave back)
                     const children = (machine.childItems || []).map((c: number) => itemMap.get(c)).filter(Boolean)
                         .sort((a: any, b: any) => Number(Boolean(tagValue(b, 'GROWING_TAG'))) - Number(Boolean(tagValue(a, 'GROWING_TAG'))));
@@ -208,6 +209,12 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                                 const rank = tagValue(child, k)?.valueInt;
                                 if (rank > 0) traits[k.slice('PLANT_TRAIT_'.length).toLowerCase()] = rank;
                             });
+                            // In the DNA Manipulator, the seed's complexity with its heat
+                            if (dna) {
+                                const c = dnaComplexity(id, traits, tagValue(child, 'GENETIC_HEAT_INT')?.valueInt ?? 0);
+                                if (c !== null) return String(c);
+                                continue;
+                            }
                             const growing = Boolean(tagValue(child, 'GROWING_TAG'));
                             const required = growing ? tagValue(child, 'REQUIRED_PROGRESS')?.valueInt ?? null : null;
                             const regrowing = (tagValue(child, 'PERENNIAL_ESTABLISHED_INT')?.valueInt ?? 0) !== 0;
