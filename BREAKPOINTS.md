@@ -3,21 +3,21 @@
 A breakpoint is the **total %** (what a machine's stat card shows, from all its modules) where the machine gets better at something.
 Between two breakpoints, more % does nothing. Ticks are in order, not to scale.
 
-<a href="#moisture_farm" title="Moisture Farm"><img src="grid-optimizer/public/machines/moisture_farm.png" width="40" height="40" alt=""></a> <a href="#water_purifier" title="Water Purifier"><img src="grid-optimizer/public/machines/water_purifier.png" width="40" height="40" alt=""></a> <a href="#furnace" title="Furnace"><img src="grid-optimizer/public/machines/furnace.png" width="40" height="40" alt=""></a> <a href="#agewell" title="AgeWell"><img src="grid-optimizer/public/machines/agewell.png" width="40" height="40" alt=""></a> <a href="#mirage" title="Mirage Projector"><img src="grid-optimizer/public/machines/mirage_projector.png" width="40" height="40" alt=""></a> <a href="#alarm" title="Alarm System"><img src="grid-optimizer/public/machines/alarm_system.png" width="40" height="40" alt=""></a> <a href="#desequencer" title="Cryptographic Desequencer"><img src="grid-optimizer/public/machines/desequencer.png" width="40" height="40" alt=""></a> <a href="#hydroponic" title="Hydroponic System"><img src="grid-optimizer/public/machines/hydroponic.png" width="40" height="40" alt=""></a> <a href="#dna" title="DNA Manipulator"><img src="grid-optimizer/public/machines/dna_manipulator.png" width="40" height="40" alt=""></a> <a href="#printer" title="3D Printer"><img src="grid-optimizer/public/machines/printer.png" width="40" height="40" alt=""></a> <a href="#deal_maker" title="Deal Maker"><img src="grid-optimizer/public/machines/deal_maker.png" width="40" height="40" alt=""></a> <a href="#evaporator" title="Evaporator"><img src="grid-optimizer/public/machines/evaporator.png" width="40" height="40" alt=""></a>
+<a href="#moisture-farm" title="Moisture Farm"><img src="grid-optimizer/public/machines/moisture_farm.png" width="40" height="40" alt=""></a> <a href="#water-purifier" title="Water Purifier"><img src="grid-optimizer/public/machines/water_purifier.png" width="40" height="40" alt=""></a> <a href="#furnace" title="Furnace"><img src="grid-optimizer/public/machines/furnace.png" width="40" height="40" alt=""></a> <a href="#agewell" title="AgeWell"><img src="grid-optimizer/public/machines/agewell.png" width="40" height="40" alt=""></a> <a href="#mirage-projector" title="Mirage Projector"><img src="grid-optimizer/public/machines/mirage_projector.png" width="40" height="40" alt=""></a> <a href="#alarm-system" title="Alarm System"><img src="grid-optimizer/public/machines/alarm_system.png" width="40" height="40" alt=""></a> <a href="#cryptographic-desequencer" title="Cryptographic Desequencer"><img src="grid-optimizer/public/machines/desequencer.png" width="40" height="40" alt=""></a> <a href="#hydroponic-system" title="Hydroponic System"><img src="grid-optimizer/public/machines/hydroponic.png" width="40" height="40" alt=""></a> <a href="#dna-manipulator" title="DNA Manipulator"><img src="grid-optimizer/public/machines/dna_manipulator.png" width="40" height="40" alt=""></a> <a href="#3d-printer" title="3D Printer"><img src="grid-optimizer/public/machines/printer.png" width="40" height="40" alt=""></a> <a href="#deal-maker" title="Deal Maker"><img src="grid-optimizer/public/machines/deal_maker.png" width="40" height="40" alt=""></a> <a href="#evaporator" title="Evaporator"><img src="grid-optimizer/public/machines/evaporator.png" width="40" height="40" alt=""></a>
 
-<h2 id="moisture_farm"><img src="grid-optimizer/public/machines/moisture_farm.png" width="32" height="32" alt=""> Moisture Farm</h2>
+## <img src="grid-optimizer/public/machines/moisture_farm.png" width="32" height="32" alt=""> Moisture Farm
 
 **Quality** sets the water grade. **Performance** makes more water: 850 ml a day, +1% per 1% (farms running the same night share the air).
 
 <img src="docs/breakpoints/moisture_farm.svg" alt="Moisture Farm quality breakpoints" width="760">
 
-<h2 id="water_purifier"><img src="grid-optimizer/public/machines/water_purifier.png" width="32" height="32" alt=""> Water Purifier</h2>
+## <img src="grid-optimizer/public/machines/water_purifier.png" width="32" height="32" alt=""> Water Purifier
 
 **Quality** sets how clean the water can get. **Performance** cleans faster: +1% per 1% (dirty water up to 20 times faster).
 
 <img src="docs/breakpoints/water_purifier.svg" alt="Water Purifier quality breakpoints" width="760">
 
-<h2 id="furnace"><img src="grid-optimizer/public/machines/furnace.png" width="32" height="32" alt=""> Furnace</h2>
+## <img src="grid-optimizer/public/machines/furnace.png" width="32" height="32" alt=""> Furnace
 
 **Quality** raises ingot purity one stage per full 100%. **Performance** does nothing. A Blast module takes one stage off.
 Starting purity depends on the ore in the recipe: 2 ore High, 1 ore Fair, none Low (with Blast: 3 ore High, 2 Fair, 1 or none Low).
@@ -43,29 +43,29 @@ Starting purity depends on the ore in the recipe: 2 ore High, 1 ore Fair, none L
 
 </details>
 
-<h2 id="agewell"><img src="grid-optimizer/public/machines/agewell.png" width="32" height="32" alt=""> AgeWell</h2>
+## <img src="grid-optimizer/public/machines/agewell.png" width="32" height="32" alt=""> AgeWell
 
 **Quality** ages wine extra days each night. **Performance** lowers energy use, like Efficiency.
 
 <img src="docs/breakpoints/agewell.svg" alt="AgeWell quality breakpoints" width="760">
 
-<h2 id="mirage"><img src="grid-optimizer/public/machines/mirage_projector.png" width="32" height="32" alt=""> Mirage Projector</h2>
+## <img src="grid-optimizer/public/machines/mirage_projector.png" width="32" height="32" alt=""> Mirage Projector
 
 No breakpoints: attractiveness is **100 points + 1 per 2% Quality + 1 per 4% Performance**. Projectors do not stack; the best one counts.
 
-<h2 id="alarm"><img src="grid-optimizer/public/machines/alarm_system.png" width="32" height="32" alt=""> Alarm System</h2>
+## <img src="grid-optimizer/public/machines/alarm_system.png" width="32" height="32" alt=""> Alarm System
 
 **Performance** raises the chance to stop a theft. The game shows 50% + Performance, but it rolls one point in your favour, so **49%** already stops every theft. Only one alarm counts.
 
 <img src="docs/breakpoints/alarm.svg" alt="Alarm System performance breakpoints" width="760">
 
-<h2 id="desequencer"><img src="grid-optimizer/public/machines/desequencer.png" width="32" height="32" alt=""> Cryptographic Desequencer</h2>
+## <img src="grid-optimizer/public/machines/desequencer.png" width="32" height="32" alt=""> Cryptographic Desequencer
 
 **Performance** decodes keycards faster (33 work a day, +1% per 1%). Each keycard takes whole days, so only these totals matter. **Quality** does nothing.
 
 <img src="docs/breakpoints/desequencer.svg" alt="Desequencer performance breakpoints per keycard" width="760">
 
-<h2 id="hydroponic"><img src="grid-optimizer/public/machines/hydroponic.png" width="32" height="32" alt=""> Hydroponic System</h2>
+## <img src="grid-optimizer/public/machines/hydroponic.png" width="32" height="32" alt=""> Hydroponic System
 
 **Performance** grows plants in fewer days (8 work a day, +1 per full 25%). **Quality** adds items to each harvest. Every plant has its own steps; Nutrifruit as an example:
 
@@ -86,7 +86,7 @@ No breakpoints: attractiveness is **100 points + 1 per 2% Quality + 1 per 4% Per
 
 </details>
 
-<h2 id="dna"><img src="grid-optimizer/public/machines/dna_manipulator.png" width="32" height="32" alt=""> DNA Manipulator</h2>
+## <img src="grid-optimizer/public/machines/dna_manipulator.png" width="32" height="32" alt=""> DNA Manipulator
 
 **Performance** finishes operations in fewer days. **Quality** raises the success chance: 100% at **10 + 10 × complexity**. Complexity 5 as an example:
 
@@ -115,7 +115,7 @@ No breakpoints: attractiveness is **100 points + 1 per 2% Quality + 1 per 4% Per
 
 </details>
 
-<h2 id="printer"><img src="grid-optimizer/public/machines/printer.png" width="32" height="32" alt=""> 3D Printer</h2>
+## <img src="grid-optimizer/public/machines/printer.png" width="32" height="32" alt=""> 3D Printer
 
 **Performance** prints in fewer days (24 work a day, +1% per 1%). **Quality** improves printed melee weapons. Combat Knife as an example:
 
@@ -144,17 +144,17 @@ No breakpoints: attractiveness is **100 points + 1 per 2% Quality + 1 per 4% Per
 
 </details>
 
-<h2 id="deal_maker"><img src="grid-optimizer/public/machines/deal_maker.png" width="32" height="32" alt=""> Deal Maker</h2>
+## <img src="grid-optimizer/public/machines/deal_maker.png" width="32" height="32" alt=""> Deal Maker
 
 No breakpoints: **Quality** adds 1% accept chance on a haggle per 10% (10% to start). **Performance** lowers energy use, like Efficiency.
 
-<h2 id="evaporator"><img src="grid-optimizer/public/machines/evaporator.png" width="32" height="32" alt=""> Evaporator</h2>
+## <img src="grid-optimizer/public/machines/evaporator.png" width="32" height="32" alt=""> Evaporator
 
 **Quality** is the share of what evaporates that you keep, up to 100%. **Performance** evaporates more: 300 ml a day, +1% per 1%. With the Solvent Recovery module only alcohol is kept.
 
 <img src="docs/breakpoints/evaporator.svg" alt="Evaporator quality breakpoints" width="760">
 
-<h2 id="energy">Energy</h2>
+## Energy
 
 **Efficiency** lowers every machine's energy use, one point at a time, never below 1. On the AgeWell and the Deal Maker, Performance counts too.
 

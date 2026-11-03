@@ -72,9 +72,11 @@ try {
         ['evaporator', 'Evaporator', 'evaporator.png'],
     ];
     const icon = (file, size) => `<img src="grid-optimizer/public/machines/${file}" width="${size}" height="${size}" alt="">`;
+    // Plain markdown headings: GitHub gives them their anchors (the name, lowercased, spaces to dashes); ids set by hand are dropped
+    const slug = name => name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-');
     const heading = (id) => {
         const [, name, file] = MACHINES.find(([k]) => k === id);
-        line(`<h2 id="${id}">${icon(file, 32)} ${name}</h2>`);
+        line(`## ${icon(file, 32)} ${name}`);
         line();
     };
 
@@ -83,7 +85,7 @@ try {
     line('A breakpoint is the **total %** (what a machine\'s stat card shows, from all its modules) where the machine gets better at something.');
     line('Between two breakpoints, more % does nothing. Ticks are in order, not to scale.');
     line();
-    line(MACHINES.map(([id, name, file]) => `<a href="#${id}" title="${name}">${icon(file, 40)}</a>`).join(' '));
+    line(MACHINES.map(([, name, file]) => `<a href="#${slug(name)}" title="${name}">${icon(file, 40)}</a>`).join(' '));
     line();
 
     // Moisture Farm
@@ -191,7 +193,7 @@ try {
     picture('evaporator', [{ stat: 'Quality', title: 'Quality → share kept', ticks: [{ at: '0%', gives: 'nothing' }, { at: '50%', gives: 'half' }, { at: `${m.EVAPORATOR_QUALITY_CAP}%`, gives: 'all (more does nothing)' }] }], 'Evaporator quality breakpoints');
 
     // Energy
-    line('<h2 id="energy">Energy</h2>');
+    line('## Energy');
     line();
     line('**Efficiency** lowers every machine\'s energy use, one point at a time, never below 1. On the AgeWell and the Deal Maker, Performance counts too.');
     line();
