@@ -198,7 +198,8 @@ try {
     line();
 
     // DNA
-    const dna = m.machineJobs('DNA Manipulator 1').jobs;
+    // The complexities 0-15 (the first job, Any seed, has no steps)
+    const dna = m.machineJobs('DNA Manipulator 1').jobs.filter(j => /^\d+$/.test(j.key));
     heading('dna');
     line('**Performance:** 10 work a day, +1 per full 20%. An operation at complexity c needs 20 + 4c work. **Quality:** success is 95 − 5c + Quality / 2 %.');
     line();
