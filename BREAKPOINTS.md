@@ -93,6 +93,13 @@ Plain seeds, their innate traits included (a seed changed in the DNA Manipulator
 | **Dream Cap** | 8 | 14% | 38% | 64% | 88% |  |
 | **Kotton** | 13 | 8% | 24% | 40% | 54% |  |
 
+Good to know (MachineHydroponic, HydroponicHelper, PlantHarvest):
+
+- The module bay is **locked while a plant grows**; modules can only be changed between harvests.
+- Each work point uses nutrients and takes contaminant damage, so more Performance uses more a day but the same per grow; water is used once a day, so a faster grow uses less.
+- Plant health above 70% keeps the full harvest (higher health gives bigger produce). At 70% or less, Kotton, Dream Cap and Coffee lose part of the harvest, after Quality.
+- Nutrifruit is all Huge at 100% health, and at 96-99% health from 102% Quality (half Huge below it). Module bonuses (Nutrifruit, Dream Cap, Fillerweed modules) add items after Quality.
+
 ## <img src="grid-optimizer/public/machines/dna_manipulator.png" width="32" height="32" alt=""> DNA Manipulator
 
 **Performance:** 10 work a day, +1 per full 20%. An operation at complexity c needs 20 + 4c work. **Quality:** success is 95 − 5c + Quality / 2 %.
@@ -115,6 +122,12 @@ Plain seeds, their innate traits included (a seed changed in the DNA Manipulator
 | **13** | 72 | 30% | **140%** | 0% | 20% | 40% | 100% | 160% | 280% | 520% | 1240% |
 | **14** | 76 | 25% | **150%** | 0% | 20% | 60% | 120% | 180% | 320% | 560% | 1320% |
 | **15** | 80 | 20% | **160%** | 0% | 40% | 80% | 120% | 200% | 340% | 600% | 1400% |
+
+Good to know (MachineDnaManipulator, PlantGeneticsHelper):
+
+- Complexity is the seed's own (traits changed from the plant's innate ones, plus Complex / Simple Genome: +4 / −4 per rank) **plus its heat**. A plain Nutrifruit starts at **8** (Complex Genome 2); a plain Fillerweed counts as 0.
+- Every operation, success or not, adds heat (2 + the trait's complexity), so each further edit on the same seed is slower and harder.
+- Work and success are fixed when the operation starts; the module bay is locked until it ends.
 
 ## <img src="grid-optimizer/public/machines/printer.png" width="32" height="32" alt=""> 3D Printer
 
@@ -145,13 +158,35 @@ Plain seeds, their innate traits included (a seed changed in the DNA Manipulator
 |---|---|---|---|
 | **Condition** | Fair or better | Good or better | Excellent |
 
+**Combat Knife and Combat Machete** are printed from ingots, whose purity adds to the roll. Quality for a sure condition:
+
+| Ingot purity | Bonus | Fair or better | Good or better | Excellent |
+|---|---|---|---|---|
+| **Very Low** | -30 | 140% | 280% | 400% |
+| **Low** | -20 | 100% | 240% | 360% |
+| **Fair** | 0 | 20% | 160% | 280% |
+| **High** | +20 | always | 80% | 200% |
+| **Very High** | +30 | always | 40% | 160% |
+| **Perfect** | +100 | always | always | always |
+
+Good to know (MachinePrinter):
+
+- Gun frames (Nestfire, Ironcraft) make a gun with firepower and style × (1 + (Quality / 4 + the ingot bonus) / 100); printed pistols × (1 + Quality / 4 / 100). No breakpoints there: every % counts.
+- Gun Parts: the ingot's purity sets how many you get: Very Low 2, Low or Fair 3, High or Very High 4, Perfect 5.
+- Each Melee Batch module prints one more melee weapon per chip run.
+- The module bay is **locked while printing**.
+
 ## <img src="grid-optimizer/public/machines/deal_maker.png" width="32" height="32" alt=""> Deal Maker
 
 No breakpoints: **Quality** adds 1% accept chance on a haggle per 10% (10% to start). **Performance** lowers energy use, like Efficiency.
 
+Good to know (MachineDealMaker, BargainUIManager): you activate it by hand, once per customer, and it uses its energy then. The bonus adds straight to the accept chance: a markup is accepted at 100 − 2 × markup % + faction reputation + the bonus, so every +10% Quality allows +0.5% markup at the same odds. Blackmail is 60% + reputation + the bonus.
+
 ## <img src="grid-optimizer/public/machines/evaporator.png" width="32" height="32" alt=""> Evaporator
 
 **Quality** is the share of what evaporates that you keep, up to 100%. **Performance** evaporates more: 300 ml a day, +1% per 1%. With the Solvent Recovery module only alcohol is kept.
+
+Good to know (MachineEvaporator, Liquid): only water, alcohol and lipobond agent evaporate, taken from the container in proportion to how much of each it holds; everything else stays and gets more concentrated. What is kept goes into the container in the distillate slot (none there, nothing kept).
 
 <img src="docs/breakpoints/evaporator.svg?v=c75bac81" alt="Evaporator quality breakpoints" width="760">
 
