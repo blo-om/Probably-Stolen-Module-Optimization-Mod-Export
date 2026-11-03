@@ -25,6 +25,7 @@ export const ZH: Record<string, string> = {
     'Glitched Module': '故障模组',
     'Add a machine': '添加机器',
     'Machine-specific': '机器专用',
+    'Any seed (no steps)': '任意种子（无断点）',
     'Transmitter': '发射器',
     'Blast': '高炉',
     'Junk Processing': '废品处理',
