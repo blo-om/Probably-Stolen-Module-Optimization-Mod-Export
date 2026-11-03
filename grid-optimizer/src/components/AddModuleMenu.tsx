@@ -46,13 +46,13 @@ const NOT_IN_GAME = new Set(['L4_High', 'T4_High']);
  * Grouped by machine, each with the game's own effect text (Localization: module_effect_*, item_dna_module_*_effect)
  */
 // [name, effect, short label on its chip]
-const MACHINE_SPECIFIC: { machine: string; modules: [string, string, string][] }[] = [
-    { machine: 'Alarm System', modules: [['Alarm Transmitter Module', 'Gain +1 reputation per night', 'Transmitter']] },
-    { machine: 'Furnace', modules: [
+const MACHINE_SPECIFIC: { machine: string; icon: string; note?: string; modules: [string, string, string][] }[] = [
+    { machine: 'Alarm System', icon: 'alarm_system', note: 'also fits the Cryptographic Desequencer', modules: [['Alarm Transmitter Module', 'Gain +1 reputation per night', 'Transmitter']] },
+    { machine: 'Furnace', icon: 'furnace', modules: [
         ['Furnace Module (Blast)', '3 materials make 2 ingots a night, one purity stage lower', 'Blast'],
         ['Furnace Module (Junk Processing)', 'Convert 6 Junk into 4 Scrap Metal', 'Junk Processing'],
     ] },
-    { machine: 'Hydroponic System', modules: [
+    { machine: 'Hydroponic System', icon: 'hydroponic', modules: [
         ['Nutrifruit Hydroponic Module', 'Nutrifruit yield +1', 'Nutrifruit'],
         ['Dream Cap Neutralizer Hydroponic Module', 'Removes Dream Cap contraband status, makes it food, Dream Cap yield +2', 'Dream Cap Neutralizer'],
         ['Dream Cap Nightmare Hydroponic Module', 'Farmed Dream Cap will be Nightmare Cap', 'Dream Cap Nightmare'],
@@ -61,18 +61,18 @@ const MACHINE_SPECIFIC: { machine: string; modules: [string, string, string][] }
         ['Hydroreed Filter Hydroponic Module', 'Hydroreed Filter yield +1', 'Hydroreed Filter'],
         ['Hydroponic Smuggler Module', 'Removes the contraband status of growing seeds', 'Smuggler'],
     ] },
-    { machine: 'DNA Manipulator', modules: [
+    { machine: 'DNA Manipulator', icon: 'dna_manipulator', modules: [
         ['Genetic Stabilizer Module', 'The target survives extraction', 'Stabilizer'],
         ['Positive Trait Filter Module', 'Extracts positive traits only', 'Positive Filter'],
         ['Negative Trait Filter Module', 'Extracts negative traits only', 'Negative Filter'],
         ['Precision Extraction Module', 'Extracts the scanned trait only', 'Precision Extraction'],
     ] },
-    { machine: '3D Printer', modules: [
+    { machine: '3D Printer', icon: 'printer', modules: [
         ['Metal Printer Module', 'Metal printing (chips that print from ingots)', 'Metal Printing'],
         ['Computer Numerical Control Module', 'CNC (gun frame and gun part chips)', 'CNC'],
         ['Melee Batch Module', 'Printed melee weapon output +1', 'Melee Batch'],
     ] },
-    { machine: 'Evaporator', modules: [['Evaporator Solvent Recovery Module', 'Only alcohol is recovered', 'Solvent Recovery']] },
+    { machine: 'Evaporator', icon: 'evaporator', modules: [['Evaporator Solvent Recovery Module', 'Only alcohol is recovered', 'Solvent Recovery']] },
 ];
 // Text colour for the special colours too dark to read on the menu
 const SPECIAL_TEXT: Partial<Record<ModuleColor, string>> = { DarkRed: '#e57373', Grey: '#b0b0b0' };
@@ -122,6 +122,8 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
     const [effects, setEffects] = useState<ItemEffect[]>([]);
     const [progress, setProgress] = useState<number | null>(null);
     const [added, setAdded] = useState<string | null>(null);
+    // The machine-specific modules fold away; open when one of them is the picked type
+    const [specialsOpen, setSpecialsOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -151,7 +153,7 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
     }, [template, effects, value]);
     const stats = applyInternalEffects(item);
 
-    const pickType = (i: number) => { setTypeIdx(i); setShapeIdx(0); if (!TYPES[i].effects) setEffects([]); setProgress(null); };
+    const pickType = (i: number) => { setTypeIdx(i); if (TYPES[i].machine) setSpecialsOpen(true); setShapeIdx(0); if (!TYPES[i].effects) setEffects([]); setProgress(null); };
     // Clicking an effect adds it (up to two, in the order picked, as the game lists them) or takes it off again
     const toggleEffect = (e: ItemEffect) => {
         setEffects(prev => (prev.includes(e) ? prev.filter(x => x !== e) : prev.length < 2 ? [...prev, e] : prev));
@@ -165,7 +167,7 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
     return (
         <div ref={ref} style={{ position: 'relative' }}>
             <button
-                onClick={() => { setOpen(o => !o); setAdded(null); }}
+                onClick={() => { setOpen(o => !o); setAdded(null); setSpecialsOpen(Boolean(type.machine)); }}
                 disabled={disabled}
                 title={t('Add a module that is not in your save')}
                 style={{
@@ -186,25 +188,42 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                                 <span style={{ color: COLOR_MAP[ty.color] }}>{moduleName(ty.name)}</span>
                             </button>
                         ))}
-                        {/* Machine-specific modules, a row per machine */}
-                        <div style={{ width: '100%', marginTop: '6px', fontSize: '0.72em', color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Machine-specific')}</div>
-                        {MACHINE_SPECIFIC.map(g => (
-                            <div key={g.machine} style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                <span style={{ flex: '0 0 120px', paddingTop: '6px', fontSize: '0.78em', color: '#999' }}>{t(g.machine)}</span>
-                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                    {g.modules.map(([name, , short]) => {
-                                        const i = TYPES.findIndex(ty => ty.name === name);
-                                        const ty = TYPES[i];
-                                        const color = SPECIAL_TEXT[ty.color] ?? COLOR_MAP[ty.color];
-                                        return (
-                                            <button key={name} onClick={() => pickType(i)} title={`${moduleName(name)}: ${t(ty.effect!)}`} style={chip(i === typeIdx, color)}>
-                                                <span style={{ color }}>{t(short)}</span>
-                                            </button>
-                                        );
-                                    })}
+                        {/* Machine-specific modules: folded away behind their header, a small card per machine with its icon */}
+                        <div style={{ width: '100%', marginTop: '6px', borderTop: '1px solid #2c2c2e', paddingTop: '8px' }}>
+                            <button onClick={() => setSpecialsOpen(o => !o)} aria-expanded={specialsOpen}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
+                                    color: '#aaa', fontSize: '0.78em', textAlign: 'left' }}>
+                                <span style={{ display: 'inline-block', width: '10px', transform: specialsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
+                                <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Machine-specific')}</span>
+                                <span style={{ color: '#666' }}>{t('{n} modules for {m} machines', { n: MACHINE_OF.size, m: MACHINE_SPECIFIC.length })}</span>
+                                {type.machine && !specialsOpen && <span style={{ marginLeft: 'auto', color: '#9ab' }}>{moduleName(type.name)}</span>}
+                            </button>
+                            {specialsOpen && (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px', marginTop: '8px' }}>
+                                    {MACHINE_SPECIFIC.map(g => (
+                                        <div key={g.machine} style={{ background: '#202022', border: '1px solid #2c2c2e', borderRadius: '6px', padding: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                                <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.png`} alt="" width={24} height={24} style={{ imageRendering: 'pixelated', flex: 'none' }} />
+                                                <span style={{ fontSize: '0.8em', color: '#ddd', fontWeight: 'bold' }}>{t(g.machine)}</span>
+                                                {g.note && <span title={t(g.note)} style={{ fontSize: '0.7em', color: '#777' }}>{t('+ Desequencer')}</span>}
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                                                {g.modules.map(([name, , short]) => {
+                                                    const i = TYPES.findIndex(ty => ty.name === name);
+                                                    const ty = TYPES[i];
+                                                    const color = SPECIAL_TEXT[ty.color] ?? COLOR_MAP[ty.color];
+                                                    return (
+                                                        <button key={name} onClick={() => pickType(i)} title={`${moduleName(name)}: ${t(ty.effect!)}`} style={chip(i === typeIdx, color)}>
+                                                            <span style={{ color }}>{t(short)}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            </div>
-                        ))}
+                            )}
+                        </div>
                     </Step>
 
                     <Step n={2} title={t('Shape')}>
