@@ -58,6 +58,23 @@ export const writeSolver = (kind: SolverKind) => {
     notifySolver();
 };
 export const isSolverLocked = () => solverLocked;
+
+/* Force Learning (toolbar): unused Learning Algorithm modules still short of their cap are put into machines even where they add nothing
+ * or cost stats, so they train for later. Bloom only; read when a solve starts
+ */
+export const FORCE_LEARNING_KEY = 'optimizer_force_learning';
+const forceLearningListeners = new Set<() => void>();
+export const readForceLearning = (): boolean => {
+    try { return localStorage.getItem(FORCE_LEARNING_KEY) === '1'; } catch { return false; }
+};
+export const subscribeForceLearning = (listener: () => void) => {
+    forceLearningListeners.add(listener);
+    return () => { forceLearningListeners.delete(listener); };
+};
+export const writeForceLearning = (on: boolean) => {
+    try { if (on) localStorage.setItem(FORCE_LEARNING_KEY, '1'); else localStorage.removeItem(FORCE_LEARNING_KEY); } catch { /* this page only */ }
+    forceLearningListeners.forEach(listener => listener());
+};
 export const setSolverLocked = (locked: boolean) => {
     if (solverLocked === locked) return;
     solverLocked = locked;
@@ -170,7 +187,10 @@ export const runSelectedSolver = async (
         const report = onUpdate;
         onUpdate = (updates, tiers) => report(pin.restore(updates), tiers);
     }
-    if (kind === 'bloom') return runParallelEngine(machines, boards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
+    if (kind === 'bloom') {
+        if (readForceLearning()) machines = machines.map(m => ({ ...m, forceLearning: true }));
+        return runParallelEngine(machines, boards, searchPoolInventory, fullInventory, isSolvingRef, onUpdate);
+    }
     // This site's module locks off. The callers mark a module held by a machine outside the solve with a locked copy of it, which their
     // sites keep out of reach too; a lock on the module itself (the player's right-click, or a special locked by default) is this site's
     const unlocked = (item: any) => { const { isLocked: _lock, ...rest } = item; return rest as InventoryItem; };
