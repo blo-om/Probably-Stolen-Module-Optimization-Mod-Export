@@ -3,7 +3,7 @@ import { encodeModExport, boardModules } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { ALARM_SURE_STOP, alarmStopChance, defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
-import { readSolver, runSelectedSolver, setSolverLocked, SOLVER_SITES, subscribeSolver, readForceLearning, subscribeForceLearning, writeForceLearning } from './solvers';
+import { readSolver, runSelectedSolver, setSolverLocked, SOLVER_SITES, subscribeSolver } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
 import type { Stats, GridTier, InventoryItem, ModuleColor, Point } from './types';
 import { COLOR_MAP, fitsMachine } from './constants';
@@ -1830,7 +1830,6 @@ export default function ModuleInventoryUI() {
     const [copiedAllForMod, setCopiedAllForMod] = useState(false);
     // Which solver lays the modules out (solvers/index.ts; picked in the footer), read when a solve starts and locked while one runs
     const solverKind = useSyncExternalStore(subscribeSolver, readSolver);
-    const forceLearning = useSyncExternalStore(subscribeForceLearning, readForceLearning);
     useEffect(() => { setSolverLocked(isAnySolving); }, [isAnySolving]);
     const handleCopyAllForMod = () => {
         const entries = machines
@@ -2390,29 +2389,6 @@ export default function ModuleInventoryUI() {
                 </div>
                 <div className="toolbar-row">
                 <SaveFileImporter onImport={handleImportSave} />
-                {/* Force Learning: spare Learning Algorithm modules go into machines to train, even at a cost (Bloom only) */}
-                <button
-                    role="switch"
-                    aria-checked={forceLearning && solverKind === 'bloom'}
-                    onClick={() => writeForceLearning(!forceLearning)}
-                    disabled={isAnySolving || solverKind !== 'bloom'}
-                    title={solverKind === 'bloom'
-                        ? t("Put unused Learning Algorithm modules that aren't maxed yet into machines, even where they add nothing or lower the stats, so they train for later. Targets a machine meets stay met. Applies from the next run")
-                        : t('Only with the Bloom solver')}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '6px', fontSize: '0.95em',
-                        cursor: isAnySolving || solverKind !== 'bloom' ? 'not-allowed' : 'pointer', opacity: solverKind !== 'bloom' ? 0.5 : 1,
-                        backgroundColor: forceLearning && solverKind === 'bloom' ? '#2e4a35' : '#333333', color: '#eee',
-                        border: `1px solid ${forceLearning && solverKind === 'bloom' ? '#4caf50' : '#555555'}`,
-                    }}
-                >
-                    <span aria-hidden style={{ position: 'relative', width: '26px', height: '14px', borderRadius: '7px', flex: 'none',
-                        background: forceLearning && solverKind === 'bloom' ? '#4caf50' : '#555' }}>
-                        <span style={{ position: 'absolute', top: '2px', left: forceLearning && solverKind === 'bloom' ? '14px' : '2px', width: '10px', height: '10px',
-                            borderRadius: '50%', background: '#eee', transition: 'left 0.15s' }} />
-                    </span>
-                    {t('Force Learning')}
-                </button>
                 <button
                     onClick={handleClearAllMachines}
                     disabled={isAnySolving}
