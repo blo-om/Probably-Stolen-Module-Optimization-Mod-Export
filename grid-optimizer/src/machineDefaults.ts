@@ -198,8 +198,15 @@ export const MIRAGE_QUALITY_WEIGHT = 2;
 export const MIRAGE_SUM_PER_POINT = 4;
 export const miragePoints = (performance: number, quality: number) =>
     Math.max(0, MIRAGE_BASE_POINTS + Math.trunc(Math.trunc(quality) / 2) + Math.trunc(Math.trunc(performance) / 4));
-// The Performance + 2 x Quality that makes `points` for sure: each of the two divisions can lose up to 3/4 of a point
-export const mirageSumFor = (points: number) => Math.max(0, (points - MIRAGE_BASE_POINTS) * MIRAGE_SUM_PER_POINT + 5);
+/* The Performance + 2 x Quality that makes `points` for sure. The game rounds Quality / 2 and Performance / 4 down separately, so a sum
+ * of exactly 4 per point can come up one short (Quality 1 + Performance 2: a sum of 4, no point). Stats are whole numbers, so the
+ * rounding loses Quality % 2 x 2 + Performance % 4 of the sum, which is at most 2 on a sum 2 past a multiple of 4 (and at most 5 on one
+ * just past it): 4 per point + 2 is always enough, and 4 per point + 1 is not
+ */
+const MIRAGE_SUM_MARGIN = 2;
+export const mirageSumFor = (points: number) => Math.max(0, (points - MIRAGE_BASE_POINTS) * MIRAGE_SUM_PER_POINT + MIRAGE_SUM_MARGIN);
+// The points a Performance + 2 x Quality makes for sure: the inverse of mirageSumFor, so a typed target shows as typed
+export const miragePointsFor = (sum: number) => MIRAGE_BASE_POINTS + Math.max(0, Math.floor((sum - MIRAGE_SUM_MARGIN) / MIRAGE_SUM_PER_POINT));
 
 /* Stats where nothing below the first breakpoint counts, checked against the game: Furnace stages = Quality / 100 (0 below 100),
  * AgeWell days = max(0, Quality) / 125 + 1, Water Purifier cap 99% for all Quality under 15. Not the Moisture Farm (Rust and
