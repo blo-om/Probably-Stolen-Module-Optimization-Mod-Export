@@ -1448,7 +1448,8 @@ export default function ModuleInventoryUI() {
 
         const stored: string[] = [];
         const layouts: Record<string, { before: IdGrid; after: IdGrid }> = {};
-        const candidates = unusedModules.filter(item => !item.isInfinite);
+        // Never a special (machine-specific, Alarm, Junk Processing, Blast): which of them a machine carries is the player's call
+        const candidates = unusedModules.filter(item => !item.isInfinite && !isSpecialModule(item));
         // Straight into free spots first for everything, then moving one module, then two, for what is left
         for (const moves of [0, 1, 2]) {
             for (const item of candidates) {
@@ -2510,7 +2511,7 @@ export default function ModuleInventoryUI() {
                             <AddModuleMenu onAdd={item => setInventory(prev => [...prev, isSpecialModule(item) ? { ...item, isLocked: true } : item])} disabled={isAnySolving} />
                             <button
                                 onClick={liveStoredIds.length > 0 ? handleRetrieve : handleStore}
-                                disabled={isAnySolving || (liveStoredIds.length === 0 && unusedModules.every(item => item.isInfinite))}
+                                disabled={isAnySolving || (liveStoredIds.length === 0 && unusedModules.every(item => item.isInfinite || isSpecialModule(item)))}
                                 title={liveStoredIds.length > 0
                                     ? t('Take the {n} stored module{s} back out of the machines', { n: liveStoredIds.length, s: plural(liveStoredIds.length) })
                                     : t("Put unused modules into free machine cells, only where they lower none of that machine's stats (energy included)")}
