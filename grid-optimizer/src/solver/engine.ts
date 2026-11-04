@@ -21,6 +21,9 @@ const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 // Overclocks are worth placing even where their Performance is not needed (a Learning Algorithm one only grows while it sits in a machine),
 // so each placed one earns a little more in the tiebreak than the "fewer pieces" nudge costs; a Learning Algorithm one twice that
 const OVERCLOCK_BONUS = 8;
+// Any other Learning Algorithm module still short of its cap (twice its best base stat) only trains while it sits in a machine too, so it earns
+// a small tiebreak reward of its own: of layouts equal on every stat, the one holding more of them wins. Never worth any stat
+const LEARNING_BONUS = 6;
 // The fill only commits a placement that scores above zero, and one whose stats this machine does not score comes to exactly zero
 // A nudge this small lifts an Overclock over that bar without outranking any placement that earns something
 const OVERCLOCK_PLACEMENT_NUDGE = 0.001;
@@ -359,29 +362,20 @@ export const runOptimizationEngine = async (
     initialObjectBoards.forEach(b => b.forEach((row: any[]) => row.forEach(cell => { if (cell && cell !== 'Locked' && cell.isLocked) fixed[idx(cell)] = 1; })));
     const overclock = new Uint8Array(N);
     const ocBonus = new Float64Array(N);
-    /* Force Learning (toolbar, MachineConfig.forceLearning): Learning Algorithm modules still short of their cap (twice their best base stat)
-     * are to train. In the search they count like a Learning Overclock (the tiebreak bonus and the placement nudge), so of layouts equal on
-     * every stat the one holding more learners wins: the free places for them (room nothing else wants, target-only machines, stats a machine
-     * does not score) are found by the search itself. What is still left over goes in at the least cost (withSpareLearningAlgorithms)
-     */
-    const FORCE_LEARNING = machines.some(m => m.forceLearning);
-    const learningCap = (item: InventoryItem) => {
-        const base = getBaseStats(item);
-        return Math.floor(Math.max(0, base.Performance, base.Quality, base.Efficiency) * 2);
-    };
-    const stillLearning = (item: InventoryItem) => {
-        const i = item.effects.indexOf('Learning Algorithm');
-        return i >= 0 && (item.effectValues[i] ?? 0) < learningCap(item);
-    };
-    const trains = new Uint8Array(N);
+    // Learning Algorithm modules other than Overclocks, still short of their cap (see LEARNING_BONUS)
+    const learner = new Uint8Array(N);
     itemList.forEach((item, i) => {
         if (item.displayName.includes('Overclock')) {
             overclock[i] = 1;
             ocBonus[i] = item.effects.includes('Learning Algorithm') ? OVERCLOCK_BONUS * 2 : OVERCLOCK_BONUS;
+            return;
         }
-        if (FORCE_LEARNING && !item.isLocked && !item.id.includes('_clone_') && !isSpecialModule(item) && stillLearning(item)) {
-            trains[i] = 1;
-            ocBonus[i] = OVERCLOCK_BONUS * 2;
+        const l = item.effects.indexOf('Learning Algorithm');
+        if (l < 0 || isSpecialModule(item)) return;
+        const base = getBaseStats(item);
+        if ((item.effectValues[l] ?? 0) < Math.floor(Math.max(0, base.Performance, base.Quality, base.Efficiency) * 2)) {
+            learner[i] = 1;
+            ocBonus[i] = LEARNING_BONUS;
         }
     });
 
@@ -506,7 +500,7 @@ export const runOptimizationEngine = async (
             const a = board[c];
             if (a < 0 || tbStamp[a] === g) continue;
             tbStamp[a] = g;
-            held += value[a];
+            if (!learner[a]) held += value[a];
             bonus += ocBonus[a];
         }
         // A full machine (see isFull) pays for what it holds too, so of two layouts that keep it full the one holding less wins: handing
@@ -666,7 +660,7 @@ export const runOptimizationEngine = async (
         let bestO: Orientation | null = null;
         let best = incumbent !== null ? -Infinity : 0.0001;
         let d0 = 0, d1 = 0, d2 = 0;
-        const nudge = overclock[it] || trains[it] ? OVERCLOCK_PLACEMENT_NUDGE : 0;
+        const nudge = overclock[it] || learner[it] ? OVERCLOCK_PLACEMENT_NUDGE : 0;
         const zeroOk = nudge > 0;
         if (incumbent !== null) {
             const s = core.evalPlacement(it, incumbent.x, incumbent.y, incumbent.o, board, boardIsEmpty, w[0], w[1], w[2], cur[0], cur[1], cur[2], p, zeroOk);
@@ -772,84 +766,15 @@ export const runOptimizationEngine = async (
         return changed;
     };
 
-    /* Learning Algorithm modules only grow while they sit in a machine, so spare ones go into what gets reported. Done on a copy, not in the search
-     * Unused Learning Overclocks: into free space, machines with Efficiency off first, none with an Efficiency target, a spot touching no
-     * Node preferred.
-     * Force Learning (see trains): every learner the search left out goes where it costs least. Every free spot and every swap for a placed
-     * module of its shape (never a fixed one, a Node or another learner) in every machine is tried; a change that breaks a target the machine
-     * meets is never made. Cheapest first: no loss at all, then a loss in the least important machine (card order), then the smallest loss
-     * of maximized stats. A module a learner takes the place of goes wherever it adds the most, if anywhere
+    /* Learning Algorithm Overclocks only grow while they sit in a machine, so any left unused go into free space in what gets reported
+     * Machines with Efficiency off first, none with an Efficiency target, a spot touching no Node preferred. Done on a copy, not in the search
      */
     const learningAlgorithms = searchPoolInventory
-        .filter(item => item.effects.includes('Learning Algorithm') && !item.isLocked && !item.id.includes('_clone_') && !isSpecialModule(item)
-            && (item.displayName.includes('Overclock') || trains[idx(item)] === 1))
-        .map(idx)
-        // The biggest learners first: they have the fewest places to go
-        .sort((a, b) => (core.orientations[b]?.[0]?.count ?? 0) - (core.orientations[a]?.[0]?.count ?? 0));
+        .filter(item => item.displayName.includes('Overclock') && item.effects.includes('Learning Algorithm') && !item.isLocked && !item.id.includes('_clone_'))
+        .map(idx);
     const laOrder = machines.map((_, mIdx) => mIdx)
         .filter(mIdx => callerParams[mIdx].target[2] === null || params[mIdx].ignored[2])
         .sort((a, b) => Number(!params[a].ignored[2]) - Number(!params[b].ignored[2]));
-    // What a machine's maximized stats are worth, and how important the machine is (its best tier; higher is less important)
-    const learnWorth = (mIdx: number, t: Totals) => {
-        const p = params[mIdx];
-        let w = 0;
-        for (let s = 0; s < 3; s++) if (!p.ignored[s] && p.maximize[s]) w += maximizedWorth(p, statOf(p, t, s), s);
-        return w;
-    };
-    const machineTier = (mIdx: number) => Math.min(...[0, 1, 2].map(s => (tierOfStat[mIdx][s] < 0 ? 99 : tierOfStat[mIdx][s])));
-    type Spot = { x: number; y: number; o: Orientation; nodes: number };
-    // The free spot for module `it` on a board touching the fewest Nodes, or null when it fits nowhere
-    const freeSpot = (board: Board, it: number): Spot | null => {
-        const orientations = core.orientations[it];
-        if (!orientations) return null;
-        let best: Spot | null = null;
-        for (let c = 0; c < CELLS; c++) {
-            const x = c % 7, y = (c - x) / 7;
-            for (const o of orientations) {
-                if (!fits(board, x, y, o)) continue;
-                let nodes = 0;
-                for (let i = 0; i < o.count; i++) {
-                    const cx = x + o.xs[i], cy = y + o.ys[i];
-                    for (let d = 0; d < 4; d++) {
-                        const nx = cx + NEIGHBOR_DX[d], ny = cy + NEIGHBOR_DY[d];
-                        if (nx < 0 || nx > 6 || ny < 0 || ny > 4) continue;
-                        const a = board[ny * 7 + nx];
-                        if (a >= 0 && core.white[a]) nodes++;
-                    }
-                }
-                if (best === null || nodes < best.nodes) best = { x, y, o, nodes };
-                if (nodes === 0) return best;
-            }
-        }
-        return best;
-    };
-    // Every way to put `it` on a board: each free spot, or in place of a placed module of its shape (as `piece`)
-    type Move = { after: Board; piece: number };
-    const movesFor = (board: Board, it: number): Move[] => {
-        const moves: Move[] = [];
-        const orientations = core.orientations[it];
-        if (!orientations) return moves;
-        for (let c = 0; c < CELLS; c++) {
-            const x = c % 7, y = (c - x) / 7;
-            for (const o of orientations) {
-                if (!fits(board, x, y, o)) continue;
-                const after = board.slice();
-                put(after, x, y, o, it);
-                moves.push({ after, piece: -1 });
-            }
-        }
-        const og = ++itemGen;
-        for (let c = 0; c < CELLS; c++) {
-            const a = board[c];
-            if (a < 0 || itemStamp[a] === og) continue;
-            itemStamp[a] = og;
-            if (fixed[a] || core.white[a] || trains[a] || core.shape[a] !== core.shape[it]) continue;
-            const after = board.slice();
-            for (let k = 0; k < CELLS; k++) if (after[k] === a) after[k] = it;
-            moves.push({ after, piece: a });
-        }
-        return moves;
-    };
     const withSpareLearningAlgorithms = (boards: Board[]) => {
         if (learningAlgorithms.length === 0) return null;
         const g = ++itemGen;
@@ -858,76 +783,40 @@ export const runOptimizationEngine = async (
         if (spare.length === 0) return null;
         let out: Board[] | null = null;
         const changed = new Set<number>();
-        const boardOf = (mIdx: number) => (out ?? boards)[mIdx];
-        const write = (mIdx: number, board: Board) => {
-            if (out === null) out = boards.map(b => b.slice());
-            out[mIdx] = board;
-            changed.add(mIdx);
-        };
         for (const it of spare) {
-            if (!trains[it]) {
-                // A Learning Overclock that is not training (maxed, or Force Learning off): free space only, as before
-                let best: { mIdx: number; spot: Spot } | null = null;
-                for (const mIdx of laOrder) {
-                    const spot = freeSpot(boardOf(mIdx), it);
-                    if (spot === null) continue;
-                    if (best === null || spot.nodes < best.spot.nodes) best = { mIdx, spot };
-                    if (spot.nodes === 0) break;
-                }
-                if (best !== null) {
-                    const after = boardOf(best.mIdx).slice();
-                    put(after, best.spot.x, best.spot.y, best.spot.o, it);
-                    write(best.mIdx, after);
-                }
-                continue;
-            }
-            // The cheapest move anywhere: [lost anything, -machine tier, loss]
-            let best: { mIdx: number; move: Move; key: [number, number, number] } | null = null;
-            const better = (k: [number, number, number], than: [number, number, number]) =>
-                k[0] !== than[0] ? k[0] < than[0] : k[1] !== than[1] ? k[1] < than[1] : k[2] < than[2];
-            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                const board = boardOf(mIdx);
-                const before = score(board);
-                const met = meetsTargets(params[mIdx], before);
-                const worth = learnWorth(mIdx, before);
-                const tier = machineTier(mIdx);
-                for (const move of movesFor(board, it)) {
-                    const after = score(move.after);
-                    if (met && !meetsTargets(params[mIdx], after)) continue;
-                    const loss = Math.max(0, worth - learnWorth(mIdx, after));
-                    const key: [number, number, number] = [loss > 1e-9 ? 1 : 0, loss > 1e-9 ? -tier : 0, loss];
-                    if (best === null || better(key, best.key)) best = { mIdx, move, key };
-                }
-            }
-            if (best === null) continue;
-            write(best.mIdx, best.move.after);
-            const evicted = best.move.piece;
-            if (evicted < 0) continue;
-            // The module it replaced: wherever it adds the most (keeping targets), or back to storage
-            let home: { mIdx: number; after: Board; gain: number } | null = null;
-            for (let mIdx = 0; mIdx < machineCount; mIdx++) {
-                const board = boardOf(mIdx);
-                const orientations = core.orientations[evicted];
-                if (!orientations) break;
-                const before = score(board);
-                const met = meetsTargets(params[mIdx], before);
-                const worth = learnWorth(mIdx, before);
+            const orientations = core.orientations[it];
+            if (!orientations) continue;
+            type Spot = { mIdx: number; x: number; y: number; o: Orientation; nodes: number };
+            let best = null as Spot | null;
+            for (const mIdx of laOrder) {
+                const board = (out ?? boards)[mIdx];
                 for (let c = 0; c < CELLS; c++) {
                     const x = c % 7, y = (c - x) / 7;
                     for (const o of orientations) {
                         if (!fits(board, x, y, o)) continue;
-                        const after = board.slice();
-                        put(after, x, y, o, evicted);
-                        const st = score(after);
-                        if (met && !meetsTargets(params[mIdx], st)) continue;
-                        const gain = learnWorth(mIdx, st) - worth;
-                        if (gain > 1e-9 && (home === null || gain > home.gain)) home = { mIdx, after, gain };
+                        let nodes = 0;
+                        for (let i = 0; i < o.count; i++) {
+                            const cx = x + o.xs[i], cy = y + o.ys[i];
+                            for (let d = 0; d < 4; d++) {
+                                const nx = cx + NEIGHBOR_DX[d], ny = cy + NEIGHBOR_DY[d];
+                                if (nx < 0 || nx > 6 || ny < 0 || ny > 4) continue;
+                                const a = board[ny * 7 + nx];
+                                if (a >= 0 && core.white[a]) nodes++;
+                            }
+                        }
+                        if (best === null || nodes < best.nodes) best = { mIdx, x, y, o, nodes };
                     }
                 }
+                if (best !== null && (best as Spot).nodes === 0) break;
             }
-            if (home !== null) write(home.mIdx, home.after);
+            // Assigned inside the loops, which TypeScript's narrowing does not follow
+            const spot = best as Spot | null;
+            if (spot === null) continue;
+            if (out === null) out = boards.map(b => b.slice());
+            put(out[spot.mIdx], spot.x, spot.y, spot.o, it);
+            changed.add(spot.mIdx);
         }
-        return out ? { boards: out as Board[], changed } : null;
+        return out ? { boards: out, changed } : null;
     };
 
     // The lowest-priority unmet stepped target drops one step (or is dropped below its lowest), and the record is re-scored against that

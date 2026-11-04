@@ -687,9 +687,6 @@ export type MachineConfig = {
     qualityCap?: number;
     // Efficiency (AgeWell: Efficiency + Performance) that brings energy down to 4 a day; maximized Efficiency past it counts much less
     cheapEnergyAt?: number;
-    // Force Learning (toolbar, Bloom only): spare Learning Algorithm modules short of their cap go into machines even at a cost (see
-    // solver/engine.ts withSpareLearningAlgorithms)
-    forceLearning?: boolean;
 };
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
