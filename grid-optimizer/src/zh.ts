@@ -229,7 +229,6 @@ export const ZH: Record<string, string> = {
     'High Purity': '高纯度',
     'Very High Purity': '极高纯度',
     'Perfect Purity': '完美纯度',
-    '+{n} purity, flux free': '纯度+{n}，无需助熔剂',
     '+{n} purity': '纯度+{n}',
     ' (Blast: first 100% ignored)': '（高炉：前100%不计）',
     '2 scrap': '2废金属',
@@ -240,7 +239,7 @@ export const ZH: Record<string, string> = {
     '1 scrap + 2 ore': '1废金属+2矿石',
     '3 ore': '3矿石',
     'No Blast penalty': '抵消高炉惩罚',
-    ' (Blast: below 100% one stage less, unless flux is used)': '（高炉：低于100%时少一级，除非使用助熔剂）',
+    ' (Blast: below 100% one stage less)': '（高炉：低于100%时少一级）',
 
     // ---- AgeWell
     '+{n} day{s}': '+{n}天',

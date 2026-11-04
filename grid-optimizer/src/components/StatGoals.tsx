@@ -104,9 +104,56 @@ const Choice = ({ label, selected, title, onClick, disabled }: { label: string; 
     </button>
 );
 
-const columns = (text: string) => [...text].reduce((w, ch) => w + (/[\u2E80-\uFFEF]/.test(ch) ? 2 : 1), 0);
-const padColumns = (text: string, width: number) => text + ' '.repeat(Math.max(0, width - columns(text)));
-const selectStyle: React.CSSProperties = { padding: '3px', fontSize: '0.8em', backgroundColor: C.field, color: '#eee', border: `1px solid ${C.fieldBorder}`, borderRadius: '4px' };
+/* The steps of a target as one segmented bar: an optional job picker as its first cell (plant, complexity, chip, chipset), then a
+ * cell per step, all the same width so long names never wrap the row. Steps already reached are tinted, the target is highlighted
+ */
+type SegStep = { value: number | null; label: string; title?: string };
+const SegBar = ({ picker, steps, target, total, onPick, disabled, children }: {
+    picker?: { value: string; options: { value: string; label: string }[]; title?: string; onChange: (v: string) => void };
+    steps?: SegStep[]; target?: number | null; total?: number; onPick?: (v: number | null) => void; disabled: boolean; children?: React.ReactNode;
+}) => (
+    <div style={{ display: 'flex', width: '100%', height: '26px', border: '1px solid #3a3a3a', borderRadius: '5px', overflow: 'hidden', boxSizing: 'border-box' }}>
+        {picker && (
+            <span style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: '0 1 auto', minWidth: 0, maxWidth: '45%', backgroundColor: '#232323', borderRight: '1px solid #3a3a3a' }}>
+                <span aria-hidden style={{ visibility: 'hidden', whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 20px 0 9px', fontSize: '0.78em' }}>
+                    {picker.options.find(o => o.value === picker.value)?.label}
+                </span>
+                <select value={picker.value} disabled={disabled} title={picker.title} onChange={(e) => picker.onChange(e.target.value)}
+                    style={{ position: 'absolute', inset: 0, appearance: 'none', WebkitAppearance: 'none', width: '100%', height: '100%', padding: '0 20px 0 9px', fontSize: '0.78em',
+                        backgroundColor: '#232323', color: '#eee', border: 'none', outline: 'none', textOverflow: 'ellipsis', cursor: disabled ? 'not-allowed' : 'pointer' }}>
+                    {picker.options.map(o => <option key={o.value} value={o.value} style={{ backgroundColor: '#1a1a1a' }}>{o.label}</option>)}
+                </select>
+                <span aria-hidden style={{ position: 'absolute', right: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.6em', color: C.sub, pointerEvents: 'none' }}>▾</span>
+            </span>
+        )}
+        {steps?.map((s, i) => {
+            const selected = target === s.value;
+            const reached = s.value !== null && total !== undefined && total >= s.value;
+            return (
+                <button key={s.value ?? 'auto'} type="button" disabled={disabled} title={s.title} onClick={() => onPick?.(s.value)}
+                    style={{
+                        flex: '1 1 0', minWidth: 0, padding: '0 2px', fontSize: '0.78em', border: 'none', borderRadius: 0,
+                        borderLeft: i > 0 ? `1px solid ${C.divider}` : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        backgroundColor: selected ? C.accentBg : 'transparent',
+                        color: selected ? C.accentText : reached ? C.met : '#bbb', fontWeight: selected ? 'bold' : 'normal',
+                    }}>
+                    {s.label}
+                </button>
+            );
+        })}
+        {children && <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>{children}</div>}
+    </div>
+);
+
+// A step's cell title: what it gives, the % it needs, and how far off that is
+const reachText = (value: number, total: number) => `${value}%${total >= value ? ' ✓' : ` (${t('{v} short', { v: `${Math.ceil(value - total)}%` })})`}`;
+const stepTitle = (b: StatBreakpoint, total: number) => `${b.label}${b.hint ? ` · ${b.hint}` : ''} · ${reachText(b.value, total)}`;
+// Cells use the short names as soon as one step's full name would not fit, and always after a job picker (which already names the job)
+const stepCells = (steps: StatBreakpoint[], total: number, afterPicker = false): SegStep[] => {
+    const useShort = afterPicker || steps.some(b => b.label.length > 9);
+    return steps.map(b => ({ value: b.value, label: useShort ? (b.short ?? b.label) : b.label, title: stepTitle(b, total) }));
+};
 
 type Props = {
     machineType: string;
@@ -297,6 +344,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         };
 
         let panel: React.ReactNode = null;
+        let segmented = deseq;
         if (mode === 'target') {
             if (energy && !toggles) {
                 panel = (
@@ -307,46 +355,29 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
                     </>
                 );
             } else if (deseq) {
+                // Chipset picker, then Auto and the chipset's days
                 panel = (
-                    <>
-                        <select value={work} disabled={disabled} style={{ ...selectStyle, fontFamily: 'ui-monospace, Consolas, monospace' }}
-                            onChange={(e) => { const wk = Number(e.target.value); setChipset(wk); if (!autoDays) setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); }}>
-                            {/* The work each card type needs, lined up on the right; a monospace font is the only way to align inside a native select */}
-                            {(() => {
-                                const pad = Math.max(...DESEQUENCER_CHIPSETS.map(c => columns(t(c.name)))) + 2;
-                                return DESEQUENCER_CHIPSETS.map(c => <option key={c.work} value={c.work}>{padColumns(t(c.name), pad)}{String(c.work).padStart(4, ' ')}</option>);
-                            })()}
-                        </select>
-                        {/* The days on their own line under the chipset */}
-                        <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px' }}>
-                            <Choice label={t('Auto')} selected={autoDays && target === null} title={t("As fast as the modules allow, counted in this chipset's whole days")}
-                                onClick={() => { setAutoDays(true); setTarget(stat, null); }} disabled={disabled} />
-                            {desequencerDayOptions(work).map(o => (
-                                <Choice key={o.value} label={t('{d}d', { d: o.days })} selected={target === o.value} title={`${o.value}%`}
-                                    onClick={() => { setAutoDays(false); setTarget(stat, o.value); }} disabled={disabled} />
-                            ))}
-                        </div>
-                    </>
+                    <SegBar disabled={disabled} total={total} target={autoDays && target === null ? null : target}
+                        picker={{ value: String(work), options: DESEQUENCER_CHIPSETS.map(c => ({ value: String(c.work), label: `${t(c.name)} (${c.work})` })),
+                            onChange: (v) => { const wk = Number(v); setChipset(wk); if (!autoDays) setTarget(stat, nextStepAbove(desequencerDayOptions(wk))); } }}
+                        steps={[{ value: null, label: t('Auto'), title: t("As fast as the modules allow, counted in this chipset's whole days") },
+                            ...desequencerDayOptions(work).map(o => ({ value: o.value, label: t('{d}d', { d: o.days }), title: reachText(o.value, total) }))]}
+                        onPick={(v) => { setAutoDays(v === null); setTarget(stat, v); }} />
                 );
             } else if (jobs && (jobStepList || stat !== 'Efficiency')) {
                 // The job picker; a job with no steps for this stat (the DNA Manipulator's "Any seed") takes a plain number instead
-                panel = (
-                    <>
-                        <select value={job!.key} disabled={disabled} style={selectStyle} title={jobs.label} onChange={(e) => pickJob(e.target.value)}>
-                            {jobs.jobs.map(j => <option key={j.key} value={j.key}>{j.name}</option>)}
-                        </select>
-                        <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px' }}>
-                            {jobStepList ? jobStepList.map(b => (
-                                <Choice key={b.value} label={b.short ?? b.label} selected={target === b.value} title={b.hint + t(' ({note})', { note: `${b.value}%` })}
-                                    onClick={() => setTarget(stat, b.value)} disabled={disabled} />
-                            )) : <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />}
-                        </div>
-                    </>
-                );
+                const picker = { value: job!.key, title: jobs.label, options: jobs.jobs.map(j => ({ value: j.key, label: j.name })), onChange: pickJob };
+                panel = jobStepList
+                    ? <SegBar disabled={disabled} picker={picker} steps={stepCells(jobStepList, total, true)} target={target} total={total} onPick={(v) => v !== null && setTarget(stat, v)} />
+                    : (
+                        <SegBar disabled={disabled} picker={picker}>
+                            <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />
+                        </SegBar>
+                    );
+                segmented = true;
             } else if (breakpoints) {
-                panel = breakpoints.map(b => (
-                    <Choice key={b.value} label={b.label} selected={target === b.value} title={b.hint + t(' ({note})', { note: `${b.value}%` })} onClick={() => setTarget(stat, b.value)} disabled={disabled} />
-                ));
+                panel = <SegBar disabled={disabled} steps={stepCells(breakpoints, total)} target={target} total={total} onPick={(v) => v !== null && setTarget(stat, v)} />;
+                segmented = true;
             } else {
                 panel = <TargetInput unit={unit} target={target} totals={totals} onChange={(pct) => pct !== null && setTarget(stat, pct)} disabled={disabled} />;
             }
@@ -376,7 +407,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const edit = () => { if (targetOn) setOpen(open === stat ? null : stat); };
 
         return {
-            key: stat, name: statName(machineType, stat), result, color, gap, panel, mode, choose, isOn, toggle, edit,
+            key: stat, name: statName(machineType, stat), result, color, gap: segmented ? null : gap, panel, mode, choose, isOn, toggle, edit,
             progress: progress ?? autoProgress,
             barColor: progress === null && autoProgress !== null ? colorFor(autoProgress) : undefined,
             tooltip: autoProgress !== null && nextStep

@@ -84,11 +84,11 @@ const furnaceBreakpoints = (hasBlast: boolean): StatBreakpoint[] => {
         value: 100,
         label: t('No Blast penalty'),
         short: '+0',
-        hint: recipes.map(([recipe, base]) => `${t(recipe)} → ${t(PURITIES[base])}`).join(' · ') + t(' (Blast: below 100% one stage less, unless flux is used)'),
+        hint: recipes.map(([recipe, base]) => `${t(recipe)} → ${t(PURITIES[base])}`).join(' · ') + t(' (Blast: below 100% one stage less)'),
     }] : [];
     return [...blastFloor, ...[1, 2, 3, 4].map(stages => ({
         value: stages * 100 + offset,
-        label: stages === 1 ? t('+{n} purity, flux free', { n: stages }) : t('+{n} purity', { n: stages }),
+        label: t('+{n} purity', { n: stages }),
         short: `+${stages}`,
         hint: recipes.map(([recipe, base]) => `${t(recipe)} → ${t(PURITIES[Math.min(base + stages, 4)])}`).join(' · ')
             + (hasBlast ? t(' (Blast: first 100% ignored)') : ''),
