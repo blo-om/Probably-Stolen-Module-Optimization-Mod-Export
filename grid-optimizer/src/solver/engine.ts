@@ -733,7 +733,8 @@ export const runOptimizationEngine = async (
         const spare: number[] = [];
         for (const item of searchPoolInventory) {
             const it = idx(item);
-            if (!item.isLocked && !fixed[it] && !core.white[it] && itemStamp[it] !== g) spare.push(it);
+            // Never a special (machine-specific, Alarm, Junk Processing, Blast): those are not the solver's to put on a board
+            if (!item.isLocked && !fixed[it] && !core.white[it] && !isSpecialModule(item) && itemStamp[it] !== g) spare.push(it);
         }
         let changed = false;
         for (let mIdx = 0; mIdx < machineCount; mIdx++) {

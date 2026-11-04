@@ -13,7 +13,7 @@
  * modules are locked by their own rules only. Modules held by machines outside the solve stay out of their reach, as on their sites
  */
 import type { MachineConfig } from '../hooks/useOptimizer';
-import { calculateBoardStats, generateCodeFromState, indexInventoryById } from '../hooks/useOptimizer';
+import { calculateBoardStats, generateCodeFromState, indexInventoryById, isSpecialModule } from '../hooks/useOptimizer';
 import type { InventoryItem, Stats } from '../types';
 import { runParallelEngine } from '../solver/parallel';
 import { isMachineModuleName } from '../constants';
@@ -164,6 +164,13 @@ export const runSelectedSolver = async (
     const pin = pinStuck(machines, boards, fullInventory, inventoryById, pinned);
     // Pinned modules are never drawn, wherever they are: their snapshots know nothing of which machine takes a machine-specific module
     searchPoolInventory = searchPoolInventory.filter(item => !pinned(item));
+    /* Nor is a special (machine-specific, Alarm, Junk Processing, Blast) from storage, locked or not: which of them a machine carries is the
+     * player's call. One already on a board being solved stays where it is. (The other solvers know the specials by older names, and
+     * their module locks are taken off below)
+     */
+    const onBoards = new Set<string>();
+    boards.forEach(b => boardIds(b).forEach(id => onBoards.add(id)));
+    searchPoolInventory = searchPoolInventory.filter(item => !isSpecialModule(item) || onBoards.has(item.id));
     if (pin.any) {
         machines = pin.solved;
         boards = pin.solvedBoards;
