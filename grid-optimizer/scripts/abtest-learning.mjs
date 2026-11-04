@@ -61,6 +61,34 @@ try {
         await run('Full machine, Quality target 40', [config], inv(), false);
         await run('Full machine, Quality target 40', [config], inv(), true);
     }
+    // 3. Four machines sharing more modules than fit, card order = priority: learners should go where they cost least (the target-only
+    //    machine, then the least important one), and the search should not come out worse for the time the pass takes
+    {
+        const inv = () => {
+            n = 0;
+            return [
+                ...many(8, () => mod('Quality Module', 'Square4_Base', 'Yellow')), ...many(6, () => mod('Refinement Module', 'C5', 'Yellow')),
+                ...many(8, () => mod('Performance Module', 'L4_Base', 'Red')), ...many(4, () => mod('Overclock Module', 'P5', 'Red')),
+                ...many(6, () => mod('Efficiency Module', 'T4_Base', 'Green')), ...many(4, () => mod('Eco Module', 'P5', 'Green')),
+                ...many(4, () => mod('Node (Medium)', 'Node1x2', 'White')),
+                learning('Quality Module', 'Square4_Base', 'Yellow', 2), learning('Performance Module', 'L4_Base', 'Red', 0),
+                learning('Efficiency Module', 'T4_Base', 'Green', 4), learning('Refinement Module', 'C5', 'Yellow', 10),
+                learning('Eco Module', 'P5', 'Green', 0), learning('Efficiency Module', 'L3', 'Green', 1),
+            ];
+        };
+        const cfg = (id, prio, target, ignore, maximize) => ({ id, tier: 3, targetStats: { Performance: null, Quality: null, Efficiency: null, ...target },
+            ignoreStats: ignore, maximizeStats: maximize, statPriority: { Performance: prio, Quality: prio, Efficiency: prio } });
+        const configs = [
+            cfg('1 Quality max', 1, {}, { Performance: true, Quality: false, Efficiency: true }, { Performance: false, Quality: true, Efficiency: false }),
+            cfg('2 Perf max', 2, {}, { Performance: false, Quality: true, Efficiency: true }, { Performance: true, Quality: false, Efficiency: false }),
+            cfg('3 Quality target 30', 3, { Quality: 30 }, { Performance: true, Quality: false, Efficiency: true }, { Performance: false, Quality: false, Efficiency: false }),
+            cfg('4 Eff max', 4, {}, { Performance: true, Quality: true, Efficiency: false }, { Performance: false, Quality: false, Efficiency: true }),
+        ];
+        for (let r = 0; r < 2; r++) {
+            await run(`Four machines, run ${r + 1}`, configs, inv(), false);
+            await run(`Four machines, run ${r + 1}`, configs, inv(), true);
+        }
+    }
 } finally {
     await server.close();
 }
