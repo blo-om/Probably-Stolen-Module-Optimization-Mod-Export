@@ -105,14 +105,17 @@ const chip = (on: boolean, color = '#8fd19e', off = false) => ({
     padding: '5px 9px', borderRadius: '5px', cursor: off ? 'not-allowed' : 'pointer', fontSize: '0.85em', opacity: off ? 0.35 : 1,
     border: `1px solid ${on ? color : '#3a3a3c'}`, background: on ? 'rgba(255,255,255,0.08)' : '#232325', color: on ? color : '#ccc',
 });
-const Step = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
-    <div style={{ padding: '10px 12px', borderBottom: '1px solid #2c2c2e' }}>
-        <div style={{ fontSize: '0.72em', color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '7px' }}>
-            <span style={{ color: '#8fd19e', fontWeight: 'bold', marginRight: '6px' }}>{n}</span>{title}
-        </div>
+const Section = ({ title, children }: { title?: string; children: React.ReactNode }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {title && <div style={{ fontSize: '0.7em', color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title}</div>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>{children}</div>
     </div>
 );
+// A row of the type list: a dot in the module's colour and its name
+const listRow = (on: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: '7px', width: '100%', padding: '5px 10px', border: 'none', borderLeft: `2px solid ${on ? '#8fd19e' : 'transparent'}`,
+    background: on ? '#2a2a2c' : 'none', cursor: 'pointer', fontSize: '0.82em', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+});
 
 export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: InventoryItem) => void; disabled?: boolean }) {
     useLang();
@@ -136,6 +139,8 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
     }, [open]);
 
     const type = TYPES[typeIdx];
+    // Phones: the menu is pinned to the screen and the list sits above the details
+    const narrow = typeof window !== 'undefined' && window.innerWidth < 700;
     const template = type.shapes[Math.min(shapeIdx, type.shapes.length - 1)];
     const max = maxValue(template);
     const progressEffect = effects.find(hasProgress);
@@ -179,121 +184,130 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
             </button>
             {open && (
                 <div style={{
-                    position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 200, width: 'min(560px, calc(100vw - 32px))', maxHeight: '75vh', overflowY: 'auto',
+                    ...(narrow ? { position: 'fixed', left: '16px', right: '16px', top: '60px', maxHeight: 'calc(100vh - 80px)' } : { position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 'min(640px, calc(100vw - 32px))', maxHeight: '75vh' }), zIndex: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column',
                     backgroundColor: '#1c1c1e', border: '1px solid #444', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.6)'
                 }}>
-                    <Step n={1} title={t('Type')}>
-                        {TYPES.map((ty, i) => ty.machine ? null : (
-                            <button key={ty.name} onClick={() => pickType(i)} style={chip(i === typeIdx, COLOR_MAP[ty.color])}>
-                                <span style={{ color: COLOR_MAP[ty.color] }}>{moduleName(ty.name)}</span>
-                            </button>
-                        ))}
-                        {/* Machine-specific modules: folded away behind their header, a small card per machine with its icon */}
-                        <div style={{ width: '100%', marginTop: '6px', borderTop: '1px solid #2c2c2e', paddingTop: '8px' }}>
+                    {/* Left: the types, coloured dots, machine-specific modules folded at the bottom. Right: shape, effects and Add */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', minHeight: 0, flex: 1 }}>
+                        <div style={{ flex: narrow ? '1 1 100%' : '0 0 200px', maxWidth: '100%', borderRight: narrow ? 'none' : '1px solid #2c2c2e', borderBottom: narrow ? '1px solid #2c2c2e' : 'none', padding: '6px 0', overflowY: 'auto', maxHeight: narrow ? '35vh' : '70vh' }}>
+                            {TYPES.map((ty, i) => ty.machine ? null : (
+                                <button key={ty.name} onClick={() => pickType(i)} style={{ ...listRow(i === typeIdx), color: SPECIAL_TEXT[ty.color] ?? COLOR_MAP[ty.color] }}>
+                                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: COLOR_MAP[ty.color], flex: 'none' }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title={moduleName(ty.name)}>{moduleName(ty.name).replace(/ Module(?= |$)/, '')}</span>
+                                </button>
+                            ))}
                             <button onClick={() => setSpecialsOpen(o => !o)} aria-expanded={specialsOpen}
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
-                                    color: '#aaa', fontSize: '0.78em', textAlign: 'left' }}>
-                                <span style={{ display: 'inline-block', width: '10px', transform: specialsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
-                                <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Machine-specific')}</span>
-                                <span style={{ color: '#666' }}>{t('{n} modules for {m} machines', { n: MACHINE_OF.size, m: MACHINE_SPECIFIC.length })}</span>
-                                {type.machine && !specialsOpen && <span style={{ marginLeft: 'auto', color: '#9ab' }}>{moduleName(type.name)}</span>}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', marginTop: '6px', padding: '8px 10px 4px', background: 'none', border: 'none',
+                                    borderTop: '1px solid #2c2c2e', cursor: 'pointer', color: '#888', fontSize: '0.68em', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left' }}>
+                                <span style={{ flex: 1 }}>{t('Machine-specific')}</span>
+                                <span style={{ display: 'inline-block', transform: specialsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
                             </button>
-                            {specialsOpen && (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px', marginTop: '8px' }}>
-                                    {MACHINE_SPECIFIC.map(g => (
-                                        <div key={g.machine} style={{ background: '#202022', border: '1px solid #2c2c2e', borderRadius: '6px', padding: '8px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                                <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.png`} alt="" width={24} height={24} style={{ imageRendering: 'pixelated', flex: 'none' }} />
-                                                <span style={{ fontSize: '0.8em', color: '#ddd', fontWeight: 'bold' }}>{t(g.machine)}</span>
-                                                {g.note && <span title={t(g.note)} style={{ fontSize: '0.7em', color: '#777' }}>{t('+ Desequencer')}</span>}
+                            {specialsOpen && MACHINE_SPECIFIC.map(g => (
+                                <div key={g.machine}>
+                                    <div title={g.note ? t(g.note) : undefined} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px 2px', fontSize: '0.72em', color: '#aaa' }}>
+                                        <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.png`} alt="" width={18} height={18} style={{ imageRendering: 'pixelated', flex: 'none' }} />
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t(g.machine)}</span>
+                                    </div>
+                                    {g.modules.map(([name, , short]) => {
+                                        const i = TYPES.findIndex(ty => ty.name === name);
+                                        const ty = TYPES[i];
+                                        const color = SPECIAL_TEXT[ty.color] ?? COLOR_MAP[ty.color];
+                                        return (
+                                            <button key={name} onClick={() => pickType(i)} title={`${moduleName(name)}: ${t(ty.effect!)}`} style={{ ...listRow(i === typeIdx), color, paddingLeft: '34px' }}>
+                                                {t(short)}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ flex: '1 1 240px', minWidth: 0, padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {type.machine && (() => {
+                                const g = MACHINE_SPECIFIC.find(m => m.machine === type.machine)!;
+                                return (
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                        <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.png`} alt="" width={40} height={40} style={{ imageRendering: 'pixelated', flex: 'none' }} />
+                                        <div style={{ fontSize: '0.85em', lineHeight: 1.4 }}>
+                                            <div style={{ color: '#888', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                                {t('{machine} only', { machine: t(type.machine!) })}{g.note ? ` · ${t(g.note)}` : ''}
                                             </div>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                                                {g.modules.map(([name, , short]) => {
-                                                    const i = TYPES.findIndex(ty => ty.name === name);
-                                                    const ty = TYPES[i];
-                                                    const color = SPECIAL_TEXT[ty.color] ?? COLOR_MAP[ty.color];
-                                                    return (
-                                                        <button key={name} onClick={() => pickType(i)} title={`${moduleName(name)}: ${t(ty.effect!)}`} style={chip(i === typeIdx, color)}>
-                                                            <span style={{ color }}>{t(short)}</span>
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
+                                            <div style={{ color: '#ddd' }}>{t(type.effect!)}</div>
                                         </div>
+                                    </div>
+                                );
+                            })()}
+                            {type.shapes.length > 1 && (
+                                <Section>
+                                    {type.shapes.map((sh, i) => {
+                                        const base = getBaseStats(sh);
+                                        return (
+                                            <button key={sh.shape} onClick={() => { setShapeIdx(i); setProgress(null); }}
+                                                title={STATS.filter(s => base[s.key] !== 0).map(s => `${t(s.label)} ${fmt(base[s.key])}%`).join(', ')}
+                                                style={{ ...chip(sh === template, COLOR_MAP[type.color]), display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minWidth: '58px' }}>
+                                                <span style={{ height: '34px', display: 'flex', alignItems: 'center', transform: 'scale(0.6)' }}>
+                                                    <MiniShape shape={sh.shape} colorHex={COLOR_MAP[sh.color]} />
+                                                </span>
+                                                <span style={{ fontSize: '0.85em' }}>{t('{n} cells', { n: sh.size })}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </Section>
+                            )}
+
+                            {type.effects && (
+                                <Section title={t('Effects (up to two)')}>
+                                    {EFFECTS.map(e => {
+                                        const on = effects.includes(e);
+                                        const blocked = !on && (effects.length >= 2 || effects.some(x => !canPair(x, e)));
+                                        return (
+                                            <button key={e} onClick={() => !blocked && toggleEffect(e)} disabled={blocked} style={chip(on, '#9ab', blocked)}
+                                                title={blocked && effects.length < 2 ? t('The game never puts this with {other}', { other: effects.filter(x => !canPair(x, e)).map(x => t(x)).join(', ') }) : undefined}>
+                                                {on && effects.length === 2 ? `${effects.indexOf(e) + 1}. ` : ''}{t(e)}
+                                            </button>
+                                        );
+                                    })}
+                                </Section>
+                            )}
+
+                            {progressEffect && (
+                                <Section title={progressEffect === 'Learning Algorithm' ? t('Learning progress') : t('Degrading: what is left')}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+                                        <input type="range" min={0} max={max} step={1} value={value} onChange={e => setProgress(Number(e.target.value))}
+                                            style={{ flex: 1, accentColor: '#8fd19e' }} />
+                                        <span style={{ minWidth: '84px', textAlign: 'right', color: '#ddd', fontVariantNumeric: 'tabular-nums', fontSize: '0.85em' }}>
+                                            {value}% / {max}%
+                                        </span>
+                                    </div>
+                                    <div style={{ width: '100%', fontSize: '0.75em', color: '#777' }}>
+                                        {progressEffect === 'Learning Algorithm'
+                                            ? t('Starts at 0% and gains 1% a use, up to {max}%. Set it to what the module shows in the game', { max })
+                                            : t('Starts at {max}% and loses 1% a use. Set it to what the module shows in the game', { max })}
+                                    </div>
+                                </Section>
+                            )}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 0 0', marginTop: 'auto', borderTop: '1px solid #2c2c2e' }}>
+                            <span style={{ transform: 'scale(0.6)', display: 'flex' }}>
+                                <MiniShape shape={template.shape} colorHex={COLOR_MAP[template.color]} />
+                            </span>
+                            <span style={{ flex: 1, minWidth: 0, fontSize: '0.85em' }}>
+                                <span style={{ color: SPECIAL_TEXT[template.color] ?? COLOR_MAP[template.color], fontWeight: 'bold' }}>{moduleName(template.displayName)}</span>
+                                {effects.length > 0 && <span style={{ color: '#9ab' }}> · {effects.map(e => t(e)).join(' · ')}</span>}
+                                <div style={{ fontVariantNumeric: 'tabular-nums', marginTop: '2px' }}>
+                                    {STATS.filter(s => stats[s.key] !== 0).length === 0 && <span style={{ color: '#777' }}>{t('No stats of its own')}</span>}
+                                    {STATS.filter(s => stats[s.key] !== 0).map(s => (
+                                        <span key={s.key} style={{ marginRight: '10px', color: COLOR_MAP[s.color] }}>{t(s.label)} {fmt(stats[s.key])}%</span>
                                     ))}
                                 </div>
-                            )}
+                                {added && <div style={{ color: '#4caf50', fontSize: '0.85em', marginTop: '2px' }}>{t('Added {item} to storage', { item: added })}</div>}
+                            </span>
+                            <button onClick={add}
+                                style={{ padding: '7px 16px', borderRadius: '6px', border: '1px solid #2e4a35', background: 'rgba(76, 175, 80, 0.15)', color: '#8fd19e', cursor: 'pointer', fontWeight: 'bold' }}>
+                                {t('Add to storage')}
+                            </button>
                         </div>
-                    </Step>
-
-                    <Step n={2} title={t('Shape')}>
-                        {type.shapes.map((sh, i) => {
-                            const base = getBaseStats(sh);
-                            return (
-                                <button key={sh.shape} onClick={() => { setShapeIdx(i); setProgress(null); }}
-                                    title={STATS.filter(s => base[s.key] !== 0).map(s => `${t(s.label)} ${fmt(base[s.key])}%`).join(', ')}
-                                    style={{ ...chip(sh === template, COLOR_MAP[type.color]), display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minWidth: '62px' }}>
-                                    <span style={{ height: '34px', display: 'flex', alignItems: 'center', transform: 'scale(0.6)' }}>
-                                        <MiniShape shape={sh.shape} colorHex={COLOR_MAP[sh.color]} />
-                                    </span>
-                                    <span style={{ fontSize: '0.85em' }}>{t('{n} cells', { n: sh.size })}</span>
-                                </button>
-                            );
-                        })}
-                    </Step>
-
-                    {type.effects && (
-                        <Step n={3} title={t('Effects (up to two)')}>
-                            {EFFECTS.map(e => {
-                                const on = effects.includes(e);
-                                const blocked = !on && (effects.length >= 2 || effects.some(x => !canPair(x, e)));
-                                return (
-                                    <button key={e} onClick={() => !blocked && toggleEffect(e)} disabled={blocked} style={chip(on, '#9ab', blocked)}
-                                        title={blocked && effects.length < 2 ? t('The game never puts this with {other}', { other: effects.filter(x => !canPair(x, e)).map(x => t(x)).join(', ') }) : undefined}>
-                                        {on && effects.length === 2 ? `${effects.indexOf(e) + 1}. ` : ''}{t(e)}
-                                    </button>
-                                );
-                            })}
-                        </Step>
-                    )}
-
-                    {progressEffect && (
-                        <Step n={4} title={progressEffect === 'Learning Algorithm' ? t('Learning progress') : t('Degrading: what is left')}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
-                                <input type="range" min={0} max={max} step={1} value={value} onChange={e => setProgress(Number(e.target.value))}
-                                    style={{ flex: 1, accentColor: '#8fd19e' }} />
-                                <span style={{ minWidth: '92px', textAlign: 'right', color: '#ddd', fontVariantNumeric: 'tabular-nums', fontSize: '0.85em' }}>
-                                    {value}% / {max}%
-                                </span>
-                            </div>
-                            <div style={{ width: '100%', fontSize: '0.75em', color: '#777' }}>
-                                {progressEffect === 'Learning Algorithm'
-                                    ? t('Starts at 0% and gains 1% a use, up to {max}%. Set it to what the module shows in the game', { max })
-                                    : t('Starts at {max}% and loses 1% a use. Set it to what the module shows in the game', { max })}
-                            </div>
-                        </Step>
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#202022' }}>
-                        <span style={{ transform: 'scale(0.6)', display: 'flex' }}>
-                            <MiniShape shape={template.shape} colorHex={COLOR_MAP[template.color]} />
-                        </span>
-                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.85em' }}>
-                            <span style={{ color: SPECIAL_TEXT[template.color] ?? COLOR_MAP[template.color], fontWeight: 'bold' }}>{moduleName(template.displayName)}</span>
-                            {effects.length > 0 && <span style={{ color: '#9ab' }}> · {effects.map(e => t(e)).join(' · ')}</span>}
-                            {type.machine && <div style={{ color: '#9ab', marginTop: '2px' }}>{t('{machine} only', { machine: t(type.machine) })}: {t(type.effect!)}</div>}
-                            <div style={{ fontVariantNumeric: 'tabular-nums', marginTop: '2px' }}>
-                                {STATS.filter(s => stats[s.key] !== 0).length === 0 && <span style={{ color: '#777' }}>{t('No stats of its own')}</span>}
-                                {STATS.filter(s => stats[s.key] !== 0).map(s => (
-                                    <span key={s.key} style={{ marginRight: '10px', color: COLOR_MAP[s.color] }}>{t(s.label)} {fmt(stats[s.key])}%</span>
-                                ))}
-                            </div>
-                            {added && <div style={{ color: '#4caf50', fontSize: '0.85em', marginTop: '2px' }}>{t('Added {item} to storage', { item: added })}</div>}
-                        </span>
-                        <button onClick={add}
-                            style={{ padding: '7px 16px', borderRadius: '6px', border: '1px solid #2e4a35', background: 'rgba(76, 175, 80, 0.15)', color: '#8fd19e', cursor: 'pointer', fontWeight: 'bold' }}>
-                            {t('Add to storage')}
-                        </button>
+                    </div>
                     </div>
                 </div>
             )}

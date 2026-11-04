@@ -27,7 +27,6 @@ export const ZH: Record<string, string> = {
     'Machine-specific': '机器专用',
     '{n} modules for {m} machines': '{n}个模组，用于{m}台机器',
     'also fits the Cryptographic Desequencer': '也可装入密码解序器',
-    '+ Desequencer': '+ 解序器',
     'Any seed (no steps)': '任意种子（无断点）',
     'Transmitter': '发射器',
     'Blast': '高炉',
