@@ -3,7 +3,7 @@ import type { Stats } from '../types';
 import { rememberSaveSettings } from '../saveSettings';
 import {
     statBreakpoints, statUnit, statName, statHasNoEffect, hiddenStat, sumsPE,
-    machineJobs, machineJobKey, isDesequencer, isMirage, MIRAGE_BASE_POINTS, MIRAGE_SUM_PER_POINT, MIRAGE_QUALITY_WEIGHT, miragePoints, mirageSumFor, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
+    machineJobs, machineJobKey, isDesequencer, isMirage, MIRAGE_QUALITY_WEIGHT, miragePoints, miragePointsFor, mirageSumFor, DESEQUENCER_CHIPSETS, desequencerDayOptions, desequencerSpeed,
     desequencerChipsetKey, desequencerAutoDaysKey, STORE_BASE_ATTRACTIVENESS_KEY,
 } from '../machineDefaults';
 import type { StatBreakpoint, StatUnit } from '../machineDefaults';
@@ -50,7 +50,7 @@ const splitUnit = (result: string): React.ReactNode => {
 // Mirage attractiveness, as points, from Performance + 2 x Quality (what the solver works on): 4 of it make a point
 const POINTS: StatUnit = {
     get unit() { return t('pts'); },
-    fromPercent: (sum) => MIRAGE_BASE_POINTS + Math.floor(sum / MIRAGE_SUM_PER_POINT),
+    fromPercent: (sum) => miragePointsFor(sum),
     toPercent: (pts) => mirageSumFor(pts),
     step: 1,
 };
