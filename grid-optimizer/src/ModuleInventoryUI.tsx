@@ -1387,7 +1387,9 @@ export default function ModuleInventoryUI() {
         const byId = indexInventoryById(expandedInventory);
         const statsOf = (board: any[][]) => calculateBoardStats(board, expandedInventory, byId).totals;
         const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
-        const deadline = performance.now() + 2000;
+        // 4 s in all; each module's search for room (moving modules) gets its own slice, so the first big ones cannot use it all up
+        const end = performance.now() + 4000;
+        let deadline = end;
         const cards = machines.map(({ id }) => ({ id, card: machinesRef.current[id] })).filter(m => m.card && !m.card.isLocked());
         // Every machine's layout before this Store: what Retrieve gives back to a machine whose own modules had to move
         const startLayouts = Object.fromEntries(cards.map(({ id, card }) => [id, idGrid(card.getBoard())]));
@@ -1450,10 +1452,15 @@ export default function ModuleInventoryUI() {
         const layouts: Record<string, { before: IdGrid; after: IdGrid }> = {};
         // Never a special (machine-specific, Alarm, Junk Processing, Blast): which of them a machine carries is the player's call
         const candidates = unusedModules.filter(item => !item.isInfinite && !isSpecialModule(item));
-        // Straight into free spots first for everything, then moving one module, then two, for what is left
+        /* Straight into free spots first for everything, then moving one module, then two, for what is left. Making room goes smallest
+         * first (a Node needs a 2-cell pocket touching nothing that costs energy, the cheapest room to make), each module with its own time
+         */
+        const size = (item: InventoryItem) => PRECOMPUTED_OFFSETS.get(item.shape)?.[0]?.length ?? 0;
+        const smallestFirst = [...candidates].sort((a, b) => size(a) - size(b));
         for (const moves of [0, 1, 2]) {
-            for (const item of candidates) {
-                if (stored.includes(item.id) || performance.now() > deadline) continue;
+            for (const item of moves === 0 ? candidates : smallestFirst) {
+                if (stored.includes(item.id) || performance.now() > end) continue;
+                deadline = moves === 0 ? end : Math.min(end, performance.now() + 250);
                 for (const { id, card } of cards) {
                     const board: any[][] = card.getBoard();
                     const next = storeOn(board, card.getState().machineKind, item, moves);
