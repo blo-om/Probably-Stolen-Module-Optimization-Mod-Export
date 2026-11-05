@@ -583,6 +583,8 @@ export const chipJobKey = (work: number, melee: boolean, name: string): string =
  * are the days, and 100% success at Quality 10 + 10c. Without a known seed (DNA_ANY_SEED) there is no complexity to step at
  */
 export const DNA_ANY_SEED = 'any';
+// The complexities the picker lists: a seed's own plus its heat, which every operation adds to, goes well past 15
+const DNA_MAX_LISTED = 30;
 const dnaJob = (c: number): StatJob => ({
     key: String(c), name: t('Complexity {c}', { c }),
     steps: {
@@ -674,13 +676,13 @@ export const machineJobs = (machineType: string, picked?: string | null): { labe
         };
     }
     if (name.includes('dna manipulator')) {
-        // A complexity read from the save past the list's 15 is offered as its own entry
+        // A complexity read from the save past the list's last is offered as its own entry
         const picks = Number(picked);
-        const extra = picked && /^\d+$/.test(picked) && picks > 15 ? [dnaJob(picks)] : [];
+        const extra = picked && /^\d+$/.test(picked) && picks > DNA_MAX_LISTED ? [dnaJob(picks)] : [];
         return {
             label: t('Complexity'),
             // First, and the default: no seed known, so nothing to step at; both stats are maximized
-            jobs: [{ key: DNA_ANY_SEED, name: t('Any seed (no steps)'), steps: {} }, ...extra, ...Array.from({ length: 16 }, (_, c) => dnaJob(c))],
+            jobs: [{ key: DNA_ANY_SEED, name: t('Any seed (no steps)'), steps: {} }, ...extra, ...Array.from({ length: DNA_MAX_LISTED + 1 }, (_, c) => dnaJob(c))],
         };
     }
     if (name.includes('3d printer')) {
