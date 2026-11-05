@@ -181,13 +181,16 @@ export const runParallelEngine = async (
     let awaitingUntil = 0;
     const relaxLowestTarget = () => {
         const record = bestUpdates;
-        if (!record) return;
+        /* Staging and switching targets on need no record. A solve whose first group already stands at its best (its machines full,
+         * the rest empty) has none: no search beats the layout it started from, so waiting for one left every later machine empty
+         */
+        if (!record && stagesLeft === 0 && !lateTargets) return;
         // The first give-up switches the water farms' Purity targets on in every search (see engine.ts lateTargets)
         const orders: StallOrder[] = stagesLeft > 0 ? (stagesLeft--, [{ mIdx: -2, s: -1, stage: true }]) : lateTargets ? (lateTargets = false, [{ mIdx: -1, s: -1 }]) : stallOrders(machines, targets, maximize, (mIdx, s) => {
             const m = machines[mIdx];
             // The machine's own layout's totals: the shown ones are ordered among identical machines (best first), but each search holds
             // a machine to what its own layout reached, so a step taken from a reordered layout could be one the record does not meet
-            const update = record.get(m.id);
+            const update = record?.get(m.id);
             const t = update?.ownTotals ?? update?.totals;
             if (!t) return 0;
             return m.sumPQ && s === 0 ? t.Performance + 2 * t.Quality : t[STATS[s]];
