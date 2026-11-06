@@ -20,6 +20,13 @@ const STALL_MAX_MS = 5000;
  */
 export const EASE_STALL = 0.5;
 export const RELAX_STALL = 1.5;
+/* The next priority group joins (engine.ts STAGED) after this share of the stall time, 0.2 s without a significant gain at the start of a
+ * stage, and the coordinator waits at most STAGE_WAIT_MS for every search to re-score (parallel.ts). A run from Clear All, 11 machines, 3
+ * runs a side: down to about 20 modules in storage after 11-12 s against 14-25 s at EASE_STALL and a 1 s wait; 33 machines, 2 runs a side:
+ * about 30 left after 5-8 s against 15-16 s. The cost seen: on the 33 machines the water was 2-4% lower at 40 s (702-708 credits against 713-730)
+ */
+export const STAGE_STALL = 0.1;
+export const STAGE_WAIT_MS = 300;
 // Significant on a target tier: at least this share of what it was missing (a stepped target's miss penalty included, so in practice
 // meeting a target, or a big jump while still far off). Creeping closer 1% at a time is not, so it cannot hold a relax off forever
 export const TARGET_PROGRESS_SHARE = 0.2;
