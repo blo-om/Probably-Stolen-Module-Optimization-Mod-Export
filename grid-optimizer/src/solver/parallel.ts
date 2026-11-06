@@ -4,7 +4,7 @@ import type { InventoryItem } from '../types';
 import type { WorkerMessage, WorkerReply } from './engineWorker';
 import type { EngineTuning, StallOrder } from './engine';
 import { stallOrders, startsMostlyEmpty } from './engine';
-import { createStallClock, significant, EASE_STALL, RELAX_STALL, MAX_PROGRESS_SHARE } from './stall';
+import { createStallClock, significant, EASE_STALL, RELAX_STALL, STAGE_STALL, STAGE_WAIT_MS, MAX_PROGRESS_SHARE } from './stall';
 
 type Updates = Parameters<Parameters<typeof runOptimizationEngine>[5]>[0];
 
@@ -222,7 +222,7 @@ export const runParallelEngine = async (
         slots.forEach(slot => { slot.ownBest = null; });
         stall.reset(null);
         awaiting = new Set(slots.map((_, i) => i).filter(i => !slots[i].done));
-        awaitingUntil = Date.now() + 1000;
+        awaitingUntil = Date.now() + (orders[0].stage ? STAGE_WAIT_MS : 1000);
     };
     const endWait = () => {
         awaiting = new Set();
@@ -305,7 +305,7 @@ export const runParallelEngine = async (
                 for (const i of stuck) launch(i, boards);
             }
         }
-        if (giveUp && !stopSent && awaiting.size === 0 && stall.due(EASE_STALL)) relaxLowestTarget();
+        if (giveUp && !stopSent && awaiting.size === 0 && stall.due(stagesLeft > 0 ? STAGE_STALL : EASE_STALL)) relaxLowestTarget();
     }, 50);
     try {
         await allDone;

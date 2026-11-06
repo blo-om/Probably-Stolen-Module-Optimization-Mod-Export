@@ -14,7 +14,7 @@ import { calculateBoardStats, indexInventoryById, isSpecialModule, buildSearchPo
 import type { MachineConfig } from '../hooks/useOptimizer';
 import { createTypedCore, CELLS, EMPTY, LOCKED, NEIGHBOR_DX, NEIGHBOR_DY, totalOf, waterValue, waterProgress, cheapEfficiency } from './typedCore';
 import type { Board, MachineParams, Totals } from './typedCore';
-import { createStallClock, EASE_STALL, RELAX_STALL } from './stall';
+import { createStallClock, EASE_STALL, RELAX_STALL, STAGE_STALL } from './stall';
 
 const STAT_KEYS: (keyof Stats)[] = ['Performance', 'Quality', 'Efficiency'];
 
@@ -995,10 +995,10 @@ export const runOptimizationEngine = async (
         } else if (STALL) {
             stall.observe(bestTiers);
             // Easing comes after EASE_STALL of the stall time, relaxing a target after RELAX_STALL (see solver/stall.ts)
-            if (stall.due(EASE_STALL)) {
-                const next = stageRanks.find(r => r > stageUpTo);
-                if (next !== undefined) { stageUpTo = next; relaxed = true; } else relaxed = relaxLowestTarget();
-            }
+            const next = stageRanks.find(r => r > stageUpTo);
+            if (next !== undefined) {
+                if (stall.due(STAGE_STALL)) { stageUpTo = next; relaxed = true; }
+            } else if (stall.due(EASE_STALL)) relaxed = relaxLowestTarget();
         }
         const pr = promoted.current;
         if (pr && statOf(params[pr.mIdx], bestStats[pr.mIdx], pr.s) >= pr.v) promoted.current = null;
