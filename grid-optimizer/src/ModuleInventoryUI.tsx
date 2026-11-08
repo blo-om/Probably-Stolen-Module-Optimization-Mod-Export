@@ -120,7 +120,7 @@ const HEADER_TOP = 10;
 const HEADER_HEIGHT = 52;
 const ICON_SIZE = 46; // 20% under the first version's 58px
 
-// Item art from the game (resources.assets sprites), in public/machines/. Picked by the machine's own name,
+// Machine icons, own pixel art drawn after the game's items, in public/machines/. Picked by the machine's own name,
 // so it works for save-imported paths ("... > Furnace 2") and hand-added cards ("Furnace 1") alike.
 const MACHINE_ICONS: [string, string][] = [
     ['desequencer', 'desequencer'],
@@ -140,7 +140,7 @@ const MACHINE_ICONS: [string, string][] = [
 const machineIcon = (machineType: string): string | null => {
     const name = (machineType.split(' > ').pop() || '').toLowerCase();
     const hit = MACHINE_ICONS.find(([keyword]) => name.includes(keyword));
-    return hit ? `${import.meta.env.BASE_URL}machines/${hit[1]}.png` : null;
+    return hit ? `${import.meta.env.BASE_URL}machines/${hit[1]}.svg` : null;
 };
 
 const MachineInstance = React.memo(forwardRef(({

@@ -205,7 +205,7 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                             {specialsOpen && MACHINE_SPECIFIC.map(g => (
                                 <div key={g.machine}>
                                     <div title={g.note ? t(g.note) : undefined} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px 2px', fontSize: '0.72em', color: '#aaa' }}>
-                                        <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.png`} alt="" width={18} height={18} style={{ imageRendering: 'pixelated', flex: 'none' }} />
+                                        <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.svg`} alt="" width={18} height={18} style={{ imageRendering: 'pixelated', flex: 'none' }} />
                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t(g.machine)}</span>
                                     </div>
                                     {g.modules.map(([name, , short]) => {
@@ -227,7 +227,7 @@ export default function AddModuleMenu({ onAdd, disabled }: { onAdd: (item: Inven
                                 const g = MACHINE_SPECIFIC.find(m => m.machine === type.machine)!;
                                 return (
                                     <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                                        <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.png`} alt="" width={40} height={40} style={{ imageRendering: 'pixelated', flex: 'none' }} />
+                                        <img src={`${import.meta.env.BASE_URL}machines/${g.icon}.svg`} alt="" width={40} height={40} style={{ imageRendering: 'pixelated', flex: 'none' }} />
                                         <div style={{ fontSize: '0.85em', lineHeight: 1.4 }}>
                                             <div style={{ color: '#888', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                                 {t('{machine} only', { machine: t(type.machine!) })}{g.note ? ` · ${t(g.note)}` : ''}

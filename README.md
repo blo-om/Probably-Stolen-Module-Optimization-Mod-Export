@@ -20,7 +20,7 @@ A fork of [hoydoy/probably-stolen-module-optimization](https://github.com/hoydoy
 - **[hoydoy](https://github.com/hoydoy/probably-stolen-module-optimization)** made the original optimizer and site this fork starts from.
 - **[Razboy20](https://github.com/Razboy20/probably-stolen-module-optimization)** inspired the core of the current solver. His fork's rewritten solver, an iterated local search over placements run on one Web Worker per core, is the approach this solver follows. The code here is a separate implementation.
 
-The machine icons in `grid-optimizer/public/machines/` are item art from *Probably Stolen* © Questing Goose Studio, used to identify machines in this fan tool.
+The machine icons in `grid-optimizer/public/machines/` are original pixel art drawn for this site in the style of *Probably Stolen*'s machines, so players can recognise them. *Probably Stolen* is © Questing Goose Studio.
 
 ## Mod export format
 
