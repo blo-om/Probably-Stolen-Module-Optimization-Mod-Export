@@ -112,7 +112,8 @@ const QUALITY_BREAKPOINTS: [string, (hasBlast: boolean) => StatBreakpoint[]][] =
         { value: 200, label: t('100% water'), short: t('100%'), hint: t('Cleans out every contaminant: 100% water') },
     ]],
     ['furnace', furnaceBreakpoints],
-    ['agewell', () => [1, 2, 3, 4].map(extra => ({
+    // No cap in the game (MachineWineRack.GetAgingDays: 1 + max(0, Quality) / 125); listed up to +8, 1000%
+    ['agewell', () => [1, 2, 3, 4, 5, 6, 7, 8].map(extra => ({
         value: extra * 125,
         label: t('+{n} day{s}', { n: extra, s: plural(extra) }),
         short: t('+{n}d', { n: extra }),
