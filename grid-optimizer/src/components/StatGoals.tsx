@@ -177,6 +177,8 @@ type Props = {
      * that is reached first and then gone past (limitStats: the target stays, the stat is still maximized). Both off is Off
      */
     toggles?: boolean;
+    // Told the job when one is picked (the Hydroponic card shows what the picked plant harvests)
+    onJobChange?: (key: string) => void;
 };
 
 type Card = {
@@ -206,7 +208,7 @@ const MODE_LABEL: Record<Mode, string> = { auto: 'Auto', target: 'Target', off: 
 
 // One card per stat (the Mirage Projector's Performance and Quality share one): the stat's name, the result it gives this machine,
 // and its modes in a strip along the bottom. A mode that takes a value opens its choices under the cards
-export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width, autoLabel = 'Auto', toggles = false }: Props) => {
+export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetStats, setIgnoreStats, setTargetStats, limitStats, setLimitStats, disabled, hasBlast, width, autoLabel = 'Auto', toggles = false, onJobChange }: Props) => {
     useLang();
     const [open, setOpen] = useState<string | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
@@ -254,6 +256,7 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
     const pickJob = (key: string) => {
         setJobPick(key);
         try { localStorage.setItem(jobKey, key); } catch { /* per-viewer convenience only */ }
+        onJobChange?.(key);
         rememberSaveSettings();
         const next = jobs?.jobs.find(j => j.key === key);
         if (!next) return;
@@ -283,7 +286,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
         const unit = statUnit(machineType, stat);
         const energy = Boolean(unit?.lowerIsBetter);
         const deseq = stat === 'Performance' && isDesequencer(machineType);
-        const jobStepList = job?.steps[stat] ?? null;
+        // A job with no steps for this stat (Hydroreed harvests nothing, so its Harvest has none) takes a plain number instead
+        const jobStepList = job?.steps[stat]?.length ? job.steps[stat]! : null;
         const breakpoints = deseq ? null : jobStepList ?? statBreakpoints(machineType, stat, hasBlast);
         const mode: Mode = off ? 'off' : target === null && !(deseq && autoDays) ? 'auto' : 'target';
         // Energy only: the target is a ceiling (at most this much a day, and less if it can) rather than a value to reach and stop at

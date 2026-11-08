@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { encodeModExport, boardModules, machineUidKey } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
-import { ALARM_SURE_STOP, alarmStopChance, defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
+import { ALARM_SURE_STOP, harvestIcon, machineJobKey, alarmStopChance, defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, setSolverLocked, SOLVER_SITES, subscribeSolver } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
@@ -267,6 +267,10 @@ const MachineInstance = React.memo(forwardRef(({
     const [machineKind] = useState<string | null>(() => localStorage.getItem(`optimizer_machine_kind_${machineId}`));
     const typeKey = machineKind ?? machineType;
     const machineIconUrl = machineIcon(typeKey);
+    // Hydroponic System: what the picked plant harvests, by the modules on the board (harvestIcon), shown beside the machine's icon
+    const [jobPick, setJobPick] = useState<string | null>(() => { try { return localStorage.getItem(machineJobKey(machineId)); } catch { return null; } });
+    const harvest = typeKey.toLowerCase().includes('hydroponic') ? harvestIcon(jobPick, new Set(optimizer.board.flat()
+        .filter((c: any) => c && c !== 'Locked').map((c: any) => c.displayName as string))) : null;
     // A Blast module shifts every Furnace breakpoint up by 100%
     const hasBlast = optimizer.board.some(row => row.some(cell => cell && cell !== 'Locked' && cell.displayName.includes('(Blast)')));
     // A Moisture Farm with Volume and Purity both on Auto is scored on the value of its water (see MachineConfig.water)
@@ -546,6 +550,19 @@ const MachineInstance = React.memo(forwardRef(({
                         />
                     )}
                 </div>
+                {harvest && (
+                    <div
+                        title={t('Harvest: {item}', { item: gameName(harvest.name) })}
+                        style={{ width: `${HEADER_HEIGHT}px`, height: `${HEADER_HEIGHT}px`, flexShrink: 0, backgroundColor: '#1a1a1a', border: '1px solid #2c2c2e', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}
+                    >
+                        <img
+                            src={`${import.meta.env.BASE_URL}harvest/${harvest.icon}.svg`}
+                            alt={gameName(harvest.name)}
+                            draggable={false}
+                            style={{ width: `${ICON_SIZE}px`, height: `${ICON_SIZE}px`, objectFit: 'contain', imageRendering: 'pixelated' }}
+                        />
+                    </div>
+                )}
                 {/* Same look as the module tooltip; in a portal so a card being dragged (transformed) can't shift it */}
                 {iconHover && !dragState && createPortal(
                     <div style={{
@@ -822,6 +839,7 @@ const MachineInstance = React.memo(forwardRef(({
                         width={(7 * cellSize + 22) / 0.8}
                         autoLabel={solverKind !== 'bloom' ? 'Max' : 'Auto'}
                         toggles={solverKind !== 'bloom'}
+                        onJobChange={setJobPick}
                     />
                     {solverKind !== 'bloom' && (
                         <StatPriorities

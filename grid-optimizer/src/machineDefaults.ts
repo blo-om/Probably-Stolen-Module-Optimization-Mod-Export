@@ -698,6 +698,29 @@ export const machineJobs = (machineType: string, picked?: string | null): { labe
     }
     return null;
 };
+/* What a Hydroponic System harvests with its picked plant, for the icon beside the machine's (public/harvest/<icon>.svg). The game's
+ * harvest rules (PlantList): Kotton is woven to Kotton Fabric with the Auto Loom module; a Dream Cap comes out as a Meal Cap with the
+ * Neutralizer module, as a Nightmare Cap with the Nightmare module (the Neutralizer wins when both are in); Hydroreed gives back only
+ * its seed, and a Hydroreed Filter with the Filter module. `name` is the item's English name (gameName shows it translated)
+ */
+export const harvestIcon = (jobKey: string | null, moduleNames: Set<string>): { icon: string; name: string } | null => {
+    const plant = jobKey?.startsWith('seed:') ? jobKey.split(':')[1] : jobKey ?? PLANTS[0][0];
+    const has = (module: string) => moduleNames.has(module);
+    switch (plant) {
+        case 'nutrifruit': return { icon: 'nutrifruit', name: 'Nutrifruit' };
+        case 'kotton': return has('Kotton Auto Loom Hydroponic Module') ? { icon: 'kotton_fabric', name: 'Kotton Fabric' } : { icon: 'kotton', name: 'Kotton Fiber' };
+        case 'dream_cap':
+            if (has('Dream Cap Neutralizer Hydroponic Module')) return { icon: 'meal_cap', name: 'Meal Cap' };
+            if (has('Dream Cap Nightmare Hydroponic Module')) return { icon: 'nightmare_cap', name: 'Nightmare Cap' };
+            return { icon: 'dream_cap', name: 'Dream Cap' };
+        case 'coffee': return { icon: 'coffee_bean', name: 'Coffee Beans' };
+        case 'fillerweed': return { icon: 'fillerweed', name: 'Fillerweed' };
+        case 'bloomberry': case 'bloomberry_regrowth': return { icon: 'bloomberry', name: 'Bloomberry' };
+        case 'hydroreed': return has('Hydroreed Filter Hydroponic Module') ? { icon: 'hydroreed_filter', name: 'Hydroreed Filter' } : { icon: 'hydroreed_seed', name: 'Hydroreed Seed' };
+        default: return null;
+    }
+};
+
 // The steps a machine's stat has with its picked job (the first job when none is picked)
 export const jobSteps = (machineType: string, machineId: string, stat: StatKey3): StatBreakpoint[] | null => {
     let key: string | null = null;

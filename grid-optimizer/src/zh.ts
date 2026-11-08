@@ -110,6 +110,7 @@ export const ZH: Record<string, string> = {
     '{job}: never Poor (without an ingot quality bonus)': '{job}：不会是差（不计金属锭品质加成）',
     '{job}: always Good or better (without an ingot quality bonus)': '{job}：必定良好或更好（不计金属锭品质加成）',
     '{job}: always Excellent (without an ingot quality bonus)': '{job}：必定极佳（不计金属锭品质加成）',
+    'Harvest: {item}': '收获：{item}',
     'Fillerweed': '填料草',
     'Hydroreed': '水培芦苇',
     'Bloomberry': '荧光莓',

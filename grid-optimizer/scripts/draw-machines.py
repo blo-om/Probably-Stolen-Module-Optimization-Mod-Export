@@ -1,5 +1,6 @@
-"""The machine icons in public/machines/: original pixel art drawn for this site, at half the size of the game's item
+"""The machine icons in public/machines/ and the Hydroponic harvest icons in public/harvest/: original pixel art drawn for this site, at half the size of the game's item
 sprites, in their spirit (same machines, layout and palette) but not copied from them. Needs Pillow only for Canvas.image()."""
+import math
 import os
 
 F = '#292234'  # outline, shared by every machine
@@ -399,10 +400,298 @@ MACHINES = {
     'hydroponic': hydroponic, 'mirage_projector': mirage_projector, 'printer': printer, 'water_purifier': water_purifier,
 }
 
+# ---- Harvest icons for the Hydroponic System card (public/harvest/): 24x24, each following its item's own silhouette
+
+def ellipse(c, cx, cy, rx, ry, ch, outline=True):
+    """Filled ellipse centred on (cx, cy) (half-pixel centres allowed), with a one-pixel outline around it"""
+    inside = lambda x, y, ex, ey: ((x + 0.5 - cx) / ex) ** 2 + ((y + 0.5 - cy) / ey) ** 2 <= 1
+    for y in range(c.h):
+        for x in range(c.w):
+            if outline and inside(x, y, rx + 1, ry + 1) and not inside(x, y, rx, ry):
+                c.g[y][x] = 'f'
+    for y in range(c.h):
+        for x in range(c.w):
+            if inside(x, y, rx, ry):
+                c.g[y][x] = ch
+
+
+def shade(c, cx, cy, rx, ry, ch, dx, dy):
+    """Recolour the part of an ellipse that a copy shifted by (dx, dy) does not cover: a crescent of shadow or light"""
+    inside = lambda x, y, ox, oy: ((x + 0.5 - ox) / rx) ** 2 + ((y + 0.5 - oy) / ry) ** 2 <= 1
+    for y in range(c.h):
+        for x in range(c.w):
+            if inside(x, y, cx, cy) and not inside(x, y, cx + dx, cy + dy):
+                c.g[y][x] = ch
+
+
+def outline_all(c):
+    """A one-pixel outline around everything drawn so far"""
+    filled = {(x, y) for y in range(c.h) for x in range(c.w) if c.g[y][x] != '.'}
+    for y in range(c.h):
+        for x in range(c.w):
+            if c.g[y][x] == '.' and any((x + dx, y + dy) in filled for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                c.g[y][x] = 'f'
+
+
+def rellipse(c, cx, cy, rx, ry, deg, ch, only=None):
+    """Filled ellipse turned by deg degrees (no outline); `only` limits it to pixels already holding those letters"""
+    a = math.radians(deg)
+    for y in range(c.h):
+        for x in range(c.w):
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            u = dx * math.cos(a) + dy * math.sin(a)
+            v = -dx * math.sin(a) + dy * math.cos(a)
+            if (u / rx) ** 2 + (v / ry) ** 2 <= 1 and (only is None or c.g[y][x] in only):
+                c.g[y][x] = ch
+
+
+def nutrifruit():
+    # Two oval potatoes: a whole purple one lying tilted on the left, a halved one on the right showing its pink flesh
+    c = Canvas(24, 24, {'b': '#A272AC', 'c': '#777081', 'd': '#6B5269', 'e': '#88948A', 'x': '#4A2F38',
+                        'g': '#BB9165', 'h': '#C0A0A4'})
+    rellipse(c, 9.5, 12, 9, 6, -28, 'b')
+    rellipse(c, 8.5, 14.5, 9, 5, -28, 'd', only='b')
+    rellipse(c, 9.8, 11.2, 9, 5.6, -28, 'b', only='d')
+    for x, y in ((9, 8), (10, 8), (9, 9), (6, 11), (7, 11), (12, 6)):
+        c.put(x, y, 'e')
+    c.put(3, 15, 'cc')
+    c.put(5, 16, 'c')
+    # The halved potato: skin first, then the cut face
+    rellipse(c, 17, 16, 6.2, 6.4, -10, 'x')
+    rellipse(c, 17, 16, 5.4, 5.6, -10, 'd')
+    rellipse(c, 18.3, 15.4, 4.4, 5, -10, 'g')
+    rellipse(c, 18.5, 15.2, 3.5, 4.2, -10, 'h')
+    for x, y in ((17, 13), (18, 13), (19, 14), (17, 15), (18, 16), (20, 17), (19, 17)):
+        c.put(x, y, 'g')
+    outline_all(c)
+    return c
+
+
+def kotton():
+    # A tall thin stalk: one cotton boll at the top left, another off to the right halfway down
+    c = Canvas(24, 24, {'w': '#D5D2B8', 'W': '#D59F75', 'o': '#D59F75', 's': '#645355'})
+    c.rows(6, 1, [
+        '   fff      ',
+        '  fwwwf     ',
+        ' fwwowwf    ',
+        'fwwwwowf    ',
+        'fwowwwwf    ',
+        'fWwwwwWf    ',
+        ' fWWWWf     ',
+        '   fsf      ',
+        '   fsf      ',
+        '   fsf  fff ',
+        '   fsf fwwwf',
+        '   fsffwowwf',
+        '   fsfwwwwof',
+        '   fsffWwWf ',
+        '   fsf fff  ',
+        '   fsf      ',
+        '   fsf      ',
+        '   fssf     ',
+        '    fsf     ',
+        '    fsf     ',
+        '    fsf     ',
+        '     f      ',
+    ])
+    return c
+
+
+def kotton_fabric():
+    # A long, flat bolt of pale cloth on a grey roll
+    c = Canvas(24, 24, {'w': '#D5D2B8', 'W': '#C4C4B0', 'g': '#A8AEA5', 'e': '#88948A', 'd': '#44464C'})
+    c.box(1, 8, 22, 8, 'w')
+    c.vline(2, 9, 5, 'g')
+    for x in range(5, 21, 3):
+        c.vline(x, 9, 4, 'W')
+    c.vline(20, 9, 5, 'g')
+    c.hline(2, 13, 20, 'e')
+    c.hline(2, 14, 20, 'd')
+    return c
+
+
+def _cap(pal):
+    # A small pointed cap tilted on a tall, bent stem that splits at the foot
+    c = Canvas(24, 24, pal)
+    c.rows(6, 1, [
+        '      fff   ',
+        '     fhcf   ',
+        '    fdhccf  ',
+        '  ffddcccdf ',
+        'ffdddddcdddf',
+        'fcceddddddf ',
+        ' feccddddddf',
+        '  fcccccccf ',
+        '   feeeffff ',
+        '   fsSf     ',
+        '   fssf     ',
+        '   fssf     ',
+        '    fssf    ',
+        '    fsSf    ',
+        '     fssf   ',
+        '     fssf   ',
+        '     fsSf   ',
+        '    fsssf   ',
+        '    fsSsf   ',
+        '   fssbssf  ',
+        '  fssfsssf  ',
+        '  fff  ff   ',
+    ])
+    return c
+
+
+def dream_cap():
+    return _cap({'c': '#A4715D', 'd': '#7D4F4A', 'h': '#C5AC96', 'e': '#64343B', 's': '#A4715D', 'S': '#8F6B5A', 'b': '#B68B74'})
+
+
+def meal_cap():
+    return _cap({'c': '#BB8A65', 'd': '#955C4B', 'h': '#D5D2B8', 'e': '#A96847', 's': '#BB8A65', 'S': '#8F6B5A', 'b': '#BE9D86'})
+
+
+def nightmare_cap():
+    return _cap({'c': '#9C3738', 'd': '#64343B', 'h': '#B26B4E', 'e': '#9C3738', 's': '#A8AEA5', 'S': '#79746E', 'b': '#D5D2B8'})
+
+
+def coffee_bean():
+    # A tight heap of roasted beans, each with a dark crease
+    c = Canvas(24, 24, {'b': '#7D4F4A', 'B': '#64343B', 'l': '#A96847'})
+    beans = [(7.5, 6), (15.5, 5.5), (4.5, 12), (11.5, 11.5), (18.5, 12), (8, 17.5), (15, 18)]
+    for cx, cy in beans:
+        ellipse(c, cx, cy, 3.4, 2.7, 'b', outline=False)
+        shade(c, cx, cy, 3.4, 2.7, 'B', -1, -1)
+    for cx, cy in beans:
+        x0, y0 = int(cx - 2), int(cy)
+        c.put(x0, y0 - 1, 'l')
+        c.put(x0 + 1, y0, 'ff')
+        c.put(x0 + 3, y0 - 1, 'f')
+    # Dark gaps between neighbouring beans
+    for cx, cy in beans:
+        for ox, oy in beans:
+            if (cx, cy) < (ox, oy) and abs(cx - ox) < 8 and abs(cy - oy) < 7:
+                mx, my = int((cx + ox) / 2), int((cy + oy) / 2)
+                if c.g[my][mx] != '.':
+                    c.g[my][mx] = 'f'
+    outline_all(c)
+    return c
+
+
+def fillerweed():
+    # A tall, narrow head: ruffled green leaves on top, pale ribbed stalks below
+    c = Canvas(24, 24, {'g': '#5C6F46', 'G': '#41603F', 'y': '#848552', 'p': '#AAA982', 'P': '#848552', 'w': '#D5D2B8'})
+    leaf = lambda vein: 'fG' + vein + 'w' + vein[::-1] + 'gf'
+    c.rows(6, 0, [
+        ' ff   ff    ',
+        'fggf fggf f ',
+        'fGggffggGfgf',
+        leaf('ggyg')[:12],
+        leaf('gygg')[:12],
+        leaf('yggg')[:12],
+        leaf('ggyg')[:12],
+        leaf('gygg')[:12],
+        leaf('yggg')[:12],
+        'fGgPpwppPggf',
+        'fGPpwppwpPgf',
+        'fgPwpwwpwpPf',
+        'fPpwpwwpwppf',
+        'fPpwpwwpwpPf',
+        'fPpwpwwpwpPf',
+        'fPpwpwwpwpPf',
+        ' fpwpwwpwpf ',
+        ' fpwpwwpwpf ',
+        ' fPwpwwpwPf ',
+        '  fpwwwwpf  ',
+        '  fPpwwpPf  ',
+        '   fppppf   ',
+        '    ffff    ',
+    ])
+    return c
+
+
+def bloomberry():
+    # A bunch of round berries hanging down to the left, the stem rising to the upper right
+    c = Canvas(24, 24, {'e': '#743D70', 'd': '#563168', 'h': '#A272AC', 's': '#8A5C54'})
+    berry = [' dd ', 'dhed', 'deed', ' dd ']
+    spots = [(10, 4), (14, 4), (17, 6), (7, 7), (11, 7), (14, 8), (5, 10), (9, 10), (13, 11), (16, 10),
+             (4, 14), (8, 14), (12, 14), (5, 17), (9, 17), (4, 20)]
+    for x, y in spots:
+        c.rows(x, y, berry)
+    c.rows(16, 0, ['     s', '    s ', '   s  ', ' ss   ', 's      '])
+    outline_all(c)
+    return c
+
+
+def hydroreed_seed():
+    # A seed packet like a little scroll: wider cream and teal bars top and bottom, a teal-framed panel with a sprout
+    c = Canvas(24, 24, {'w': '#D5D2B8', 'c': '#C5AC96', 'd': '#275654', 'e': '#67AAA5', 't': '#45918B', 'g': '#8ABFBB',
+                        'G': '#3D823F', 'D': '#275654'})
+    body = lambda inner: '   f' + inner + 'f   '
+    c.rows(0, 3, [
+        '  ' + 'f' * 20 + '  ',
+        '  f' + 'wcwcwcwcwcwwwwwwww' + 'f  ',
+        '  f' + 'dddddddeeeeddddddd' + 'f  ',
+        body('dewwwwwwwwwwwwed'),
+        body('ewwwwwwwwwwwwwwe'),
+        body('gw' + 'wwwwwwtwwwww' + 'wg'),
+        body('gw' + 'wwttttttGwww' + 'wg'),
+        body('gw' + 'wwwtDDDwwwww' + 'wg'),
+        body('gw' + 'wwDDwwDwwwww' + 'wg'),
+        body('gw' + 'wwwwwwDGwwww' + 'wg'),
+        body('gw' + 'wwwwwwDGwwww' + 'wg'),
+        body('gw' + 'wwwwwwDwwwww' + 'wg'),
+        body('ewwwwwwwwwwwwwwe'),
+        body('dddddddddddddddd'),
+        '  f' + 'd' + 'e' * 16 + 'd' + 'f  ',
+        '  ' + 'f' * 20 + '  ',
+    ])
+    return c
+
+
+def hydroreed_filter():
+    # A tall bundle of teal reeds with a grey cap and two brown ties
+    c = Canvas(24, 24, {'t': '#275654', 'T': '#273456', 'L': '#2F756F', 'g': '#79746E', 'G': '#88948A', 'n': '#273456',
+                        'b': '#8F6B5A', 'B': '#B68B74'})
+    reeds = 'fLtTttTttTf'
+    c.rows(6, 0, [
+        '  ffffffff  ',
+        ' fGgngngngf ',
+        'fGgggggggggf',
+        ' ' + reeds,
+        ' ' + reeds,
+        'fBBBBBBBBBBf',
+        'fbbbbbbbbbbf',
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        'fBBBBBBBBBBf',
+        'fbbbbbbbbbbf',
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        ' ' + reeds,
+        '  fLtTttTf  ',
+        '   ffffff   ',
+    ])
+    return c
+
+
+HARVEST = {
+    'nutrifruit': nutrifruit, 'kotton': kotton, 'kotton_fabric': kotton_fabric, 'dream_cap': dream_cap,
+    'meal_cap': meal_cap, 'nightmare_cap': nightmare_cap, 'coffee_bean': coffee_bean, 'fillerweed': fillerweed,
+    'bloomberry': bloomberry, 'hydroreed_seed': hydroreed_seed, 'hydroreed_filter': hydroreed_filter,
+}
+
+
 if __name__ == '__main__':
-    # Writes public/machines/<name>.svg. Run from grid-optimizer/: python scripts/draw-machines.py
-    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public', 'machines')
-    for name, draw in MACHINES.items():
-        with open(os.path.join(out_dir, name + '.svg'), 'w') as f:
-            f.write(draw().svg())
-    print(f'wrote {len(MACHINES)} icons to {os.path.normpath(out_dir)}')
+    # Writes public/machines/<name>.svg and public/harvest/<name>.svg. Run from grid-optimizer/: python scripts/draw-machines.py
+    public = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public')
+    for folder, icons in (('machines', MACHINES), ('harvest', HARVEST)):
+        out_dir = os.path.join(public, folder)
+        os.makedirs(out_dir, exist_ok=True)
+        for name, draw in icons.items():
+            with open(os.path.join(out_dir, name + '.svg'), 'w') as f:
+                f.write(draw().svg())
+        print(f'wrote {len(icons)} icons to {os.path.normpath(out_dir)}')
