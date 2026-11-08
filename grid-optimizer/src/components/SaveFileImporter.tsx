@@ -400,6 +400,9 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                     if (color === 'Green') primaryStat = eVal;
 
                     const actualMaxVal = primaryStat !== null ? Math.abs(primaryStat) : null;
+                    // Learning Algorithm: the value it learns up to, for the primary stat (Store puts the ones still learning in first)
+                    const learnMax = getIntValObj(color === 'Yellow' ? 'LEARNING_ALGO_MAX_QUALITY_INT'
+                        : color === 'Green' ? 'LEARNING_ALGO_MAX_EFFICIENCY_INT' : 'LEARNING_ALGO_MAX_PERFORMANCE_INT');
 
                     const base = getBaseStats({ shape, color, displayName: name });
                     const maxPositiveBase = Math.max(
@@ -448,7 +451,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         isLocked: stuck || isSpecialModule({ shape, color, displayName: name } as InventoryItem),
                         ...(stuck ? { isStuck: true, baseStats: { Performance: pVal ?? 0, Quality: qVal ?? 0, Efficiency: eVal ?? 0 } } : {}),
                         originalPath: pathStr,
-                        uid: typeof item.uniqueId === 'number' ? item.uniqueId : undefined
+                        uid: typeof item.uniqueId === 'number' ? item.uniqueId : undefined,
+                        ...((eff1 === 'Learning Algorithm' || eff2 === 'Learning Algorithm') && typeof learnMax === 'number' && learnMax > 0 ? { learnMax } : {})
                     } as any);
 
                     const parentId = parentMap.get(item.uuid);

@@ -421,6 +421,8 @@ export const ZH: Record<string, string> = {
     "No spot takes a module without lowering a machine's stats": '没有任何位置能放入模组而不降低机器属性',
     "{n} module{s} found no spot that leaves the machine's stats as they are": '{n}个模组找不到不影响机器属性的位置',
     'modules moved in {n} machine{s} to make room': '在{n}台机器中挪动了模组以腾出空间',
+    '{n} still learning among them': '其中{n}个仍在自学习',
+    '{n} Degrading module{s} kept out: they lose 1% each cycle in a machine': '{n}个退化模组未存入：放在机器里每个周期会损失1%',
     '; ': '；',
     'Import a save to see your modules here.': '导入存档后，你的模组会显示在这里。',
     'Every module you own is placed in a machine.': '你拥有的所有模组都已放入机器。',

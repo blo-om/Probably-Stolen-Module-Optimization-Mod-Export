@@ -5,7 +5,7 @@ import { ALARM_SURE_STOP, alarmStopChance, defaultIgnoreStats, statUnit, default
 import { StatGoals } from './components/StatGoals';
 import { readSolver, runSelectedSolver, setSolverLocked, SOLVER_SITES, subscribeSolver } from './solvers';
 import { StatPriorities } from './components/StatPriorities';
-import type { Stats, GridTier, InventoryItem, ModuleColor, Point } from './types';
+import type { Stats, GridTier, InventoryItem, ItemEffect, ModuleColor, Point } from './types';
 import { COLOR_MAP, fitsMachine } from './constants';
 import { formatStatValue, getStatColor, PRECOMPUTED_OFFSETS } from './utils';
 import { createPortal } from 'react-dom';
@@ -1338,8 +1338,10 @@ export default function ModuleInventoryUI() {
     }, [inventory, boardVersion, machines, getUsedItems]);
     /* Store / Retrieve: bank the unused modules in the machines' empty cells (the game keeps them there like any storage), and take
      * them back out. A module is only stored where it lowers none of that machine's stats that do something (energy included),
-     * largest first, machines in card order, locked machines skipped. When no free spot fits it, the machine's own modules may be
-     * moved to make room (one, then two of them), as long as that still lowers none of its stats.
+     * locked machines skipped. Learning Algorithm modules still short of their maximum go first (they learn while in a running
+     * machine), Degrading ones never (they wear down there). The free spots are packed several ways (snuggest spot first) and the
+     * packing that holds the most is kept. For what is left, the machine's own modules may be moved to make room (one, then two of
+     * them), as long as that still lowers none of its stats.
      * Retrieve takes out exactly the stored modules; a machine whose modules were moved gets its layout from before the Store back,
      * unless it has been changed since. A solve forgets what was stored on the machines it solves (their new layout keeps or drops
      * those modules); what was stored on the other machines can still be retrieved
@@ -1390,16 +1392,22 @@ export default function ModuleInventoryUI() {
         const byId = indexInventoryById(expandedInventory);
         const statsOf = (board: any[][]) => calculateBoardStats(board, expandedInventory, byId).totals;
         const STATS = ['Performance', 'Quality', 'Efficiency'] as const;
-        // 4 s in all; each module's search for room (moving modules) gets its own slice, so the first big ones cannot use it all up
-        const end = performance.now() + 4000;
+        // 4 s in all: about a third for packing the free spots several ways, the rest for making room (moving modules)
+        const start = performance.now();
+        const end = start + 4000;
+        const packEnd = start + 1400;
         let deadline = end;
         const cards = machines.map(({ id }) => ({ id, card: machinesRef.current[id] })).filter(m => m.card && !m.card.isLocked());
+        const kinds: string[] = cards.map(({ card }) => card.getState().machineKind);
         // Every machine's layout before this Store: what Retrieve gives back to a machine whose own modules had to move
-        const startLayouts = Object.fromEntries(cards.map(({ id, card }) => [id, idGrid(card.getBoard())]));
+        const startBoards: any[][][] = cards.map(({ card }) => card.getBoard());
+        const startLayouts = Object.fromEntries(cards.map(({ id }, i) => [id, idGrid(startBoards[i])]));
+        const startStats = startBoards.map(statsOf);
+        type Spot = { x: number; y: number; offsets: Point[] };
 
         // Every placement of `item` on `board`: free, unlocked cells only
         const placementsOf = (board: any[][], item: InventoryItem) => {
-            const out: { x: number; y: number; offsets: Point[] }[] = [];
+            const out: Spot[] = [];
             for (const offsets of PRECOMPUTED_OFFSETS.get(item.shape) ?? []) {
                 for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) {
                     if (offsets.every(pt => { const px = x + pt.x, py = y + pt.y; return px >= 0 && px < 7 && py >= 0 && py < 5 && board[py][px] === null; })) {
@@ -1409,23 +1417,38 @@ export default function ModuleInventoryUI() {
             }
             return out;
         };
-        const put = (board: any[][], item: InventoryItem, at: { x: number; y: number; offsets: Point[] }) => {
+        /* How snugly a placement sits: the sides of its cells against the board's edge or another piece. Snug spots keep the free cells
+         * in one piece, so later modules still find room; a module dropped in the middle of an empty patch can leave pockets nothing fits
+         */
+        const snugness = (board: any[][], at: Spot) => {
+            const mine = new Set(at.offsets.map(pt => (at.y + pt.y) * 7 + at.x + pt.x));
+            let n = 0;
+            for (const pt of at.offsets) {
+                const cx = at.x + pt.x, cy = at.y + pt.y;
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if (nx < 0 || nx >= 7 || ny < 0 || ny >= 5) n++;
+                    else if (!mine.has(ny * 7 + nx) && board[ny][nx] !== null) n++;
+                }
+            }
+            return n;
+        };
+        const put = (board: any[][], item: InventoryItem, at: Spot) => {
             const next = board.map(row => [...row]);
             for (const pt of at.offsets) next[at.y + pt.y][at.x + pt.x] = item;
             return next;
         };
         const lift = (board: any[][], items: InventoryItem[]) =>
             board.map(row => row.map(c => (c && c !== 'Locked' && items.some(it => it.id === c.id) ? null : c)));
+        // Lowers none of the stats that do something on machine m (energy included), against its layout before the Store
+        const harmless = (m: number, next: any[][]) => {
+            const after = statsOf(next);
+            return STATS.every(k => statHasNoEffect(kinds[m], k) || after[k] >= startStats[m][k]);
+        };
 
-        // The layout with `item` stored on `board`, moving at most `moves` of the machine's own modules, or null
-        const storeOn = (board: any[][], type: string, item: InventoryItem, moves: number): any[][] | null => {
-            if (!fitsMachine(item, type)) return null;
-            const before = statsOf(board);
-            const harmless = (next: any[][]) => { const after = statsOf(next); return STATS.every(k => statHasNoEffect(type, k) || after[k] >= before[k]); };
-            if (moves === 0) {
-                for (const at of placementsOf(board, item)) { const next = put(board, item, at); if (harmless(next)) return next; }
-                return null;
-            }
+        // The layout with `item` stored on machine m, moving `moves` (1 or 2) of the machine's own modules to make room, or null
+        const storeMoving = (m: number, board: any[][], item: InventoryItem, moves: number): any[][] | null => {
+            if (!fitsMachine(item, kinds[m])) return null;
             // Modules that may move: this machine's own, not locked by the player
             const own: InventoryItem[] = [];
             board.forEach(row => row.forEach(c => { if (c && c !== 'Locked' && !c.isLocked && !own.some(o => o.id === c.id)) own.push(c); }));
@@ -1436,7 +1459,7 @@ export default function ModuleInventoryUI() {
                 for (const at of placementsOf(freed, item)) {
                     // The stored module first, then the moved ones back in anywhere they fit
                     const place = (b: any[][], rest: InventoryItem[]): any[][] | null => {
-                        if (rest.length === 0) return harmless(b) ? b : null;
+                        if (rest.length === 0) return harmless(m, b) ? b : null;
                         if (performance.now() > deadline) return null;
                         for (const spot of placementsOf(b, rest[0])) {
                             const done = place(put(b, rest[0], spot), rest.slice(1));
@@ -1451,39 +1474,104 @@ export default function ModuleInventoryUI() {
             return null;
         };
 
-        const stored: string[] = [];
-        const layouts: Record<string, { before: IdGrid; after: IdGrid }> = {};
-        // Never a special (machine-specific, Alarm, Junk Processing, Blast): which of them a machine carries is the player's call
-        const candidates = unusedModules.filter(item => !item.isInfinite && !isSpecialModule(item));
-        /* Straight into free spots first for everything, then moving one module, then two, for what is left. Making room goes smallest
-         * first (a Node needs a 2-cell pocket touching nothing that costs energy, the cheapest room to make), each module with its own time
+        /* What goes in: never a special (machine-specific, Alarm, Junk Processing, Blast: which of them a machine carries is the player's
+         * call), and never a Degrading module, which loses 1% every cycle its machine runs (ModuleEffectHelper.Degrade). A Learning
+         * Algorithm module still short of its maximum gains 1% a cycle there (OnUsedLearningAlgo), so those go in first, the furthest
+         * from their maximum first. One without a known maximum (a save imported before it was read) counts as still learning
          */
+        const effectValue = (item: InventoryItem, effect: ItemEffect) => { const i = item.effects.indexOf(effect); return i < 0 ? null : item.effectValues[i]; };
+        const toLearn = (item: InventoryItem) => {
+            const now = effectValue(item, 'Learning Algorithm');
+            if (now === null) return 0;
+            return item.learnMax === undefined ? 1 : Math.max(0, item.learnMax - now);
+        };
+        const pool = unusedModules.filter(item => !item.isInfinite && !isSpecialModule(item));
+        const degrading = pool.filter(item => effectValue(item, 'Degrading') !== null);
+        const candidates = pool.filter(item => effectValue(item, 'Degrading') === null);
         const size = (item: InventoryItem) => PRECOMPUTED_OFFSETS.get(item.shape)?.[0]?.length ?? 0;
-        const smallestFirst = [...candidates].sort((a, b) => size(a) - size(b));
-        for (const moves of [0, 1, 2]) {
-            for (const item of moves === 0 ? candidates : smallestFirst) {
+        const learning = candidates.filter(item => toLearn(item) > 0).sort((a, b) => toLearn(b) - toLearn(a) || size(b) - size(a));
+        const rest = candidates.filter(item => toLearn(item) === 0);
+
+        /* Free spots only, one module at a time: of every spot on every machine that leaves its stats as they are, the snuggest (the
+         * earlier machine on a tie). The first try goes still-learning first, then largest first (small ones fill the gaps the big ones
+         * leave); the others shuffle the order a little and break near-ties at random. The best packing found is kept: more
+         * still-learning modules in, then more modules, then more cells filled
+         */
+        type Packing = { boards: any[][][]; stored: string[]; learning: number; cells: number };
+        const better = (a: Packing, b: Packing) => (a.learning - b.learning || a.stored.length - b.stored.length || a.cells - b.cells) > 0;
+        const pack = (order: InventoryItem[], jitter: number): Packing => {
+            const boards = startBoards.map(b => b.map(row => [...row]));
+            const stored: string[] = [];
+            let learnCount = 0, cells = 0;
+            for (const item of order) {
+                const spots: { m: number; at: Spot; score: number }[] = [];
+                boards.forEach((board, m) => {
+                    if (!fitsMachine(item, kinds[m])) return;
+                    for (const at of placementsOf(board, item)) spots.push({ m, at, score: snugness(board, at) + (jitter ? Math.random() * jitter : 0) - m * 1e-3 });
+                });
+                spots.sort((a, b) => b.score - a.score);
+                for (const { m, at } of spots) {
+                    const next = put(boards[m], item, at);
+                    if (!harmless(m, next)) continue;
+                    boards[m] = next;
+                    stored.push(item.id);
+                    if (toLearn(item) > 0) learnCount++;
+                    cells += at.offsets.length;
+                    break;
+                }
+            }
+            return { boards, stored, learning: learnCount, cells };
+        };
+        const largestFirst = [...rest].sort((a, b) => size(b) - size(a));
+        let best = pack([...learning, ...largestFirst], 0);
+        while (performance.now() < packEnd && best.stored.length < candidates.length) {
+            const shuffled = rest.map(it => ({ it, k: size(it) + Math.random() * 1.5 })).sort((a, b) => b.k - a.k).map(e => e.it);
+            const attempt = pack([...learning, ...shuffled], 1.5);
+            if (better(attempt, best)) best = attempt;
+        }
+
+        /* Then room is made for what is left, moving one of a machine's modules, then two: still-learning first, then smallest first (a
+         * Node needs a 2-cell pocket touching nothing that costs energy, the cheapest room to make), each module with its own time
+         */
+        const boards = best.boards;
+        const stored = [...best.stored];
+        const movedOn = new Set<number>();
+        const leftOver = [...learning, ...[...rest].sort((a, b) => size(a) - size(b))];
+        for (const moves of [1, 2]) {
+            for (const item of leftOver) {
                 if (stored.includes(item.id) || performance.now() > end) continue;
-                deadline = moves === 0 ? end : Math.min(end, performance.now() + 250);
-                for (const { id, card } of cards) {
-                    const board: any[][] = card.getBoard();
-                    const next = storeOn(board, card.getState().machineKind, item, moves);
+                deadline = Math.min(end, performance.now() + 250);
+                for (let m = 0; m < boards.length; m++) {
+                    const next = storeMoving(m, boards[m], item, moves);
                     if (!next) continue;
-                    if (moves > 0 && !layouts[id]) layouts[id] = { before: startLayouts[id], after: [] };
-                    const { totals, pieceStats } = calculateBoardStats(next, expandedInventory, byId);
-                    card.applyUpdate(next, totals, pieceStats, '');
+                    boards[m] = next;
+                    movedOn.add(m);
                     stored.push(item.id);
                     break;
                 }
             }
         }
-        for (const { id, card } of cards) if (layouts[id]) layouts[id].after = idGrid(card.getBoard());
+
+        const layouts: Record<string, { before: IdGrid; after: IdGrid }> = {};
+        cards.forEach(({ id, card }, m) => {
+            const after = idGrid(boards[m]);
+            if (after.every((row, y) => row.every((c, x) => c === startLayouts[id][y][x]))) return;
+            if (movedOn.has(m)) layouts[id] = { before: startLayouts[id], after };
+            const { totals, pieceStats } = calculateBoardStats(boards[m], expandedInventory, byId);
+            card.applyUpdate(boards[m], totals, pieceStats, '');
+        });
         setStoredIds(stored);
         setStoredLayouts(layouts);
         const left = candidates.length - stored.length;
+        const learnLeft = learning.filter(item => !stored.includes(item.id)).length;
         const moved = Object.keys(layouts).length;
-        setStoreNote(stored.length === 0 ? t("No spot takes a module without lowering a machine's stats")
-            : [left > 0 ? t("{n} module{s} found no spot that leaves the machine's stats as they are", { n: left, s: plural(left) }) : '',
-               moved > 0 ? t('modules moved in {n} machine{s} to make room', { n: moved, s: plural(moved) }) : ''].filter(Boolean).join(t('; ')) || null);
+        setStoreNote([
+            stored.length === 0 && candidates.length > 0 ? t("No spot takes a module without lowering a machine's stats")
+                : left > 0 ? t("{n} module{s} found no spot that leaves the machine's stats as they are", { n: left, s: plural(left) }) : '',
+            learnLeft > 0 ? t('{n} still learning among them', { n: learnLeft }) : '',
+            moved > 0 ? t('modules moved in {n} machine{s} to make room', { n: moved, s: plural(moved) }) : '',
+            degrading.length > 0 ? t('{n} Degrading module{s} kept out: they lose 1% each cycle in a machine', { n: degrading.length, s: plural(degrading.length) }) : '',
+        ].filter(Boolean).join(t('; ')) || null);
     };
     const handleRetrieve = () => {
         const byId = indexInventoryById(expandedInventory);
