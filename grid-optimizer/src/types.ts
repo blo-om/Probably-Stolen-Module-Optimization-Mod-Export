@@ -24,9 +24,6 @@ export interface InventoryItem {
     originalPath?: string;
     // The game's uniqueId for modules that came from Import Save - stable across save/load, unique per save
     uid?: number;
-    // Learning Algorithm: the value it learns up to (the save's LEARNING_ALGO_MAX_*_INT, twice what it was made with). It gains 1% each
-    // cycle its machine runs (ModuleEffectHelper.OnUsedLearningAlgo); its effect value is where it is now
-    learnMax?: number;
 }
 
 export interface ModuleTemplate {
