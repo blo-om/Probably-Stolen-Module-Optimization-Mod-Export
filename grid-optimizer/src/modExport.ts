@@ -8,13 +8,15 @@
 //     "at": 1793400000000,     // when it was copied: each Export is new text, so the mod asks again after "Not now"
 //     "machines": [ {
 //       "name": "Inv. > Machine Bay (Expanded) 1 > Furnace 2",
+//       "uid": 2711,           // the machine's uniqueId in the save; left out for cards added by hand
 //       "code": "<solution code>",
 //       "modules": [ { "uid": 3585, "cells": [0, 1, 7, 8] }, ... ]
 //     } ]
 //   }
 //
 // `name` is the machine's name as shown on its card. For machines from Import Save it is the full path the save
-// importer builds, which the mod rebuilds in-game to find the machine.
+// importer builds, which the mod rebuilds in-game to find the machine. `uid` is the machine's own uniqueId, which stays the
+// same when the machine is moved to another spot or container (the path does not), so the mod looks for it first.
 // `modules` lists every module on the board that came from the save, by the game's own uniqueId, with the board
 // cells (y * 7 + x) it covers - so the mod moves exactly those items. Modules added from the catalog have no uid;
 // they only appear in `code`, and the mod matches them by type.
@@ -32,8 +34,12 @@ export interface ModExportModule {
     cells: number[];
 }
 
+// Per card (localStorage): the machine's uniqueId in the imported save
+export const machineUidKey = (machineId: string) => `optimizer_machine_uid_${machineId}`;
+
 export interface ModExportMachine {
     name: string;
+    uid?: number;
     code: string;
     modules: ModExportModule[];
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useCallback, useMemo, useSyncExternalStore } from 'react';
-import { encodeModExport, boardModules } from './modExport';
+import { encodeModExport, boardModules, machineUidKey } from './modExport';
 import { rememberSaveSettings, restoreSaveSettings } from './saveSettings';
 import { ALARM_SURE_STOP, alarmStopChance, defaultIgnoreStats, statUnit, defaultMaximizeStats, defaultTargetStats, desequencerDayOptions, desequencerChipsetKey, desequencerAutoDaysKey, statBreakpoints, isDesequencer, isMirage, isMoistureFarm, isAgeWell, sumsPE, jobSteps, isEvaporator, EVAPORATOR_QUALITY_CAP, worthlessBelowSteps, desequencerSpeed, desequencerCutoffs, statHasNoEffect, hiddenStat, statEffect, cheapEnergyAt, moistureFarmOutput, WATER_GRADES, miragePoints, STORE_BASE_ATTRACTIVENESS_KEY } from './machineDefaults';
 import { StatGoals } from './components/StatGoals';
@@ -193,7 +193,10 @@ const MachineInstance = React.memo(forwardRef(({
         const onBoard = boardModulesList(board);
         if (onBoard.length === 0) return null;
         const code = generateCodeFromState(optimizer.tier, optimizer.maximizeStats, optimizer.targetStats, onBoard, board);
-        return code ? { name: machineType, code, modules: boardModules(board) } : null;
+        // The machine's uid from the save, so the mod still finds it after it was moved (a hand-made card has none)
+        const uidText = localStorage.getItem(machineUidKey(machineId));
+        const uid = uidText !== null && uidText !== '' && !isNaN(Number(uidText)) ? Number(uidText) : undefined;
+        return code ? { name: machineType, ...(uid !== undefined ? { uid } : {}), code, modules: boardModules(board) } : null;
     };
     const boardHasModules = optimizer.board.some((row: any[]) => row.some(c => c && c !== 'Locked'));
     // Mouse position while over the machine icon, for its tooltip
@@ -1501,7 +1504,7 @@ export default function ModuleInventoryUI() {
         setStoredLayouts({});
         setStoreNote(null);
     };
-    const handleImportSave = useCallback((newItems: InventoryItem[], importedMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier, job?: string }[], save: string) => {
+    const handleImportSave = useCallback((newItems: InventoryItem[], importedMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, uid?: number, tier: GridTier, job?: string }[], save: string) => {
         setInventory(newItems);
         // A new save's modules were never stored
         setStoredIds([]);
@@ -1526,13 +1529,14 @@ export default function ModuleInventoryUI() {
             localStorage.setItem(`optimizer_machine_type_${m.id}`, m.machineType);
             localStorage.setItem(saveTierKey(m.id), String(m.tier));
             if (m.kind) localStorage.setItem(`optimizer_machine_kind_${m.id}`, m.kind);
+            if (m.uid !== undefined) localStorage.setItem(machineUidKey(m.id), String(m.uid));
         });
 
         setMachines(prev => {
             prev.forEach(m => {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
-                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`); localStorage.removeItem(saveTierKey(m.id));
+                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`); localStorage.removeItem(machineUidKey(m.id)); localStorage.removeItem(saveTierKey(m.id));
             });
             return newMachines.length > 0
                 ? newMachines.map(m => ({ id: m.id }))
@@ -1911,7 +1915,7 @@ export default function ModuleInventoryUI() {
             } else {
                 localStorage.removeItem(`optimizer_machine_${m.id}`);
                 localStorage.removeItem(`optimizer_machine_type_${m.id}`);
-                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`); localStorage.removeItem(saveTierKey(m.id));
+                localStorage.removeItem(`optimizer_machine_locked_${m.id}`); localStorage.removeItem(`optimizer_machine_kind_${m.id}`); localStorage.removeItem(machineUidKey(m.id)); localStorage.removeItem(saveTierKey(m.id));
             }
         });
 
@@ -1952,7 +1956,7 @@ export default function ModuleInventoryUI() {
         });
         localStorage.removeItem(`optimizer_machine_${machineId}`);
         localStorage.removeItem(`optimizer_machine_type_${machineId}`);
-        localStorage.removeItem(`optimizer_machine_locked_${machineId}`); localStorage.removeItem(`optimizer_machine_kind_${machineId}`); localStorage.removeItem(saveTierKey(machineId));
+        localStorage.removeItem(`optimizer_machine_locked_${machineId}`); localStorage.removeItem(`optimizer_machine_kind_${machineId}`); localStorage.removeItem(machineUidKey(machineId)); localStorage.removeItem(saveTierKey(machineId));
     }, []);
 
     const handleSolvingChange = useCallback((id: string, solving: boolean) => {

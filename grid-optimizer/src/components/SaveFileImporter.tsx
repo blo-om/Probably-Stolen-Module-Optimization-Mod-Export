@@ -11,7 +11,7 @@ import type {InventoryItem, ModuleShape, ItemEffect, ModuleColor, Point, GridTie
 
 interface SaveFileImporterProps {
     // `save` is the save's file name, which its remembered machine settings are kept under (see saveSettings.ts)
-    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier, job?: string }[], save: string) => void;
+    onImport: (newItems: InventoryItem[], newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, uid?: number, tier: GridTier, job?: string }[], save: string) => void;
 }
 
 export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
@@ -119,7 +119,7 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                 });
 
                 const parsedInventory: InventoryItem[] = [];
-                const newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, tier: GridTier, job?: string }[] = [];
+                const newMachines: { id: string, boardIds: (string | null)[][], machineType: string, kind?: string, uid?: number, tier: GridTier, job?: string }[] = [];
                 const machineContents = new Map<number, { invId: string, modifiedShape: any }[]>();
                 const machineDataMap = new Map<number, any>();
 
@@ -554,6 +554,8 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
                         machineType: dropdownName,
                         // The item's own name ("Furnace", "AgeWell"...): the path above may carry a name the player gave it instead
                         kind: parentItem ? getSaveItemName(parentItem) : undefined,
+                        // The machine's own uniqueId: the mod finds it by this even after it is moved, which changes the path above
+                        uid: typeof parentItem?.uniqueId === 'number' ? parentItem.uniqueId : undefined,
                         tier: machineTier
                     });
                 });

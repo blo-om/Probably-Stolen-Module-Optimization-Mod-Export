@@ -149,9 +149,10 @@ const SegBar = ({ picker, steps, target, total, onPick, disabled, children }: {
 // A step's cell title: what it gives, the % it needs, and how far off that is
 const reachText = (value: number, total: number) => `${value}%${total >= value ? ' ✓' : ` (${t('{v} short', { v: `${Math.ceil(value - total)}%` })})`}`;
 const stepTitle = (b: StatBreakpoint, total: number) => `${b.label}${b.hint ? ` · ${b.hint}` : ''} · ${reachText(b.value, total)}`;
-// Cells use the short names as soon as one step's full name would not fit, and always after a job picker (which already names the job)
+// Cells use the short names as soon as one step's full name would not fit, and always after a job picker (which already names the job).
+// Past 5 steps the cells get too narrow for even short full names ("+1 day" cut to "+1 …" over the AgeWell's 8), so those go short too
 const stepCells = (steps: StatBreakpoint[], total: number, afterPicker = false): SegStep[] => {
-    const useShort = afterPicker || steps.some(b => b.label.length > 9);
+    const useShort = afterPicker || steps.length > 5 || steps.some(b => b.label.length > 9);
     return steps.map(b => ({ value: b.value, label: useShort ? (b.short ?? b.label) : b.label, title: stepTitle(b, total) }));
 };
 
