@@ -264,7 +264,8 @@ export const StatGoals = ({ machineType, machineId, totals, ignoreStats, targetS
             const out = { ...prev };
             for (const stat of ['Performance', 'Quality'] as StatKey[]) {
                 const steps = next.steps[stat];
-                if (!steps || out[stat] === null || out[stat] === undefined) continue;
+                // A job with no steps for the stat (Hydroreed's Harvest) leaves its target as it is
+                if (!steps || steps.length === 0 || out[stat] === null || out[stat] === undefined) continue;
                 out[stat] = (steps.find(s => s.value >= out[stat]) ?? steps[steps.length - 1]).value;
             }
             return out;
