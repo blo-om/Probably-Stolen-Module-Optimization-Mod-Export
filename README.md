@@ -4,6 +4,8 @@ A fork of [hoydoy/probably-stolen-module-optimization](https://github.com/hoydoy
 
 **Live site:** https://blo-om.github.io/Probably-Stolen-Module-Optimization-Mod-Export/
 
+[![The optimizer filling eight machines' module grids at once — click to open the site](docs/demo.gif)](https://blo-om.github.io/Probably-Stolen-Module-Optimization-Mod-Export/)
+
 ## What this fork changes
 
 - **Mod export.** Each machine card has an **Export** button, and the toolbar has **Export All**. They copy the machine layout together with its name, so the *Module Optimizer Import* MelonLoader mod can put the modules into the right machine in-game.
