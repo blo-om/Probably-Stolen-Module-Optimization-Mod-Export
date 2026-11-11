@@ -2377,7 +2377,9 @@ export default function ModuleInventoryUI() {
                 </div>
                 </div>
                 <div className="toolbar-buttons">
+                {/* Row 1 follows the workflow: load a save, optimize, export, paste with the mod. Row 2 holds the actions that wipe things, and the language. */}
                 <div className="toolbar-row">
+                <SaveFileImporter onImport={handleImportSave} />
                 <button
                     onClick={handleRunAll}
                     disabled={inventory.length === 0 && !isAnySolving}
@@ -2396,29 +2398,12 @@ export default function ModuleInventoryUI() {
                     {isAnySolving ? t('Stop All Optimizers') : t('Run All Optimizers')}
                 </button>
                 <button
-                    onClick={handleClearAll}
-                    disabled={isAnySolving}
-                    style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
-                >
-                    {t('Clear All')}
-                </button>
-                <button
                     onClick={handleCopyAllForMod}
                     disabled={isAnySolving}
                     title={t("Copy every machine's code with its name, for the Module Optimizer Import mod")}
                     style={{ padding: '10px 24px', backgroundColor: '#2e4a35', color: '#eee', border: '1px solid #4caf50', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
                 >
                     {copiedAllForMod ? t('Copied!') : t('Export All')}
-                </button>
-                </div>
-                <div className="toolbar-row">
-                <SaveFileImporter onImport={handleImportSave} />
-                <button
-                    onClick={handleClearAllMachines}
-                    disabled={isAnySolving}
-                    style={{ padding: '10px 24px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
-                >
-                    {t('Delete All')}
                 </button>
                 <a
                     href="https://steamcommunity.com/sharedfiles/filedetails/?id=3830530923"
@@ -2429,6 +2414,22 @@ export default function ModuleInventoryUI() {
                 >
                     {t('Steam Mod')}
                 </a>
+                </div>
+                <div className="toolbar-row">
+                <button
+                    onClick={handleClearAll}
+                    disabled={isAnySolving}
+                    style={{ padding: '10px 24px', backgroundColor: '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
+                >
+                    {t('Clear All')}
+                </button>
+                <button
+                    onClick={handleClearAllMachines}
+                    disabled={isAnySolving}
+                    style={{ padding: '10px 24px', backgroundColor: 'rgba(255, 77, 77, 0.1)', color: '#ff4d4d', border: '1px solid #ff4d4d', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
+                >
+                    {t('Delete All')}
+                </button>
                 <div role="radiogroup" aria-label={t('Language')} title={t('Language')}
                     style={{ display: 'flex', alignItems: 'stretch', backgroundColor: '#333333', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden' }}>
                     {([['en', 'EN'], ['zh', '中文']] as const).map(([code, label], i) => (
