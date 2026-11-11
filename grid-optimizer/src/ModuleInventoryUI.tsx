@@ -179,6 +179,7 @@ const MachineInstance = React.memo(forwardRef(({
     }
     const [localHover, setLocalHover] = useState<{x: number, y: number} | null>(null);
     const [showPaths, setShowPaths] = useState(false);
+    const [exportCopied, setExportCopied] = useState(false);
     /* The layout for the mod. Its code lists only the modules on this board: the mod only uses placed pieces, and the card's own code
      * lists every module owned, which the format caps at MAX_ENCODABLE_MODULES (255), so bigger saves had no code and could not export
      */
@@ -889,12 +890,18 @@ const MachineInstance = React.memo(forwardRef(({
                             {t('Duplicate')}
                         </button>
                         <button
-                            onClick={() => { const entry = modExportEntry(); if (entry) navigator.clipboard.writeText(encodeModExport([entry])); }}
+                            onClick={async () => {
+                                const entry = modExportEntry();
+                                if (!entry) return;
+                                await navigator.clipboard.writeText(encodeModExport([entry]));
+                                setExportCopied(true);
+                                setTimeout(() => setExportCopied(false), 2000);
+                            }}
                             disabled={!boardHasModules}
                             title={t("Copy this machine's layout for the Module Optimizer Import mod")}
                             style={{ flex: 1, padding: '8px', fontSize: '0.85em', backgroundColor: '#2e4a35', color: 'white', border: '1px solid #4caf50', borderRadius: '6px', cursor: !boardHasModules ? 'not-allowed' : 'pointer', opacity: !boardHasModules ? 0.5 : 1 }}
                         >
-                            {t('Export')}
+                            {exportCopied ? t('Copied!') : t('Export')}
                         </button>
                     </div>
 
@@ -1885,23 +1892,20 @@ export default function ModuleInventoryUI() {
         if (typeof type === 'string') { try { localStorage.setItem(pendingTypeKey(id), type); } catch { /* starts unpicked */ } }
         setMachines(prev => [...prev, { id }]);
     };
-    // The list of known machines, opened from the "+" card or the toolbar's "+ Add Machine"
-    const [addPickerAt, setAddPickerAt] = useState<'card' | 'toolbar' | null>(null);
-    const addPickerOpen = addPickerAt !== null;
-    const setAddPickerOpen = (open: boolean) => setAddPickerAt(open ? 'card' : null);
+    // The list of known machines, opened from the "+" card after the last machine
+    const [addPickerOpen, setAddPickerOpen] = useState(false);
     const addCardRef = useRef<HTMLDivElement | null>(null);
-    const addToolbarRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         if (!addPickerOpen) return;
         const close = (e: MouseEvent) => {
-            const anchor = addPickerAt === 'card' ? addCardRef.current : addToolbarRef.current;
+            const anchor = addCardRef.current;
             if (anchor && !anchor.contains(e.target as Node)) setAddPickerOpen(false);
         };
         const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPickerOpen(false); };
         document.addEventListener('mousedown', close);
         document.addEventListener('keydown', esc);
         return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
-    }, [addPickerOpen, addPickerAt]);
+    }, [addPickerOpen]);
     const machinePicker = (style: React.CSSProperties) => (
         <div role="menu" style={{
             position: 'absolute', zIndex: 150, minWidth: '220px', maxHeight: '360px', overflowY: 'auto', padding: '6px',
@@ -2398,16 +2402,6 @@ export default function ModuleInventoryUI() {
                 >
                     {t('Clear All')}
                 </button>
-                <div ref={addToolbarRef} style={{ position: 'relative', display: 'flex' }}>
-                    <button
-                        onClick={() => setAddPickerAt(at => (at === 'toolbar' ? null : 'toolbar'))}
-                        disabled={isAnySolving}
-                        style={{ padding: '10px 24px', backgroundColor: addPickerAt === 'toolbar' ? '#444' : '#333333', color: '#eee', border: '1px solid #555555', borderRadius: '6px', cursor: isAnySolving ? 'not-allowed' : 'pointer', fontSize: '0.95em' }}
-                    >
-                        {t('+ Add Machine')}
-                    </button>
-                    {addPickerAt === 'toolbar' && machinePicker({ top: 'calc(100% + 6px)', right: 0 })}
-                </div>
                 <button
                     onClick={handleCopyAllForMod}
                     disabled={isAnySolving}
@@ -2426,6 +2420,15 @@ export default function ModuleInventoryUI() {
                 >
                     {t('Delete All')}
                 </button>
+                <a
+                    href="https://steamcommunity.com/sharedfiles/filedetails/?id=3830530923"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={t('The Module Optimizer Import mod on the Steam Workshop: puts exported layouts into your machines in-game')}
+                    style={{ display: 'flex', alignItems: 'center', padding: '10px 18px', backgroundColor: '#1e3a5f', color: '#cfe6ff', border: '1px solid #4a90d9', borderRadius: '6px', fontSize: '0.95em', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                >
+                    {t('Steam Mod')}
+                </a>
                 <div role="radiogroup" aria-label={t('Language')} title={t('Language')}
                     style={{ display: 'flex', alignItems: 'stretch', backgroundColor: '#333333', border: '1px solid #555555', borderRadius: '6px', overflow: 'hidden' }}>
                     {([['en', 'EN'], ['zh', '中文']] as const).map(([code, label], i) => (
@@ -2518,12 +2521,12 @@ export default function ModuleInventoryUI() {
                 ))}
                 {/* The "+" card: a small square after the last card, with the list of known machines to add */}
                 <div ref={addCardRef} style={{ position: 'relative', alignSelf: 'flex-start' }}>
-                    <button onClick={() => setAddPickerAt(at => (at === 'card' ? null : 'card'))} disabled={isAnySolving} title={t('Add a machine')} aria-label={t('Add a machine')}
+                    <button onClick={() => setAddPickerOpen(!addPickerOpen)} disabled={isAnySolving} title={t('Add a machine')} aria-label={t('Add a machine')}
                         style={{
                             width: '72px', height: '72px', borderRadius: '8px', border: '2px dashed #3a3a3c', backgroundColor: addPickerOpen ? '#232325' : '#1c1c1e',
                             color: '#8fd19e', fontSize: '2em', lineHeight: 1, cursor: isAnySolving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>+</button>
-                    {addPickerAt === 'card' && machinePicker({ top: '78px', left: 0 })}
+                    {addPickerOpen && machinePicker({ top: '78px', left: 0 })}
                 </div>
             </div>
 

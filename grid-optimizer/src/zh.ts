@@ -399,6 +399,8 @@ export const ZH: Record<string, string> = {
     'Copied!': '已复制！',
     'Export All': '全部导出',
     'Delete All': '全部删除',
+    'Steam Mod': 'Steam 模组',
+    'The Module Optimizer Import mod on the Steam Workshop: puts exported layouts into your machines in-game': 'Steam 创意工坊上的 Module Optimizer Import 模组：在游戏中把导出的布局放进你的机器',
     'Import Save (.es3)': '导入存档（.es3）',
     'Failed to parse save file. Please ensure it is a valid .es3 save string.': '无法解析存档文件。请确认这是有效的.es3存档。',
     'Solver': '求解器',
