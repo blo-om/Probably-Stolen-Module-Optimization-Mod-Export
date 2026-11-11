@@ -2377,26 +2377,9 @@ export default function ModuleInventoryUI() {
                 </div>
                 </div>
                 <div className="toolbar-buttons">
-                {/* Row 1 follows the workflow: load a save, optimize, export, paste with the mod. Row 2 holds the actions that wipe things, and the language. */}
+                {/* Row 1: save in, layouts out, and the mod that applies them. Row 2: the optimizer and the actions that wipe things, then the language. */}
                 <div className="toolbar-row">
                 <SaveFileImporter onImport={handleImportSave} />
-                <button
-                    onClick={handleRunAll}
-                    disabled={inventory.length === 0 && !isAnySolving}
-                    style={{
-                        padding: '10px 24px',
-                        backgroundColor: isAnySolving ? '#ff4d4d' : '#4caf50',
-                        color: 'white',
-                        border: isAnySolving ? '1px solid #ff4d4d' : '1px solid #2e4a35',
-                        borderRadius: '6px',
-                        fontWeight: 'bold',
-                        cursor: (inventory.length === 0 && !isAnySolving) ? 'not-allowed' : 'pointer',
-                        opacity: (inventory.length === 0 && !isAnySolving) ? 0.5 : 1,
-                        fontSize: '0.95em'
-                    }}
-                >
-                    {isAnySolving ? t('Stop All Optimizers') : t('Run All Optimizers')}
-                </button>
                 <button
                     onClick={handleCopyAllForMod}
                     disabled={isAnySolving}
@@ -2416,6 +2399,23 @@ export default function ModuleInventoryUI() {
                 </a>
                 </div>
                 <div className="toolbar-row">
+                <button
+                    onClick={handleRunAll}
+                    disabled={inventory.length === 0 && !isAnySolving}
+                    style={{
+                        padding: '10px 24px',
+                        backgroundColor: isAnySolving ? '#ff4d4d' : '#4caf50',
+                        color: 'white',
+                        border: isAnySolving ? '1px solid #ff4d4d' : '1px solid #2e4a35',
+                        borderRadius: '6px',
+                        fontWeight: 'bold',
+                        cursor: (inventory.length === 0 && !isAnySolving) ? 'not-allowed' : 'pointer',
+                        opacity: (inventory.length === 0 && !isAnySolving) ? 0.5 : 1,
+                        fontSize: '0.95em'
+                    }}
+                >
+                    {isAnySolving ? t('Stop All Optimizers') : t('Run All Optimizers')}
+                </button>
                 <button
                     onClick={handleClearAll}
                     disabled={isAnySolving}

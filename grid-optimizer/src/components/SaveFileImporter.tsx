@@ -616,12 +616,13 @@ export default function SaveFileImporter({ onImport }: SaveFileImporterProps) {
             >
                 {t('Import Save (.es3)')}
             </label>
+            {/* Left of the button: the toolbar row below would cover anything placed under it */}
             {errorMsg ? (
-                <div style={{ position: 'absolute', top: '100%', marginTop: '5px', left: 0, color: '#ff4d4d', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
+                <div style={{ position: 'absolute', right: '100%', top: '50%', transform: 'translateY(-50%)', marginRight: '10px', color: '#ff4d4d', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
                     {t(errorMsg)}
                 </div>
             ) : saveName && (
-                <div style={{ position: 'absolute', top: '100%', marginTop: '5px', left: 0, right: 0, textAlign: 'center', color: '#888', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
+                <div style={{ position: 'absolute', right: '100%', top: '50%', transform: 'translateY(-50%)', marginRight: '10px', color: '#888', fontSize: '0.8em', whiteSpace: 'nowrap' }}>
                     {saveName}
                 </div>
             )}
