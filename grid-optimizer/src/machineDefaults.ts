@@ -454,7 +454,8 @@ export type StatKey3 = 'Performance' | 'Quality' | 'Efficiency';
 export type StatJob = { key: string; name: string; steps: Partial<Record<StatKey3, StatBreakpoint[]>> };
 export const machineJobKey = (machineId: string) => `optimizer_job_${machineId}`;
 
-// The least Performance for each whole day less a job of `work` takes, the slowest first (at no Performance)
+// Floor below standard 8
+const DAY_STEPS_FLOOR = -200;
 const daySteps = (work: number, speed: (pct: number) => number, job: string): StatBreakpoint[] => {
     const out: StatBreakpoint[] = [];
     let days = Infinity;
@@ -464,7 +465,11 @@ const daySteps = (work: number, speed: (pct: number) => number, job: string): St
         const d = Math.ceil(work / s);
         if (d >= days) continue;
         days = d;
-        out.push({ value: p, label: t('{job} {d}d', { job: t(job), d }), short: t('{d}d', { d }),
+        let low = p;
+        if (out.length === 0) {
+            while (low > DAY_STEPS_FLOOR && speed(low - 1) > 0 && Math.ceil(work / speed(low - 1)) === d) low--;
+        }
+        out.push({ value: low, label: t('{job} {d}d', { job: t(job), d }), short: t('{d}d', { d }),
             hint: t('{job}: {d} day{s} ({speed} work a day, {work} needed)', { job: t(job), d, s: plural(d), speed: s, work }) });
     }
     return out;
